@@ -98,22 +98,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
-    if (_drawerAnimController.isDismissed) return;
-    final delta = details.primaryDelta ?? 0;
-    if (delta > 0) {
-      _drawerAnimController.value =
-          (_drawerAnimController.value - delta / 280).clamp(0.0, 1.0);
-    }
+    // Finger-tracking: drawer edge sticks to finger position, clamped 0..1
+    _drawerAnimController.value =
+        (_drawerAnimController.value + details.primaryDelta! / 280).clamp(0.0, 1.0);
   }
 
   void _handleDragEnd(DragEndDetails details) {
-    if (_drawerAnimController.isDismissed) return;
-    if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
-      _drawerAnimController.reverse();
-    } else if (_drawerAnimController.value < 0.4) {
-      _drawerAnimController.reverse();
-    } else {
+    // Snap open if past 50%, otherwise close
+    if (_drawerAnimController.value >= 0.5) {
       _drawerAnimController.forward();
+    } else {
+      _drawerAnimController.reverse();
     }
   }
 
