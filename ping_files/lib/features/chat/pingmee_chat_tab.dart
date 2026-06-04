@@ -6013,59 +6013,64 @@ class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
       future: _clientFuture,
       builder: (context, snap) {
         final client = snap.data;
-        final badgeState = _ArchivedBadgeState();
-        return GestureDetector(
-          onTap: widget.onTap,
-          child: SizedBox(
-            width: 42,
-            height: 42,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF4F6FA),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Icon(
-                        PhosphorIcons.dotsThree(PhosphorIconsStyle.bold),
-                        size: 22,
-                        color: Colors.black.withOpacity(.58),
-                      ),
-                    ),
-                  ),
-                ),
-                if (client != null && badgeState.countChatsWithUnread(client.state.channels) > 0)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFFF8FAFC),
-                          width: 1.5,
+        return ListenableBuilder(
+          listenable: _ArchivedBadgeState(),
+          builder: (context, _) {
+            final badgeState = _ArchivedBadgeState();
+            return GestureDetector(
+              onTap: widget.onTap,
+              child: SizedBox(
+                width: 42,
+                height: 42,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF4F6FA),
+                          shape: BoxShape.circle,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                            color: const Color(0xFFEF4444).withOpacity(.32),
+                        child: Center(
+                          child: Icon(
+                            PhosphorIcons.dotsThree(PhosphorIconsStyle.bold),
+                            size: 22,
+                            color: Colors.black.withOpacity(.58),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
+                    if (client != null && badgeState.countChatsWithUnread(client.state.channels) > 0)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFFF8FAFC),
+                              width: 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                                color: const Color(0xFFEF4444).withOpacity(.32),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
