@@ -891,17 +891,13 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                 child: Center(
                                   child: AnimatedBuilder(
                                     animation: _drawerAnimController,
-                                    builder: (context, _) => _drawerAnimController.value > 0.5
-                                        ? Icon(
-                                            PhosphorIcons.x(PhosphorIconsStyle.bold),
-                                            size: 24,
-                                            color: Colors.white,
-                                          )
-                                        : Icon(
-                                            PhosphorIcons.list(PhosphorIconsStyle.bold),
-                                            size: 24,
-                                            color: Colors.black,
-                                          ),
+                                    builder: (context, _) => Icon(
+                                      _drawerAnimController.value > 0.5
+                                          ? PhosphorIcons.x(PhosphorIconsStyle.bold)
+                                          : PhosphorIcons.list(PhosphorIconsStyle.bold),
+                                      size: 24,
+                                      color: Colors.black,
+                                    ),
                                   ),
                                 ),
                               ),
