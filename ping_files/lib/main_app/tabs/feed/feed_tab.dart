@@ -837,12 +837,12 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
               child: SafeArea(
                 child: Column(
                   children: [
-                    // Threads-style header
+                    // Threads-style header — just hamburger + bell when closed
                     Padding(
                       padding: const EdgeInsets.fromLTRB(8, 8, 16, 6),
                       child: Row(
                         children: [
-                          // Hamburger / Threads menu button
+                          // Hamburger / Threads menu button — always visible
                           Material(
                             color: Colors.transparent,
                             borderRadius: BorderRadius.circular(20),
@@ -870,20 +870,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          // Current mode label — only exists when drawer is open
-                          if (_drawerAnimController.value > 0.05)
-                            Expanded(
-                              child: Text(
-                                _feedModeLabel,
-                                style: TextStyle(
-                                  fontFamily: "Nunito",
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black.withOpacity(.75),
-                                ),
-                              ),
-                            ),
+                          const Spacer(),
                           if (uid != null) _NotificationsBell(uid: uid),
                         ],
                       ),
