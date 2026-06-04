@@ -2057,25 +2057,32 @@ class _MomentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      authorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: "Nunito",
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: "Nunito",
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                        if (authorVerified) ...[
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.verified_rounded,
+                            size: 14,
+                            color: Color(0xFF1D9BF0),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (authorVerified) ...[
-                      const SizedBox(width: 4),
-                      const Icon(
-                        Icons.verified_rounded,
-                        size: 14,
-                        color: Color(0xFF1D9BF0),
-                      ),
-                    ],
                     const SizedBox(height: 2),
                     Text(
                       [
