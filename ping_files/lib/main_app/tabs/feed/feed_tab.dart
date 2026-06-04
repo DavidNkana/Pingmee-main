@@ -708,6 +708,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             onSave: () => _toggleMomentBookmark(index - 1),
             onRepost: () => _openRepostSheet(moment),
             onMore: () => _openMomentMoreSheet(moment, index - 1),
+            onShare: () => _shareMoment(moment),
           );
         },
       ),
@@ -1867,6 +1868,7 @@ class _MomentCard extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onRepost;
   final VoidCallback onMore;
+  final VoidCallback onShare;
 
   const _MomentCard({
     required this.data,
@@ -1875,6 +1877,7 @@ class _MomentCard extends StatelessWidget {
     required this.onSave,
     required this.onRepost,
     required this.onMore,
+    required this.onShare,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -2287,6 +2290,12 @@ class _MomentCard extends StatelessWidget {
                 label: savedByMe ? "Saved" : "",
                 active: savedByMe,
                 onTap: onSave,
+              ),
+              const SizedBox(width: 24),
+              _MomentAction(
+                icon: PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.regular),
+                label: "",
+                onTap: onShare,
               ),
             ],
           ),
@@ -2848,6 +2857,124 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                     ],
                   );
                 },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareMomentSheet extends StatelessWidget {
+  final Map<String, dynamic> moment;
+
+  const _ShareMomentSheet({
+    required this.moment,
+  });
+
+  String _text(String key) => (moment[key] ?? "").toString().trim();
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final text = _text("text");
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottom),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.96),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(30),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          "Share with friends",
+                          style: TextStyle(
+                            fontFamily: "Nunito",
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: PhosphorIcon(
+                          PhosphorIcons.x(PhosphorIconsStyle.regular),
+                          size: 20,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Paper plane share button
+                  ListTile(
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandGreen.withOpacity(.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: PhosphorIcon(
+                          PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.fill),
+                          size: 22,
+                          color: AppColors.brandGreen,
+                        ),
+                      ),
+                    ),
+                    title: const Text(
+                      "Send via Ping Chat",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    subtitle: Text(
+                      text.length > 50 ? "\${text.substring(0, 50)}..." : text,
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 13,
+                        color: Colors.black.withOpacity(.5),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      // TODO: Open chat picker to share moment
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ),
             ),
           ),
