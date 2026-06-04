@@ -1102,8 +1102,8 @@ class _CreateMomentPreviewCard extends StatelessWidget {
                       : "Share what’s happening around you.",
                   style: const TextStyle(
                     fontFamily: "Nunito",
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                     color: Colors.black87,
                   ),
                 ),
@@ -2260,22 +2260,22 @@ class _MomentCard extends StatelessWidget {
           Row(
             children: [
               _MomentAction(
-                icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.bold),
-                label: commentCount > 0 ? "$commentCount" : "Comment",
+                icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.regular),
+                label: commentCount > 0 ? "$commentCount" : "",
                 onTap: onComment,
               ),
               const SizedBox(width: 18),
               _MomentAction(
                 icon: PhosphorIcons.repeat(PhosphorIconsStyle.bold),
-                label: "Repost",
+                label: "",
                 onTap: onRepost,
               ),
               const SizedBox(width: 18),
               _MomentAction(
                 icon: likedByMe
                     ? PhosphorIcons.heart(PhosphorIconsStyle.fill)
-                    : PhosphorIcons.heart(PhosphorIconsStyle.bold),
-                label: likeCount > 0 ? "$likeCount" : "Like",
+                    : PhosphorIcons.heart(PhosphorIconsStyle.regular),
+                label: likeCount > 0 ? "$likeCount" : "",
                 active: likedByMe,
                 onTap: onLike,
               ),
@@ -2283,8 +2283,8 @@ class _MomentCard extends StatelessWidget {
               _MomentAction(
                 icon: savedByMe
                     ? PhosphorIcons.bookmark(PhosphorIconsStyle.fill)
-                    : PhosphorIcons.bookmark(PhosphorIconsStyle.bold),
-                label: savedByMe ? "Saved" : "Save",
+                    : PhosphorIcons.bookmark(PhosphorIconsStyle.regular),
+                label: savedByMe ? "Saved" : "",
                 active: savedByMe,
                 onTap: onSave,
               ),
@@ -3258,16 +3258,18 @@ class _MomentAction extends StatelessWidget {
                 size: 18,
                 color: color,
               ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontFamily: "Nunito",
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: color,
+              if (label.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -3304,21 +3306,21 @@ class _MomentMoreSheet extends StatelessWidget {
               const SizedBox(height: 14),
               if (isOwner)
                 _MomentMoreTile(
-                  icon: PhosphorIcons.trash(PhosphorIconsStyle.bold),
+                  icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
                   title: "Delete Moment",
                   danger: true,
                   onTap: () => Navigator.pop(context, "delete"),
                 )
               else
                 _MomentMoreTile(
-                  icon: PhosphorIcons.flag(PhosphorIconsStyle.bold),
+                  icon: PhosphorIcons.flag(PhosphorIconsStyle.regular),
                   title: "Report Moment",
                   danger: true,
                   onTap: () => Navigator.pop(context, "report"),
                 ),
               const SizedBox(height: 8),
               _MomentMoreTile(
-                icon: PhosphorIcons.x(PhosphorIconsStyle.bold),
+                icon: PhosphorIcons.x(PhosphorIconsStyle.regular),
                 title: "Cancel",
                 onTap: () => Navigator.pop(context),
               ),
