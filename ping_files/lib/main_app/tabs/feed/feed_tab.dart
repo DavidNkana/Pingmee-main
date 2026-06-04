@@ -891,15 +891,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                 child: Center(
                                   child: AnimatedBuilder(
                                     animation: _drawerAnimController,
-                                    builder: (context, _) => Icon(
-                                      _drawerAnimController.value > 0.5
-                                          ? PhosphorIcons.x(PhosphorIconsStyle.bold)
-                                          : _CustomHamburgerIcon(),
-                                      size: 24,
-                                      color: _drawerAnimController.value > 0.5
-                                          ? Colors.white
-                                          : Colors.black.withOpacity(.80),
-                                    ),
+                                    builder: (context, _) => _drawerAnimController.value > 0.5
+                                        ? const Icon(
+                                            PhosphorIcons.x(PhosphorIconsStyle.bold),
+                                            size: 24,
+                                            color: Colors.white,
+                                          )
+                                        : const Icon(
+                                            PhosphorIcons.list(PhosphorIconsStyle.bold),
+                                            size: 24,
+                                            color: Colors.black,
+                                          ),
                                   ),
                                 ),
                               ),
@@ -3531,44 +3533,6 @@ class _MomentsCenterState extends StatelessWidget {
     );
   }
 }
-  // Custom hamburger icon: two rounded bars, one shorter
-  Widget _CustomHamburgerIcon() {
-    return SizedBox(
-      width: 24,
-      height: 24,
-      child: CustomPaint(
-        painter: _HamburgerPainter(),
-      ),
-    );
-  }
-
-  class _HamburgerPainter extends CustomPainter {
-    @override
-    void paint(Canvas canvas, Size size) {
-      final paint = Paint()
-        ..color = Colors.black.withOpacity(.80)
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round;
-
-      // Top bar (shorter, left-aligned)
-      canvas.drawLine(
-        Offset(3, size.height * 0.35),
-        Offset(size.width * 0.65, size.height * 0.35),
-        paint,
-      );
-
-      // Bottom bar (longer, right-aligned)
-      canvas.drawLine(
-        Offset(3, size.height * 0.65),
-        Offset(size.width - 3, size.height * 0.65),
-        paint,
-      );
-    }
-
-    @override
-    bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-  }
-
 
 class _NotificationsBell extends StatelessWidget {
   final String uid;
