@@ -821,9 +821,12 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
               width: 280 * _drawerAnimController.value,
               child: IgnorePointer(
                 ignoring: _drawerAnimController.value < 0.05,
-                child: _ThreadsDrawer(
-                  selected: _feedMode,
-                  onSelect: _selectFeedMode,
+                child: ClipRect(
+                  clipper: _DrawerClipper(),
+                  child: _ThreadsDrawer(
+                    selected: _feedMode,
+                    onSelect: _selectFeedMode,
+                  ),
                 ),
               ),
             ),
@@ -887,6 +890,13 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       ),
     );
   }
+}
+
+class _DrawerClipper extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width, size.height);
+  @override
+  bool shouldReclip(covariant CustomClipper<Rect> oldClipper) => false;
 }
 
 class _ThreadsDrawer extends StatelessWidget {
