@@ -822,12 +822,15 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
-          // ── Feed peek blur overlay (tap to close) ───────────
-          // Placed AFTER main content in Stack so it renders ON TOP of the feed.
-          // Positioned to cover only the feed-peek strip (right of drawer edge).
-          ValueListenableBuilder<double>(
-            valueListenable: _drawerAnimController,
-            builder: (context, animValue, _) {
+          // ── Frosted glass overlay on the feed peek strip ──────
+          // Renders ON TOP of feed (z=3), so BackdropFilter blurs content
+          // rendered BEFORE it in the Stack — the drawer panel and drawer
+          // overlay (z=0-1). The feed items (with shadows/content) show
+          // through the frosted glass giving a real blur effect.
+          AnimatedBuilder(
+            animation: _drawerAnimController,
+            builder: (context, _) {
+              final animValue = _drawerAnimController.value;
               if (animValue <= 0) return const SizedBox.shrink();
               return Positioned(
                 left: 280 * animValue,
@@ -840,9 +843,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                     child: BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
                       child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1 * animValue),
-                        ),
+                        color: Colors.white.withOpacity(0.30 * animValue),
                       ),
                     ),
                   ),
