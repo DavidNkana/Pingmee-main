@@ -837,7 +837,9 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
-          // ── Blur overlay on feed peek strip (tap to close) ───
+          // ── Tap-to-close touch target on feed peek strip ──────────
+          // No visual overlay — just a transparent touch target so tapping
+          // the feed area (right of the drawer edge) closes the drawer.
           AnimatedBuilder(
             animation: _drawerAnimController,
             builder: (context, _) {
@@ -849,13 +851,9 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                 bottom: 0,
                 right: 0,
                 child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
                   onTap: _toggleDrawer,
-                  child: ClipRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-                      child: Container(color: Colors.white.withOpacity(0.05)),
-                    ),
-                  ),
+                  child: const SizedBox.expand(),
                 ),
               );
             },
