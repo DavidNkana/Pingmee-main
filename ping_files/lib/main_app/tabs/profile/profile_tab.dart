@@ -3127,7 +3127,7 @@ class _ProfileTabState extends State<ProfileTab>
                                 child: Padding(
                                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                                   child: const Text(
-                                    "Activity",
+                                    "Your Activity",
                                     style: TextStyle(
                                       fontFamily: "Nunito",
                                       fontWeight: FontWeight.w700,
