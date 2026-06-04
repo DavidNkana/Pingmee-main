@@ -593,19 +593,7 @@ class _PingmeeChatTabState extends State<PingmeeChatTab> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _MoreAction(
-                  icon: PhosphorIcons.archive(PhosphorIconsStyle.light),
-                  title: 'Archived chats',
-                  onTap: () {
-                    Navigator.of(context).pop();
-
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const _ArchivedChatsScreen(),
-                      ),
-                    );
-                  },
-                ),
+                _ArchivedChatsMenuItem(),
                 const SizedBox(height: 10),
                 _MoreAction(
                   icon: PhosphorIcons.gearSix(PhosphorIconsStyle.light),
@@ -5934,9 +5922,75 @@ class _ChatReconnectState extends StatelessWidget {
 }
 
 
+// ─── Shared archived badge state ────────────────────────────────────────────────
+class _ArchivedBadgeState extends ChangeNotifier {
+  static final _ArchivedBadgeState _instance = _ArchivedBadgeState._();
+  factory _ArchivedBadgeState() => _instance;
+  _ArchivedBadgeState._();
+
+  final Set<String> archivedCids = {};
+  StreamSubscription? _sub;
+  bool _initialized = false;
+
+  void initialize() {
+    if (_initialized) return;
+    _initialized = true;
+    _listen();
+  }
+
+  void _listen() {
+    final uid = fb.FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _sub?.cancel();
+    _sub = firestore.FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('chatPrefs')
+        .where('archived', isEqualTo: true)
+        .snapshots()
+        .listen((snap) {
+      archivedCids.clear();
+      for (final doc in snap.docs) {
+        archivedCids.add(Uri.decodeComponent(doc.id));
+      }
+      notifyListeners();
+    });
+  }
+
+  int countChatsWithUnread(Map<String, Channel> channels) {
+    final currentUserId = _client?.state.currentUser?.id;
+    int total = 0;
+    for (final channel in channels.values) {
+      final state = channel.state;
+      if (state == null) continue;
+      if (state.unreadCount <= 0) continue;
+      final cid = channel.cid ?? '';
+      if (!cid.startsWith('messaging:')) continue;
+      if (!archivedCids.contains(cid)) continue;
+      if (currentUserId != null &&
+          state.members.isNotEmpty &&
+          !state.members.any((m) => m.userId == currentUserId)) continue;
+      total++;
+    }
+    return total;
+  }
+
+  StreamChatClient? _client;
+  Future<StreamChatClient?> get clientFuture async {
+    if (_client != null) return _client;
+    _client = await PingmeeStreamChatService.instance.connectCurrentUser();
+    return _client;
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
 class _ArchivedUnreadBadge extends StatefulWidget {
   final VoidCallback onTap;
-
   const _ArchivedUnreadBadge({super.key, required this.onTap});
 
   @override
@@ -5945,81 +5999,12 @@ class _ArchivedUnreadBadge extends StatefulWidget {
 
 class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
   late Future<StreamChatClient?> _clientFuture;
-  final Set<String> _archivedCids = {};
-  StreamSubscription? _archivedPrefsSub;
-
-  int _computeArchivedUnread(Map<String, Channel> channels) {
-    final currentUserId = _client?.state.currentUser?.id;
-    int total = 0;
-    for (final channel in channels.values) {
-      final state = channel.state;
-      if (state == null) continue;
-      if (state.unreadCount <= 0) continue;
-
-      final cid = channel.cid ?? '';
-      if (!cid.startsWith('messaging:')) continue;
-      if (!_archivedCids.contains(cid)) continue;
-
-      if (currentUserId != null &&
-          state.members.isNotEmpty &&
-          !state.members.any((m) => m.userId == currentUserId)) {
-        continue;
-      }
-
-      total += state.unreadCount;
-    }
-    return total;
-  }
-
-  void _listenToArchivedChanges() {
-    final uid = fb.FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    _archivedPrefsSub?.cancel();
-    _archivedPrefsSub = firestore.FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('chatPrefs')
-        .where('archived', isEqualTo: true)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      final archived = <String>{};
-      for (final doc in snap.docs) {
-        archived.add(Uri.decodeComponent(doc.id));
-      }
-      setState(() {
-        _archivedCids.clear();
-        _archivedCids.addAll(archived);
-      });
-    });
-  }
 
   @override
   void initState() {
     super.initState();
-    _clientFuture = _loadClient();
-  }
-
-  Future<StreamChatClient?> _loadClient() async {
-    try {
-      final client = await PingmeeStreamChatService.instance.connectCurrentUser();
-      if (mounted && client != null) {
-        _client = client;
-        _listenToArchivedChanges();
-      }
-      return client;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  StreamChatClient? _client;
-
-  @override
-  void dispose() {
-    _archivedPrefsSub?.cancel();
-    super.dispose();
+    _ArchivedBadgeState().initialize();
+    _clientFuture = _ArchivedBadgeState().clientFuture;
   }
 
   @override
@@ -6028,10 +6013,7 @@ class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
       future: _clientFuture,
       builder: (context, snap) {
         final client = snap.data;
-        final count = client != null ? _computeArchivedUnread(client.state.channels) : 0;
-        final showBadge = count > 0;
-        final badgeText = count > 99 ? '99+' : count.toString();
-
+        final badgeState = _ArchivedBadgeState();
         return GestureDetector(
           onTap: widget.onTap,
           child: SizedBox(
@@ -6057,39 +6039,141 @@ class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
                     ),
                   ),
                 ),
-                if (showBadge)
+                if (client != null && badgeState.countChatsWithUnread(client.state.channels) > 0)
                   Positioned(
-                    top: 4,
-                    right: 4,
+                    top: 6,
+                    right: 6,
                     child: Container(
-                      constraints: const BoxConstraints(
-                        minWidth: 18,
-                        minHeight: 18,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: const BoxDecoration(
-                        color: Colors.black,
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
                         shape: BoxShape.circle,
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        badgeText,
-                        style: const TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          height: 1,
+                        border: Border.all(
+                          color: const Color(0xFFF8FAFC),
+                          width: 1.5,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                            color: const Color(0xFFEF4444).withOpacity(.32),
+                          ),
+                        ],
                       ),
                     ),
                   ),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+
+class _ArchivedChatsMenuItem extends StatefulWidget {
+  const _ArchivedChatsMenuItem();
+
+  @override
+  State<_ArchivedChatsMenuItem> createState() => _ArchivedChatsMenuItemState();
+}
+
+class _ArchivedChatsMenuItemState extends State<_ArchivedChatsMenuItem> {
+  late Future<StreamChatClient?> _clientFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _ArchivedBadgeState().initialize();
+    _clientFuture = _ArchivedBadgeState().clientFuture;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<StreamChatClient?>(
+      future: _clientFuture,
+      builder: (context, snap) {
+        final client = snap.data;
+        return ListenableBuilder(
+          listenable: _ArchivedBadgeState(),
+          builder: (context, _) {
+            final badgeState = _ArchivedBadgeState();
+            final archivedCount = client != null
+                ? badgeState.countChatsWithUnread(client.state.channels)
+                : 0;
+            final showBadge = archivedCount > 0;
+            final badgeText = archivedCount > 99 ? '99+' : archivedCount.toString();
+
+            return Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const _ArchivedChatsScreen(),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        PhosphorIcons.archive(PhosphorIconsStyle.light),
+                        size: 22,
+                        color: Colors.black.withOpacity(.6),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Archived chats',
+                          style: TextStyle(
+                            fontFamily: 'Nunito',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                      ),
+                      if (showBadge) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 20,
+                            minHeight: 20,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: Colors.black,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            badgeText,
+                            style: const TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
