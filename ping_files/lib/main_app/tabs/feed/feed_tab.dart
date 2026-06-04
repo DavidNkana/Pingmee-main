@@ -871,11 +871,9 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          // Current mode label — only visible when drawer is open
-                          Expanded(
-                            child: AnimatedOpacity(
-                              opacity: _drawerAnimController.value,
-                              duration: const Duration(milliseconds: 160),
+                          // Current mode label — only exists when drawer is open
+                          if (_drawerAnimController.value > 0.05)
+                            Expanded(
                               child: Text(
                                 _feedModeLabel,
                                 style: TextStyle(
@@ -886,7 +884,6 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                 ),
                               ),
                             ),
-                          ),
                           if (uid != null) _NotificationsBell(uid: uid),
                         ],
                       ),
