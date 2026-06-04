@@ -498,7 +498,7 @@ class _BottomNavCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double plusSize = 48;
+    const double plusSize = 52;
     const double barHeight = 70;
     const double overflowRoom = 320;
 
@@ -1090,32 +1090,10 @@ class _PlusGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 28,
-      height: 28,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // horizontal bar
-          Container(
-            width: 22,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(99),
-            ),
-          ),
-          // vertical bar
-          Container(
-            width: 4,
-            height: 22,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(99),
-            ),
-          ),
-        ],
-      ),
+    return Icon(
+      PhosphorIcons.plus(PhosphorIconsStyle.bold),
+      size: 28,
+      color: Colors.white,
     );
   }
 }
