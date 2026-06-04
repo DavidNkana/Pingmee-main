@@ -498,9 +498,9 @@ class _BottomNavCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double plusSize = 58;
+    const double plusSize = 48;
     const double barHeight = 70;
-    const double overflowRoom = 330;
+    const double overflowRoom = 320;
 
     final double popupAnchor = barHeight - 2;
     final double plusBottom = popupAnchor - (plusSize / 2);
