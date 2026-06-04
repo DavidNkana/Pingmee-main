@@ -6028,7 +6028,9 @@ class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
       future: _clientFuture,
       builder: (context, snap) {
         final client = snap.data;
-        final hasUnreadArchived = client != null && _computeArchivedUnread(client.state.channels) > 0;
+        final count = client != null ? _computeArchivedUnread(client.state.channels) : 0;
+        final showBadge = count > 0;
+        final badgeText = count > 99 ? '99+' : count.toString();
 
         return GestureDetector(
           onTap: widget.onTap,
@@ -6055,27 +6057,33 @@ class _ArchivedUnreadBadgeState extends State<_ArchivedUnreadBadge> {
                     ),
                   ),
                 ),
-                if (hasUnreadArchived)
+                if (showBadge)
                   Positioned(
-                    top: 6,
-                    right: 6,
+                    top: 4,
+                    right: 4,
                     child: Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: const BoxDecoration(
+                        color: Colors.black,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFFF8FAFC),
-                          width: 1.5,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        badgeText,
+                        style: const TextStyle(
+                          fontFamily: 'Nunito',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                            color: const Color(0xFFEF4444).withOpacity(.32),
-                          ),
-                        ],
                       ),
                     ),
                   ),
