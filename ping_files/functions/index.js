@@ -1281,6 +1281,13 @@ exports.toggleMomentLike = onCall(
             await safeDeleteReaction(client, reactionId);
           }
 
+          // Remove from Firestore liked_moments subcollection
+          await admin.firestore()
+              .collection("users").doc(uid)
+              .collection("liked_moments").doc(activityId)
+              .delete()
+              .catch(() => {}); // ignore if already absent
+
           return {
             ok: true,
             liked: false,
@@ -1296,6 +1303,13 @@ exports.toggleMomentLike = onCall(
               userId: uid,
             },
         );
+
+        // Write to Firestore liked_moments subcollection
+        await admin.firestore()
+            .collection("users").doc(uid)
+            .collection("liked_moments").doc(activityId)
+            .set({likedAt: admin.firestore.FieldValue.serverTimestamp()})
+            .catch(() => {}); // non-fatal
 
         return {
           ok: true,
@@ -1381,6 +1395,13 @@ exports.toggleMomentBookmark = onCall(
 
           await safeDeleteReaction(client, reactionId);
 
+          // Remove from Firestore saved_moments subcollection
+          await admin.firestore()
+              .collection("users").doc(uid)
+              .collection("saved_moments").doc(activityId)
+              .delete()
+              .catch(() => {}); // ignore if already absent
+
           return {
             ok: true,
             saved: false,
@@ -1398,6 +1419,13 @@ exports.toggleMomentBookmark = onCall(
               userId: uid,
             },
         );
+
+        // Write to Firestore saved_moments subcollection
+        await admin.firestore()
+            .collection("users").doc(uid)
+            .collection("saved_moments").doc(activityId)
+            .set({savedAt: admin.firestore.FieldValue.serverTimestamp()})
+            .catch(() => {}); // non-fatal
 
         return {
           ok: true,
