@@ -56,6 +56,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   String? _bootedUid;
 
   List<Map<String, dynamic>> _timelineMoments = [];
+  Map<String, bool> _verifiedCache = {};
 
   bool _loadingMoments = false;
   bool _creatingMoment = false;
@@ -471,8 +472,31 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       if (!mounted) return;
 
+      // Build verified cache from all authors in loaded moments
+      final uniqueUids = <String>{};
+      for (final m in moments) {
+        final uid = (m["authorUid"] ?? "").toString().trim();
+        if (uid.isNotEmpty) uniqueUids.add(uid);
+      }
+      final cache = <String, bool>{};
+      for (final uid in uniqueUids) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection("users")
+              .doc(uid)
+              .get();
+          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+          cache[uid] = verification["status"] == "verified";
+        } catch (_) {
+          cache[uid] = false;
+        }
+      }
+
+      if (!mounted) return;
+
       setState(() {
         _timelineMoments = moments;
+        _verifiedCache = cache;
         _loadingMoments = false;
       });
     } catch (e, st) {
@@ -724,6 +748,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             onRepost: () => _openRepostSheet(moment),
             onMore: () => _openMomentMoreSheet(moment, index - 1),
             onShare: () => _shareMoment(moment),
+            authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
           );
         },
       ),
@@ -1893,6 +1918,7 @@ class _MomentCard extends StatelessWidget {
     required this.onRepost,
     required this.onMore,
     required this.onShare,
+    required this.authorVerified,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -1942,7 +1968,6 @@ class _MomentCard extends StatelessWidget {
         : 0;   
 
     final authorPhotoUrl = _text("authorPhotoUrl");
-    final authorVerified = data["authorVerified"] == true;
     final text = _text("text");
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
