@@ -3249,17 +3249,17 @@ class _MomentAction extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: 2,
-            vertical: 6,
+            vertical: 8,
           ),
           child: Row(
             children: [
               PhosphorIcon(
                 icon,
-                size: 18,
+                size: 22,
                 color: color,
               ),
               if (label.isNotEmpty) ...[
-                const SizedBox(width: 4),
+                const SizedBox(width: 5),
                 Text(
                   label,
                   style: TextStyle(
