@@ -1982,7 +1982,16 @@ class _MomentCard extends StatelessWidget {
     final likeCount = data["likeCount"] is num
         ? (data["likeCount"] as num).toInt()
         : 0;    
-    final savedByMe = data["savedByMe"] == true;   
+    final savedByMe = data["savedByMe"] == true;
+    final savedCount = data["savedCount"] is num
+        ? (data["savedCount"] as num).toInt()
+        : 0;
+    final repostCount = data["repostCount"] is num
+        ? (data["repostCount"] as num).toInt()
+        : 0;
+    final shareCount = data["shareCount"] is num
+        ? (data["shareCount"] as num).toInt()
+        : 0;
 
     final type = _text("type");
     final isRepost = type == "repost" || type == "quote";
@@ -2283,24 +2292,28 @@ class _MomentCard extends StatelessWidget {
                     : PhosphorIcons.heart(PhosphorIconsStyle.regular),
                 label: likeCount > 0 ? "$likeCount" : "",
                 active: likedByMe,
+                activeColor: const Color(0xFFEF4444), // red
                 onTap: onLike,
               ),
               const SizedBox(width: 24),
               _MomentAction(
                 icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.regular),
                 label: commentCount > 0 ? "$commentCount" : "",
+                activeColor: AppColors.brandGreen,
                 onTap: onComment,
               ),
               const SizedBox(width: 24),
               _MomentAction(
                 icon: PhosphorIcons.repeat(PhosphorIconsStyle.bold),
-                label: "",
+                label: repostCount > 0 ? "$repostCount" : "",
+                activeColor: AppColors.brandGreen,
                 onTap: onRepost,
               ),
               const SizedBox(width: 24),
               _MomentAction(
                 icon: PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.regular),
-                label: "",
+                label: shareCount > 0 ? "$shareCount" : "",
+                activeColor: AppColors.brandGreen,
                 onTap: onShare,
               ),
               const SizedBox(width: 24),
@@ -2308,8 +2321,9 @@ class _MomentCard extends StatelessWidget {
                 icon: savedByMe
                     ? PhosphorIcons.bookmark(PhosphorIconsStyle.fill)
                     : PhosphorIcons.bookmark(PhosphorIconsStyle.regular),
-                label: savedByMe ? "Saved" : "",
+                label: savedCount > 0 ? "$savedCount" : "",
                 active: savedByMe,
+                activeColor: AppColors.brandGreen,
                 onTap: onSave,
               ),
             ],
@@ -3368,19 +3382,21 @@ class _MomentAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
+  final Color activeColor;
   final VoidCallback? onTap;
 
   const _MomentAction({
     required this.icon,
     required this.label,
     this.active = false,
+    this.activeColor = AppColors.brandGreen,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = active
-        ? AppColors.brandGreen
+        ? activeColor
         : Colors.black.withOpacity(.62);
 
     return Material(
