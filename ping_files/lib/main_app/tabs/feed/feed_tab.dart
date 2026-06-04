@@ -2278,6 +2278,15 @@ class _MomentCard extends StatelessWidget {
           Row(
             children: [
               _MomentAction(
+                icon: likedByMe
+                    ? PhosphorIcons.heart(PhosphorIconsStyle.fill)
+                    : PhosphorIcons.heart(PhosphorIconsStyle.regular),
+                label: likeCount > 0 ? "$likeCount" : "",
+                active: likedByMe,
+                onTap: onLike,
+              ),
+              const SizedBox(width: 24),
+              _MomentAction(
                 icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.regular),
                 label: commentCount > 0 ? "$commentCount" : "",
                 onTap: onComment,
@@ -2290,12 +2299,9 @@ class _MomentCard extends StatelessWidget {
               ),
               const SizedBox(width: 24),
               _MomentAction(
-                icon: likedByMe
-                    ? PhosphorIcons.heart(PhosphorIconsStyle.fill)
-                    : PhosphorIcons.heart(PhosphorIconsStyle.regular),
-                label: likeCount > 0 ? "$likeCount" : "",
-                active: likedByMe,
-                onTap: onLike,
+                icon: PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.regular),
+                label: "",
+                onTap: onShare,
               ),
               const SizedBox(width: 24),
               _MomentAction(
@@ -2305,12 +2311,6 @@ class _MomentCard extends StatelessWidget {
                 label: savedByMe ? "Saved" : "",
                 active: savedByMe,
                 onTap: onSave,
-              ),
-              const SizedBox(width: 24),
-              _MomentAction(
-                icon: PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.regular),
-                label: "",
-                onTap: onShare,
               ),
             ],
           ),
