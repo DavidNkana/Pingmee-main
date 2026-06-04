@@ -2089,7 +2089,7 @@ class _MomentCard extends StatelessWidget {
           ],
           
           if (hashtags.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 3),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -2109,8 +2109,8 @@ class _MomentCard extends StatelessWidget {
                     label,
                     style: TextStyle(
                       fontFamily: "Nunito",
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
                       color: Colors.black.withOpacity(.62),
                     ),
                   ),
