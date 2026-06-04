@@ -2036,8 +2036,8 @@ class _MomentCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: "Nunito",
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                         color: Colors.black87,
                       ),
                     ),
