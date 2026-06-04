@@ -892,12 +892,12 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                   child: AnimatedBuilder(
                                     animation: _drawerAnimController,
                                     builder: (context, _) => _drawerAnimController.value > 0.5
-                                        ? const Icon(
+                                        ? Icon(
                                             PhosphorIcons.x(PhosphorIconsStyle.bold),
                                             size: 24,
                                             color: Colors.white,
                                           )
-                                        : const Icon(
+                                        : Icon(
                                             PhosphorIcons.list(PhosphorIconsStyle.bold),
                                             size: 24,
                                             color: Colors.black,
