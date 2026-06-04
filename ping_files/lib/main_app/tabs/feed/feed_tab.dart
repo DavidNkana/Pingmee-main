@@ -939,7 +939,7 @@ class _ThreadsDrawer extends StatelessWidget {
     return Container(
       width: 260, // only as wide as the menu content needs
       decoration: const BoxDecoration(
-        color: Color(0xFFF5F5F5),
+        color: Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
