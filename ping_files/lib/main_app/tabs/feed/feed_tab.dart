@@ -837,7 +837,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
-          // ── Dark scrim on the feed peek strip (tap to close) ───
+          // ── Blur overlay on feed peek strip (tap to close) ───
           AnimatedBuilder(
             animation: _drawerAnimController,
             builder: (context, _) {
@@ -850,8 +850,11 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                 right: 0,
                 child: GestureDetector(
                   onTap: _toggleDrawer,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.25 * animValue),
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                      child: Container(color: Colors.white.withOpacity(0.05)),
+                    ),
                   ),
                 ),
               );
