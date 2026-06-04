@@ -960,7 +960,7 @@ class _ThreadsDrawer extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 26,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Colors.black87,
                 ),
               ),
@@ -1133,7 +1133,7 @@ class _CreateMomentPreviewCard extends StatelessWidget {
                         style: TextStyle(
                           fontFamily: "Nunito",
                           fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w400,
                           color: Colors.white,
                         ),
                       ),
@@ -1269,7 +1269,7 @@ class _FeedComingSoonState extends StatelessWidget {
                 style: const TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 17,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                   color: Colors.black87,
                 ),
               ),
@@ -1528,7 +1528,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                               style: TextStyle(
                                 fontFamily: "Nunito",
                                 fontSize: 18,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                                 color: Colors.black87,
                               ),
                             ),
@@ -1585,7 +1585,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                         style: const TextStyle(
                           fontFamily: "Nunito",
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w500,
                           color: Colors.black87,
                           height: 1.35,
                         ),
@@ -2725,7 +2725,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                               style: TextStyle(
                                 fontFamily: "Nunito",
                                 fontSize: 18,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                                 color: Colors.black87,
                               ),
                             ),
@@ -2779,7 +2779,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                         style: const TextStyle(
                           fontFamily: "Nunito",
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w500,
                           color: Colors.black87,
                           height: 1.35,
                         ),
@@ -3413,7 +3413,7 @@ class _MomentsEmptyCard extends StatelessWidget {
             style: TextStyle(
               fontFamily: "Nunito",
               fontSize: 17,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               color: Colors.black87,
             ),
           ),
@@ -3482,7 +3482,7 @@ class _MomentsCenterState extends StatelessWidget {
               style: const TextStyle(
                 fontFamily: "Nunito",
                 fontSize: 17,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 color: Colors.black87,
               ),
             ),
