@@ -42,7 +42,7 @@ class FeedTab extends StatefulWidget {
   State<FeedTab> createState() => _FeedTabState();
 }
 
-class _FeedTabState extends State<FeedTab> {
+class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   final PingmeeFeedService _feedService = PingmeeFeedService();
 
   StreamSubscription<User?>? _authSub;
@@ -62,9 +62,16 @@ class _FeedTabState extends State<FeedTab> {
 
   String? _momentsError;
 
+  late AnimationController _drawerAnimController;
+
   @override
   void initState() {
     super.initState();
+
+    _drawerAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
 
     debugPrint("🟢 FeedTab initState fired");
 
@@ -81,9 +88,35 @@ class _FeedTabState extends State<FeedTab> {
     });
   }
 
+
+  void _toggleDrawer() {
+    if (_drawerAnimController.isDismissed) {
+      _drawerAnimController.forward();
+    } else {
+      _drawerAnimController.reverse();
+    }
+  }
+
+  void _selectFeedMode(_FeedMode mode) {
+    setState(() => _feedMode = mode);
+    _drawerAnimController.reverse();
+  }
+
+  String get _feedModeLabel {
+    switch (_feedMode) {
+      case _FeedMode.following:
+        return 'Connections';
+      case _FeedMode.aroundMe:
+        return 'Around Me';
+      case _FeedMode.explore:
+        return 'Explore';
+    }
+  }
+
   @override
   void dispose() {
     _authSub?.cancel();
+    _drawerAnimController.dispose();
     super.dispose();
   }
 
@@ -758,44 +791,233 @@ class _FeedTabState extends State<FeedTab> {
     }
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    final drawerOffset = _drawerAnimController.drive(
+      Tween<double>(begin: 0, end: 280),
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFEFF2F7),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      "Moments",
-                      style: TextStyle(
-                        fontFamily: "Nunito",
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
+      body: Stack(
+        children: [
+          // ── Drawer overlay ─────────────────────────────────────
+          if (_drawerAnimController.value > 0)
+            GestureDetector(
+              onTap: _toggleDrawer,
+              child: AnimatedBuilder(
+                animation: _drawerAnimController,
+                builder: (context, _) => Container(
+                  color: Colors.black.withOpacity(0.35 * _drawerAnimController.value),
+                ),
+              ),
+            ),
+
+          // ── Drawer panel ──────────────────────────────────────
+          AnimatedBuilder(
+            animation: _drawerAnimController,
+            builder: (context, _) => Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 280 * _drawerAnimController.value,
+              child: IgnorePointer(
+                ignoring: _drawerAnimController.value < 0.05,
+                child: _ThreadsDrawer(
+                  selected: _feedMode,
+                  onSelect: _selectFeedMode,
+                ),
+              ),
+            ),
+          ),
+
+          // ── Main content ───────────────────────────────────────
+          AnimatedBuilder(
+            animation: _drawerAnimController,
+            builder: (context, _) => Transform.translate(
+              offset: Offset(drawerOffset.value, 0),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    // Threads-style header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 10, 16, 6),
+                      child: Row(
+                        children: [
+                          // Hamburger / Threads menu button
+                          Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              onTap: _toggleDrawer,
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Center(
+                                  child: AnimatedBuilder(
+                                    animation: _drawerAnimController,
+                                    builder: (context, _) => Icon(
+                                      _drawerAnimController.value > 0.5
+                                          ? PhosphorIcons.x(PhosphorIconsStyle.bold)
+                                          : PhosphorIcons.list(PhosphorIconsStyle.bold),
+                                      size: 26,
+                                      color: Colors.black.withOpacity(.80),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          // Current mode label
+                          Expanded(
+                            child: Text(
+                              _feedModeLabel,
+                              style: const TextStyle(
+                                fontFamily: "Nunito",
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          if (uid != null) _NotificationsBell(uid: uid),
+                        ],
                       ),
                     ),
-                  ),
-                  if (uid != null) _NotificationsBell(uid: uid),
-                ],
+                    Expanded(
+                      child: _buildMomentsBody(),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _FeedModeTabs(
-                selected: _feedMode,
-                onChanged: (mode) {
-                  setState(() => _feedMode = mode);
-                },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThreadsDrawer extends StatelessWidget {
+  final _FeedMode selected;
+  final ValueChanged<_FeedMode> onSelect;
+
+  const _ThreadsDrawer({
+    required this.selected,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 24,
+            offset: Offset(4, 0),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(22, 8, 22, 4),
+              child: Text(
+                'Moments',
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
+                ),
               ),
             ),
-            Expanded(
-              child: _buildMomentsBody(),
+            const SizedBox(height: 20),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(22, 0, 22, 8),
+              child: Divider(height: 1, color: Color(0xFFE4E6EB)),
+            ),
+            _DrawerItem(
+              icon: PhosphorIcons.userCircle(PhosphorIconsStyle.light),
+              label: 'Connections',
+              selected: selected == _FeedMode.following,
+              onTap: () => onSelect(_FeedMode.following),
+            ),
+            _DrawerItem(
+              icon: PhosphorIcons.mapPin(PhosphorIconsStyle.light),
+              label: 'Around Me',
+              selected: selected == _FeedMode.aroundMe,
+              onTap: () => onSelect(_FeedMode.aroundMe),
+            ),
+            _DrawerItem(
+              icon: PhosphorIcons.compass(PhosphorIconsStyle.light),
+              label: 'Explore',
+              selected: selected == _FeedMode.explore,
+              onTap: () => onSelect(_FeedMode.explore),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DrawerItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 24,
+                color: selected ? Colors.black : Colors.black54,
+              ),
+              const SizedBox(width: 14),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 16,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? Colors.black : Colors.black54,
+                ),
+              ),
+              if (selected) ...[
+                const Spacer(),
+                Icon(
+                  PhosphorIcons.check(PhosphorIconsStyle.bold),
+                  size: 18,
+                  color: AppColors.brandGreen,
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
