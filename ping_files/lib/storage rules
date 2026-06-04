@@ -1,0 +1,115 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isImage() {
+      return request.resource != null &&
+             request.resource.contentType.matches('image/.*');
+    }
+
+    function isAudio() {
+      return request.resource != null &&
+             request.resource.contentType.matches('audio/.*');
+    }
+
+    function underSize(limitMb) {
+      return request.resource != null &&
+             request.resource.size < limitMb * 1024 * 1024;
+    }
+    
+    // Moment photos and/or videos
+    match /moments/{userId}/{fileName} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 80 * 1024 * 1024
+        && (
+          request.resource.contentType.matches("image/.*") ||
+          request.resource.contentType.matches("video/.*")
+        );
+
+      allow update: if false;
+
+      allow delete: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    // ✅ User profile photos
+    match /profile_pictures/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && underSize(10);
+    }
+
+    // ✅ User cover photos
+    match /cover_photos/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && underSize(12);
+    }
+
+    // ✅ Community profile photos
+    match /community_profile_pictures/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && underSize(10);
+    }
+
+    // ✅ Community cover photos
+    match /community_cover_photos/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && underSize(12);
+    }
+
+    // ✅ Ping media
+    match /pings/{pingId}/media/{fileName} {
+      allow read: if true;
+      allow write: if signedIn() && underSize(50);
+    }
+
+    // ✅ Event cover upload
+    match /events/{userId}/{eventId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) &&
+                    fileName.matches('cover(\\..+)?') &&
+                    isImage() &&
+                    underSize(12);
+    }
+
+    // ✅ Event media uploads
+    match /events/{userId}/{eventId}/media/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) &&
+                    underSize(50);
+    }
+
+    // ✅ Chat voice messages
+    match /chat_voice_messages/{channelId}/{userId}/{fileName} {
+      allow read: if signedIn();
+
+      allow write: if isOwner(userId) &&
+                   isAudio() &&
+                   underSize(20);
+    }
+    
+    // ✅ Chat attachments
+    match /chat_attachments/{channelId}/{userId}/{fileName} {
+      allow read: if signedIn();
+
+      allow write: if isOwner(userId) &&
+                   underSize(80);
+    }
+
+    // ❌ Deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

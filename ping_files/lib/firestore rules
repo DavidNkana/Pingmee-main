@@ -74,6 +74,11 @@ service cloud.firestore {
         /databases/$(database)/documents/pings/$(pingId)/participants/$(uid)
       );
     }
+    
+    match /{path=**}/participants/{participantId} {
+      allow read: if signedIn() &&
+        resource.data.uid == request.auth.uid;
+    }
 
     function participantExistsAfter(pingId, uid) {
       return existsAfter(
@@ -467,27 +472,7 @@ service cloud.firestore {
     function validEventSessions(sessions) {
       return sessions is list &&
         sessions.size() >= 1 &&
-        sessions.size() <= 20 &&
-        (sessions.size() > 0 && validEventSessionItem(sessions[0])) &&
-        (sessions.size() <= 1 || validEventSessionItem(sessions[1])) &&
-        (sessions.size() <= 2 || validEventSessionItem(sessions[2])) &&
-        (sessions.size() <= 3 || validEventSessionItem(sessions[3])) &&
-        (sessions.size() <= 4 || validEventSessionItem(sessions[4])) &&
-        (sessions.size() <= 5 || validEventSessionItem(sessions[5])) &&
-        (sessions.size() <= 6 || validEventSessionItem(sessions[6])) &&
-        (sessions.size() <= 7 || validEventSessionItem(sessions[7])) &&
-        (sessions.size() <= 8 || validEventSessionItem(sessions[8])) &&
-        (sessions.size() <= 9 || validEventSessionItem(sessions[9])) &&
-        (sessions.size() <= 10 || validEventSessionItem(sessions[10])) &&
-        (sessions.size() <= 11 || validEventSessionItem(sessions[11])) &&
-        (sessions.size() <= 12 || validEventSessionItem(sessions[12])) &&
-        (sessions.size() <= 13 || validEventSessionItem(sessions[13])) &&
-        (sessions.size() <= 14 || validEventSessionItem(sessions[14])) &&
-        (sessions.size() <= 15 || validEventSessionItem(sessions[15])) &&
-        (sessions.size() <= 16 || validEventSessionItem(sessions[16])) &&
-        (sessions.size() <= 17 || validEventSessionItem(sessions[17])) &&
-        (sessions.size() <= 18 || validEventSessionItem(sessions[18])) &&
-        (sessions.size() <= 19 || validEventSessionItem(sessions[19]));
+        sessions.size() <= 10;
     }
 
     function validInPersonVenue(venue) {
@@ -713,6 +698,23 @@ service cloud.firestore {
         request.resource.data.attendeeCount == resource.data.attendeeCount &&
         request.resource.data.registrationCount == resource.data.registrationCount;
     }
+    
+    function validEventCohostAdminUpdate() {
+      return signedIn() &&
+        resource.data.creatorId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "coHostUids",
+          "coHostCount",
+          "updatedAt"
+        ]) &&
+        request.resource.data.coHostUids is list &&
+        request.resource.data.coHostUids.size() <= 6 &&
+        request.resource.data.coHostCount is int &&
+        request.resource.data.coHostCount >= 0 &&
+        request.resource.data.coHostCount <= 6 &&
+        request.resource.data.coHostCount == request.resource.data.coHostUids.size() &&
+        request.resource.data.updatedAt == request.time;
+    }
 
     function canReadEventData(data) {
       return signedIn() && (
@@ -744,6 +746,55 @@ service cloud.firestore {
       allow update: if (isMe(userId) && notWritingVerification()) || isAdmin();
       allow delete: if isMe(userId) || isAdmin();
 
+      match /chatPrefs/{chatPrefId} {
+        allow read, create, update, delete: if request.auth != null
+          && request.auth.uid == userId;
+      }
+
+      // ✅ MESSAGE REQUESTS - INCOMING
+      match /message_requests_in/{fromUid} {
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create: if signedIn()
+          && request.auth.uid == fromUid
+          && request.resource.data.fromUid == fromUid
+          && request.resource.data.toUid == userId
+          && request.resource.data.status == "pending";
+
+        allow update: if signedIn()
+          && (
+            request.auth.uid == userId ||
+            request.auth.uid == fromUid ||
+            isAdmin()
+          )
+          && resource.data.fromUid == fromUid
+          && resource.data.toUid == userId;
+
+        allow delete: if isMe(userId) || request.auth.uid == fromUid || isAdmin();
+      }
+
+      // ✅ MESSAGE REQUESTS - OUTGOING
+      match /message_requests_out/{toUid} {
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.fromUid == userId
+          && request.resource.data.toUid == toUid
+          && request.resource.data.status == "pending";
+
+        allow update: if signedIn()
+          && (
+            request.auth.uid == userId ||
+            request.auth.uid == toUid ||
+            isAdmin()
+          )
+          && resource.data.fromUid == userId
+          && resource.data.toUid == toUid;
+
+        allow delete: if isMe(userId) || request.auth.uid == toUid || isAdmin();
+      }
+
       match /friend_requests_in/{fromUid} {
         allow read: if isMe(userId) ||
           (signedIn() && request.auth.uid == fromUid) ||
@@ -760,6 +811,69 @@ service cloud.firestore {
         allow delete: if isMe(userId) ||
           (signedIn() && request.auth.uid == fromUid) ||
           isAdmin();
+      }
+      
+      match /ping_history/{pingId} {
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create, update, delete: if false;
+      }
+      
+      match /chatPrefs/{prefId} {
+        function validChatPrefsCreateKeys() {
+          return request.resource.data.keys().hasOnly([
+            "archived",
+            "archivedAt",
+            "unarchivedAt",
+            "muted",
+            "mutedAt",
+            "unmutedAt",
+            "favorite",
+            "favoriteAt",
+            "unfavoritedAt",
+            "updatedAt"
+          ]);
+        }
+
+        function validChatPrefsChangedKeys() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "archived",
+            "archivedAt",
+            "unarchivedAt",
+            "muted",
+            "mutedAt",
+            "unmutedAt",
+            "favorite",
+            "favoriteAt",
+            "unfavoritedAt",
+            "updatedAt"
+          ]);
+        }
+
+        function validChatPrefsValues(data) {
+          return (!("archived" in data) || data.archived is bool)
+            && (!("muted" in data) || data.muted is bool)
+            && (!("favorite" in data) || data.favorite is bool)
+            && (!("archivedAt" in data) || data.archivedAt is timestamp)
+            && (!("unarchivedAt" in data) || data.unarchivedAt is timestamp)
+            && (!("mutedAt" in data) || data.mutedAt is timestamp)
+            && (!("unmutedAt" in data) || data.unmutedAt is timestamp)
+            && (!("favoriteAt" in data) || data.favoriteAt is timestamp)
+            && (!("unfavoritedAt" in data) || data.unfavoritedAt is timestamp)
+            && (!("updatedAt" in data) || data.updatedAt is timestamp);
+        }
+
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create: if isMe(userId)
+          && validChatPrefsCreateKeys()
+          && validChatPrefsValues(request.resource.data);
+
+        allow update: if isMe(userId)
+          && validChatPrefsChangedKeys()
+          && validChatPrefsValues(request.resource.data);
+
+        allow delete: if isMe(userId) || isAdmin();
       }
 
       match /friend_requests_out/{toUid} {
@@ -893,7 +1007,14 @@ service cloud.firestore {
 
       match /participants/{participantId} {
         allow read: if canReadPingById(pingId) ||
-          (signedIn() && participantId == request.auth.uid);
+          (
+            signedIn() &&
+            participantId == request.auth.uid
+          ) ||
+          (
+            signedIn() &&
+            resource.data.uid == request.auth.uid
+          );
 
         allow create: if
           validCreatorParticipantCreate(pingId, participantId) ||
@@ -1035,7 +1156,7 @@ service cloud.firestore {
       allow list: if canReadEventData(resource.data);
 
       allow create: if validEventCreate();
-      allow update: if validEventOwnerUpdate();
+      allow update: if validEventOwnerUpdate() || validEventCohostAdminUpdate();
       allow delete: if signedIn() && resource.data.creatorId == request.auth.uid;
 
       match /hosts/{hostUid} {
@@ -1058,9 +1179,9 @@ service cloud.firestore {
             request.resource.data.role == "owner" &&
             request.resource.data.status == "active" &&
             request.resource.data.invitedBy == request.auth.uid &&
-            request.resource.data.invitedAt is timestamp &&
-            request.resource.data.respondedAt is timestamp &&
-            request.resource.data.addedAt is timestamp
+            request.resource.data.invitedAt == request.time &&
+            request.resource.data.respondedAt == request.time &&
+            request.resource.data.addedAt == request.time
           ) ||
           (
             isEventCreator(eventId) &&
@@ -1077,7 +1198,7 @@ service cloud.firestore {
             request.resource.data.role == "cohost" &&
             request.resource.data.status == "pending" &&
             request.resource.data.invitedBy == request.auth.uid &&
-            request.resource.data.invitedAt is timestamp
+            request.resource.data.invitedAt == request.time
           )
         );
 
@@ -1104,12 +1225,12 @@ service cloud.firestore {
             (
               (
                 request.resource.data.status == "active" &&
-                request.resource.data.respondedAt is timestamp &&
-                request.resource.data.addedAt is timestamp
+                request.resource.data.respondedAt == request.time &&
+								request.resource.data.addedAt == request.time
               ) ||
               (
                 request.resource.data.status == "declined" &&
-                request.resource.data.respondedAt is timestamp
+                request.resource.data.respondedAt == request.time
               )
             )
           )
