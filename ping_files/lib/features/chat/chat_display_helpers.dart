@@ -64,14 +64,40 @@ String pingmeePhotoFromUserData(Map<String, dynamic>? data) {
   return '';
 }
 
+DateTime? _pingmeeLastSeenFromUserData(Map<String, dynamic>? data) {
+  if (data == null) return null;
+  final raw = data['lastSeen'] ??
+      data['lastSeenAt'] ??
+      data['lastActiveAt'] ??
+      data['lastOnlineAt'] ??
+      data['updatedAt'];
+  if (raw == null) return null;
+  if (raw is DateTime) return raw;
+  if (raw is firestore.Timestamp) return raw.toDate();
+  return DateTime.tryParse(raw.toString());
+}
+
 bool pingmeeIsOnlineFromUserData(Map<String, dynamic>? data) {
-  final d = data ?? <String, dynamic>{};
+  if (data == null) return false;
 
-  final presence = _cleanString(d['presence']).toLowerCase();
+  final rawOnline = data['online'] == true;
+  final rawIsOnline = data['isOnline'] == true;
+  final presence = _cleanString(data['presence'] ?? '').toLowerCase();
 
-  return d['isOnline'] == true ||
-      d['online'] == true ||
-      presence == 'online';
+  final saysOnline = rawOnline || rawIsOnline || presence == 'online';
+  if (!saysOnline) return false;
+
+  final lastSeen = _pingmeeLastSeenFromUserData(data);
+
+  // If no lastSeen yet, don't trust stale online flags blindly.
+  if (lastSeen == null) return false;
+
+  final diff = DateTime.now().difference(lastSeen.toLocal());
+
+  if (diff.isNegative) return true;
+
+  // Online only if seen within the last 2 minutes.
+  return diff.inMinutes < 2;
 }
 
 String _bestFullNameFromStreamUser(User? user) {
