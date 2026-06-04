@@ -99,16 +99,15 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   void _handleDragUpdate(DragUpdateDetails details) {
     if (_drawerAnimController.isDismissed) return;
-    // Only respond to drag going right (closing) while drawer is open
     final delta = details.primaryDelta ?? 0;
     if (delta > 0) {
-      _drawerAnimController.value = (_drawerAnimController.value - delta / 280).clamp(0.0, 1.0);
+      _drawerAnimController.value =
+          (_drawerAnimController.value - delta / 280).clamp(0.0, 1.0);
     }
   }
 
   void _handleDragEnd(DragEndDetails details) {
     if (_drawerAnimController.isDismissed) return;
-    // Snap open or closed based on velocity or position
     if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
       _drawerAnimController.reverse();
     } else if (_drawerAnimController.value < 0.4) {
