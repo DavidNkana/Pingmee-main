@@ -2089,7 +2089,7 @@ class _MomentCard extends StatelessWidget {
           ],
           
           if (hashtags.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             Wrap(
               spacing: 8,
               runSpacing: 8,
