@@ -97,6 +97,27 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     }
   }
 
+  void _handleDragUpdate(DragUpdateDetails details) {
+    if (_drawerAnimController.isDismissed) return;
+    // Only respond to drag going right (closing) while drawer is open
+    final delta = details.primaryDelta ?? 0;
+    if (delta > 0) {
+      _drawerAnimController.value = (_drawerAnimController.value - delta / 280).clamp(0.0, 1.0);
+    }
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (_drawerAnimController.isDismissed) return;
+    // Snap open or closed based on velocity or position
+    if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
+      _drawerAnimController.reverse();
+    } else if (_drawerAnimController.value < 0.4) {
+      _drawerAnimController.reverse();
+    } else {
+      _drawerAnimController.forward();
+    }
+  }
+
   void _selectFeedMode(_FeedMode mode) {
     setState(() => _feedMode = mode);
     _drawerAnimController.reverse();
@@ -822,11 +843,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
-          // ── Frosted glass overlay on the feed peek strip ──────
-          // Renders ON TOP of feed (z=3), so BackdropFilter blurs content
-          // rendered BEFORE it in the Stack — the drawer panel and drawer
-          // overlay (z=0-1). The feed items (with shadows/content) show
-          // through the frosted glass giving a real blur effect.
+          // ── Dark scrim on the feed peek strip (tap to close) ───
           AnimatedBuilder(
             animation: _drawerAnimController,
             builder: (context, _) {
@@ -839,25 +856,23 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                 right: 0,
                 child: GestureDetector(
                   onTap: _toggleDrawer,
-                  child: ClipRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                      child: Container(
-                        color: Colors.white.withOpacity(0.30 * animValue),
-                      ),
-                    ),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.25 * animValue),
                   ),
                 ),
               );
             },
           ),
 
-          // ── Main content ───────────────────────────────────────
-          AnimatedBuilder(
-            animation: _drawerAnimController,
-            builder: (context, _) => Transform.translate(
-              offset: Offset(drawerOffset.value, 0),
-              child: SafeArea(
+          // ── Main content (swipe right to close drawer) ──────
+          GestureDetector(
+            onHorizontalDragUpdate: _handleDragUpdate,
+            onHorizontalDragEnd: _handleDragEnd,
+            child: AnimatedBuilder(
+              animation: _drawerAnimController,
+              builder: (context, _) => Transform.translate(
+                offset: Offset(drawerOffset.value, 0),
+                child: SafeArea(
                 child: Column(
                   children: [
                     // Threads-style header — just hamburger + bell when closed
@@ -1031,7 +1046,8 @@ class _DrawerItem extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
