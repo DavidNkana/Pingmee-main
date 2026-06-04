@@ -822,6 +822,22 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
+          // ── Feed peek dim overlay (tap to close) ─────────────
+          ValueListenableBuilder<double>(
+            valueListenable: _drawerAnimController,
+            builder: (context, animValue, _) {
+              if (animValue <= 0) return const SizedBox.shrink();
+              return Positioned.fill(
+                left: 280 * animValue,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: _toggleDrawer,
+                  child: Container(color: Colors.black.withOpacity(0.20 * animValue)),
+                ),
+              );
+            },
+          ),
+
           // ── Main content ───────────────────────────────────────
           AnimatedBuilder(
             animation: _drawerAnimController,
@@ -895,7 +911,7 @@ class _ThreadsDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFF5F5F5),
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
