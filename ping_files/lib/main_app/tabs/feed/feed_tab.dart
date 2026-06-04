@@ -3576,7 +3576,7 @@ class _MomentMoreTile extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: "Nunito",
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w400,
                     color: color,
                   ),
                 ),
