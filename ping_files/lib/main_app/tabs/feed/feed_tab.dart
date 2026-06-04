@@ -2264,13 +2264,13 @@ class _MomentCard extends StatelessWidget {
                 label: commentCount > 0 ? "$commentCount" : "",
                 onTap: onComment,
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 24),
               _MomentAction(
                 icon: PhosphorIcons.repeat(PhosphorIconsStyle.bold),
                 label: "",
                 onTap: onRepost,
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 24),
               _MomentAction(
                 icon: likedByMe
                     ? PhosphorIcons.heart(PhosphorIconsStyle.fill)
@@ -2279,7 +2279,7 @@ class _MomentCard extends StatelessWidget {
                 active: likedByMe,
                 onTap: onLike,
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 24),
               _MomentAction(
                 icon: savedByMe
                     ? PhosphorIcons.bookmark(PhosphorIconsStyle.fill)
