@@ -822,17 +822,24 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             ),
           ),
 
-          // ── Feed peek dim overlay (tap to close) ─────────────
+          // ── Feed peek blur overlay (tap to close) ───────────
           ValueListenableBuilder<double>(
             valueListenable: _drawerAnimController,
             builder: (context, animValue, _) {
               if (animValue <= 0) return const SizedBox.shrink();
-              return Positioned.fill(
+              return Positioned(
                 left: 280 * animValue,
+                top: 0,
+                bottom: 0,
+                right: 0,
                 child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
                   onTap: _toggleDrawer,
-                  child: Container(color: Colors.black.withOpacity(0.20 * animValue)),
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                      child: Container(color: Colors.black.withOpacity(0.08 * animValue)),
+                    ),
+                  ),
                 ),
               );
             },
