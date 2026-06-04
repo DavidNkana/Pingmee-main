@@ -750,6 +750,16 @@ service cloud.firestore {
         allow read, create, update, delete: if request.auth != null
           && request.auth.uid == userId;
       }
+      
+      match /liked_moments/{momentId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create, update, delete: if isMe(userId) || isAdmin();
+      }
+
+      match /saved_moments/{momentId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create, update, delete: if isMe(userId) || isAdmin();
+      }
 
       // ✅ MESSAGE REQUESTS - INCOMING
       match /message_requests_in/{fromUid} {
