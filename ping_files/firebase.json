@@ -1,0 +1,50 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "pingmee-first-step-auth",
+          "appId": "1:1053995691405:android:d9d33547cad211845261c4",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "pingmee-first-step-auth",
+          "configurations": {
+            "android": "1:1053995691405:android:d9d33547cad211845261c4",
+            "ios": "1:1053995691405:ios:e25ae813499df2195261c4",
+            "macos": "1:1053995691405:ios:e25ae813499df2195261c4",
+            "web": "1:1053995691405:web:e23da6cd525a1c835261c4",
+            "windows": "1:1053995691405:web:e376f07f1159bd0a5261c4"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix functions run lint"
+      ]
+    }
+  ]
+}

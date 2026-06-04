@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1053995691405",
+    "project_id": "pingmee-first-step-auth",
+    "storage_bucket": "pingmee-first-step-auth.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1053995691405:android:d9d33547cad211845261c4",
+        "android_client_info": {
+          "package_name": "com.example.ping_files"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6eyb0IyjxJG84BGcnHz-ExvJCNaxkEvQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

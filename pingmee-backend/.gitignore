@@ -1,0 +1,13 @@
+# Ignore node_modules
+node_modules/
+
+# Ignore environment variables file (if you create one)
+.env
+
+# Ignore Firebase service account key
+serviceAccountKey.json
+
+# Ignore logs
+*.log
+
+# Optional: Ignore any local config files you don’t want in git

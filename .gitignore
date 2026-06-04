@@ -1,0 +1,19 @@
+desktop.ini
+
+# Flutter
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Node / backend
+node_modules/
+.env
+
+# OS junk
+desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

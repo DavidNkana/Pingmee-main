@@ -1,0 +1,1148 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isMe(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function isVerifiedUser(uid) {
+      return userExists(uid) &&
+        userDoc(uid).data.verification.status == "verified";
+    }
+
+    function isFriend(ownerUid, viewerUid) {
+      return exists(
+        /databases/$(database)/documents/users/$(ownerUid)/friends/$(viewerUid)
+      );
+    }
+
+    function pingExists(pingId) {
+      return exists(/databases/$(database)/documents/pings/$(pingId));
+    }
+
+    function pingDoc(pingId) {
+      return get(/databases/$(database)/documents/pings/$(pingId));
+    }
+
+    function pingData(pingId) {
+      return pingDoc(pingId).data;
+    }
+
+    function pingExistsAfter(pingId) {
+      return existsAfter(/databases/$(database)/documents/pings/$(pingId));
+    }
+
+    function pingDocAfter(pingId) {
+      return getAfter(/databases/$(database)/documents/pings/$(pingId));
+    }
+
+    function pingDataAfter(pingId) {
+      return pingDocAfter(pingId).data;
+    }
+
+    function isPingCreator(pingId) {
+      return signedIn() &&
+        pingExists(pingId) &&
+        pingData(pingId).creatorId == request.auth.uid;
+    }
+
+    function participantExists(pingId, uid) {
+      return exists(
+        /databases/$(database)/documents/pings/$(pingId)/participants/$(uid)
+      );
+    }
+
+    function participantDoc(pingId, uid) {
+      return get(
+        /databases/$(database)/documents/pings/$(pingId)/participants/$(uid)
+      );
+    }
+
+    function participantExistsAfter(pingId, uid) {
+      return existsAfter(
+        /databases/$(database)/documents/pings/$(pingId)/participants/$(uid)
+      );
+    }
+
+    function participantDocAfter(pingId, uid) {
+      return getAfter(
+        /databases/$(database)/documents/pings/$(pingId)/participants/$(uid)
+      );
+    }
+
+    function participantDataAfter(pingId, uid) {
+      return participantDocAfter(pingId, uid).data;
+    }
+
+    function isApprovedParticipant(pingId, uid) {
+      return participantExists(pingId, uid) &&
+        participantDoc(pingId, uid).data.status == "approved";
+    }
+
+    function canSendPingInvites(pingId) {
+      return signedIn() && (
+        isPingCreator(pingId) ||
+        isApprovedParticipant(pingId, request.auth.uid)
+      );
+    }
+
+    function validPingPrivacy(value) {
+      return value in ["public", "verified", "friends", "private"];
+    }
+
+    function validPingStatus(value) {
+      return value in ["active", "ended", "cancelled"];
+    }
+
+    function validAudienceScope(data) {
+      return !("audience" in data) ||
+        !("scope" in data.audience) ||
+        data.audience.scope == data.privacy;
+    }
+
+    function validPingCreate() {
+      return signedIn() &&
+        request.resource.data.creatorId == request.auth.uid &&
+        validPingPrivacy(request.resource.data.privacy) &&
+        (!("status" in request.resource.data) ||
+          validPingStatus(request.resource.data.status)) &&
+        validAudienceScope(request.resource.data);
+    }
+
+    function validPingUpdate() {
+      return signedIn() &&
+        resource.data.creatorId == request.auth.uid &&
+        request.resource.data.creatorId == resource.data.creatorId &&
+        validPingPrivacy(request.resource.data.privacy) &&
+        (!("status" in request.resource.data) ||
+          validPingStatus(request.resource.data.status)) &&
+        validAudienceScope(request.resource.data);
+    }
+
+    function canReadPingData(data, pingId) {
+      return signedIn() && (
+        isAdmin() ||
+        data.creatorId == request.auth.uid ||
+        data.privacy == "public" ||
+        (data.privacy == "verified" &&
+          isVerifiedUser(request.auth.uid)) ||
+        (data.privacy == "friends" &&
+          isFriend(data.creatorId, request.auth.uid)) ||
+        (data.privacy == "private" &&
+          participantExists(pingId, request.auth.uid))
+      );
+    }
+
+    function canReadPingById(pingId) {
+      return signedIn() &&
+        pingExists(pingId) &&
+        canReadPingData(pingData(pingId), pingId);
+    }
+
+    function canRequestJoinPingData(data) {
+      return signedIn() && (
+        isAdmin() ||
+        data.creatorId == request.auth.uid ||
+        data.privacy == "public" ||
+        (data.privacy == "verified" &&
+          isVerifiedUser(request.auth.uid)) ||
+        (data.privacy == "friends" &&
+          isFriend(data.creatorId, request.auth.uid)) ||
+        data.privacy == "private"
+      );
+    }
+
+    function pingRequiresApprovalData(data) {
+      return data.get("requiresApproval", false) == true ||
+        data.get("approvalRequired", false) == true ||
+        data.get("inviteOnly", false) == true ||
+        data.get("privacy", "") == "private" ||
+        data.get("joinMode", "") in [
+          "approval",
+          "request",
+          "invite_only",
+          "inviteonly"
+        ];
+    }
+
+    function validViewCountIncrement(pingId) {
+      return signedIn() &&
+        canReadPingData(resource.data, pingId) &&
+        resource.data.creatorId != request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["viewCount"]) &&
+        request.resource.data.viewCount == resource.data.get("viewCount", 0) + 1;
+    }
+
+    function validParticipantCountChange(pingId) {
+      return signedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["participantCount"]) &&
+        (
+          (
+            request.resource.data.participantCount ==
+              resource.data.get("participantCount", 0) + 1 &&
+            (
+              (
+                !participantExists(pingId, request.auth.uid) &&
+                participantExistsAfter(pingId, request.auth.uid) &&
+                participantDataAfter(pingId, request.auth.uid).uid == request.auth.uid &&
+                participantDataAfter(pingId, request.auth.uid).role == "member" &&
+                participantDataAfter(pingId, request.auth.uid).status == "approved"
+              ) ||
+              (
+                participantExists(pingId, request.auth.uid) &&
+                participantDoc(pingId, request.auth.uid).data.status == "left" &&
+                participantExistsAfter(pingId, request.auth.uid) &&
+                participantDataAfter(pingId, request.auth.uid).uid == request.auth.uid &&
+                participantDataAfter(pingId, request.auth.uid).role == "member" &&
+                participantDataAfter(pingId, request.auth.uid).status == "approved"
+              )
+            )
+          ) ||
+          (
+            request.resource.data.participantCount ==
+              resource.data.get("participantCount", 0) - 1 &&
+            participantExists(pingId, request.auth.uid) &&
+            participantDoc(pingId, request.auth.uid).data.status == "approved" &&
+            participantExistsAfter(pingId, request.auth.uid) &&
+            participantDataAfter(pingId, request.auth.uid).uid == request.auth.uid &&
+            participantDataAfter(pingId, request.auth.uid).role == "member" &&
+            participantDataAfter(pingId, request.auth.uid).status == "left"
+          )
+        );
+    }
+
+    function notWritingVerification() {
+      return !("verification" in request.resource.data) ||
+        (
+          ("verification" in resource.data) &&
+          request.resource.data.verification == resource.data.verification
+        );
+    }
+
+    function validCreatorParticipantCreate(pingId, participantId) {
+      return signedIn() &&
+        participantId == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.role == "creator" &&
+        request.resource.data.status == "approved" &&
+        request.resource.data.get("mutedInChat", false) == false &&
+        (
+          (
+            pingExists(pingId) &&
+            pingData(pingId).creatorId == request.auth.uid &&
+            canRequestJoinPingData(pingData(pingId))
+          ) ||
+          (
+            pingExistsAfter(pingId) &&
+            pingDataAfter(pingId).creatorId == request.auth.uid &&
+            canRequestJoinPingData(pingDataAfter(pingId))
+          )
+        );
+    }
+
+    function validMemberParticipantCreate(pingId, participantId) {
+      return signedIn() &&
+        pingExists(pingId) &&
+        participantId == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        canRequestJoinPingData(pingData(pingId)) &&
+        !isPingCreator(pingId) &&
+        request.resource.data.role == "member" &&
+        request.resource.data.get("mutedInChat", false) == false &&
+        (
+          (
+            pingRequiresApprovalData(pingData(pingId)) &&
+            request.resource.data.status == "pending"
+          ) ||
+          (
+            !pingRequiresApprovalData(pingData(pingId)) &&
+            request.resource.data.status == "approved"
+          )
+        );
+    }
+
+    function validParticipantSelfLifecycleUpdate(pingId, participantId) {
+      return signedIn() &&
+        participantId == request.auth.uid &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.get("role", "") == resource.data.get("role", "") &&
+        resource.data.get("role", "") == "member" &&
+        (
+          (
+            resource.data.get("status", "") == "approved" &&
+            request.resource.data.get("status", "") == "left" &&
+            request.resource.data.get("mutedInChat", false) == resource.data.get("mutedInChat", false) &&
+            request.resource.data.get("requestedAt", null) == resource.data.get("requestedAt", null) &&
+            request.resource.data.get("joinedAt", null) == resource.data.get("joinedAt", null) &&
+            request.resource.data.get("approvedAt", null) == resource.data.get("approvedAt", null)
+          ) ||
+          (
+            resource.data.get("status", "") == "left" &&
+            request.resource.data.get("mutedInChat", false) == false &&
+            (
+              (
+                pingRequiresApprovalData(pingData(pingId)) &&
+                request.resource.data.get("status", "") == "pending"
+              ) ||
+              (
+                !pingRequiresApprovalData(pingData(pingId)) &&
+                request.resource.data.get("status", "") == "approved"
+              )
+            )
+          )
+        );
+    }
+
+    function eventExists(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId));
+    }
+
+    function eventDoc(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId));
+    }
+
+    function eventData(eventId) {
+      return eventDoc(eventId).data;
+    }
+
+    function isEventCreator(eventId) {
+      return signedIn() &&
+        eventExists(eventId) &&
+        eventData(eventId).creatorId == request.auth.uid;
+    }
+
+    function validEventHostType(value) {
+      return value in ["user", "community"];
+    }
+
+    function validEventPrivacy(value) {
+      return value in ["public", "connections", "inviteOnly"];
+    }
+
+    function validEventVenueType(value) {
+      return value in ["virtual", "inPerson"];
+    }
+
+    function validEventAccess(value) {
+      return value in ["everyone", "connectionsOnly", "verifiedOnly"];
+    }
+
+    function validEventStatus(value) {
+      return value in ["draft", "published", "cancelled", "ended"];
+    }
+
+    function isCommunityOwner(communityId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/communities/$(communityId)) &&
+        get(/databases/$(database)/documents/communities/$(communityId)).data.ownerUid == request.auth.uid;
+    }
+
+    function validEventHost(data) {
+      return validEventHostType(data.hostType) &&
+        data.hostId is string &&
+        data.hostId.size() > 0 &&
+        (
+          (data.hostType == "user" && data.hostId == request.auth.uid) ||
+          (data.hostType == "community" && isCommunityOwner(data.hostId))
+        );
+    }
+
+    function validEventPrivacyForHost(data) {
+      return data.hostType == "community"
+        ? data.privacy in ["public", "inviteOnly"]
+        : validEventPrivacy(data.privacy);
+    }
+
+    function validEventAccessForHost(data) {
+      return data.hostType == "community"
+        ? data.access in ["everyone", "verifiedOnly"]
+        : validEventAccess(data.access);
+    }
+
+    function validEventCover(cover) {
+      return cover is map &&
+        cover.keys().hasOnly([
+          "type",
+          "imageUrl",
+          "presetAssetPath",
+          "gradientId",
+          "gradientColors",
+          "colorValue"
+        ]) &&
+        cover.type in ["uploaded", "preset", "gradient", "solid"] &&
+        cover.colorValue is int &&
+        (
+          !("imageUrl" in cover) ||
+          cover.imageUrl == null ||
+          cover.imageUrl is string
+        ) &&
+        (
+          !("presetAssetPath" in cover) ||
+          cover.presetAssetPath == null ||
+          cover.presetAssetPath is string
+        ) &&
+        (
+          !("gradientId" in cover) ||
+          cover.gradientId == null ||
+          cover.gradientId is string
+        ) &&
+        (
+          !("gradientColors" in cover) ||
+          (
+            cover.gradientColors is list &&
+            cover.gradientColors.size() >= 2 &&
+            cover.gradientColors.size() <= 6
+          )
+        );
+    }
+
+    function validEventMediaItem(item) {
+      return item is map &&
+        item.type is string &&
+        item.type in ["image", "video", "file"] &&
+        item.url is string &&
+        item.url.size() > 0 &&
+        item.order is int &&
+        item.order >= 0 &&
+        (!("name" in item) || item.name is string) &&
+        (!("contentType" in item) || item.contentType is string) &&
+        (!("ext" in item) || item.ext is string) &&
+        (!("sizeBytes" in item) || (item.sizeBytes is int && item.sizeBytes >= 0));
+    }
+
+    function validEventMedia(media) {
+      return media is list &&
+        media.size() <= 6 &&
+        (
+          media.size() == 0 ||
+          (media.size() > 0 && validEventMediaItem(media[0]))
+        ) &&
+        (
+          media.size() <= 1 ||
+          (media.size() > 1 && validEventMediaItem(media[1]))
+        ) &&
+        (
+          media.size() <= 2 ||
+          (media.size() > 2 && validEventMediaItem(media[2]))
+        ) &&
+        (
+          media.size() <= 3 ||
+          (media.size() > 3 && validEventMediaItem(media[3]))
+        ) &&
+        (
+          media.size() <= 4 ||
+          (media.size() > 4 && validEventMediaItem(media[4]))
+        ) &&
+        (
+          media.size() <= 5 ||
+          (media.size() > 5 && validEventMediaItem(media[5]))
+        );
+    }
+
+    function validEventSessionItem(item) {
+      return item is map &&
+        item.keys().hasOnly(["startAt", "endAt"]) &&
+        item.startAt is timestamp &&
+        item.endAt is timestamp &&
+        item.endAt > item.startAt;
+    }
+
+    function validEventSessions(sessions) {
+      return sessions is list &&
+        sessions.size() >= 1 &&
+        sessions.size() <= 20 &&
+        (sessions.size() > 0 && validEventSessionItem(sessions[0])) &&
+        (sessions.size() <= 1 || validEventSessionItem(sessions[1])) &&
+        (sessions.size() <= 2 || validEventSessionItem(sessions[2])) &&
+        (sessions.size() <= 3 || validEventSessionItem(sessions[3])) &&
+        (sessions.size() <= 4 || validEventSessionItem(sessions[4])) &&
+        (sessions.size() <= 5 || validEventSessionItem(sessions[5])) &&
+        (sessions.size() <= 6 || validEventSessionItem(sessions[6])) &&
+        (sessions.size() <= 7 || validEventSessionItem(sessions[7])) &&
+        (sessions.size() <= 8 || validEventSessionItem(sessions[8])) &&
+        (sessions.size() <= 9 || validEventSessionItem(sessions[9])) &&
+        (sessions.size() <= 10 || validEventSessionItem(sessions[10])) &&
+        (sessions.size() <= 11 || validEventSessionItem(sessions[11])) &&
+        (sessions.size() <= 12 || validEventSessionItem(sessions[12])) &&
+        (sessions.size() <= 13 || validEventSessionItem(sessions[13])) &&
+        (sessions.size() <= 14 || validEventSessionItem(sessions[14])) &&
+        (sessions.size() <= 15 || validEventSessionItem(sessions[15])) &&
+        (sessions.size() <= 16 || validEventSessionItem(sessions[16])) &&
+        (sessions.size() <= 17 || validEventSessionItem(sessions[17])) &&
+        (sessions.size() <= 18 || validEventSessionItem(sessions[18])) &&
+        (sessions.size() <= 19 || validEventSessionItem(sessions[19]));
+    }
+
+    function validInPersonVenue(venue) {
+        return venue is map &&
+            venue.keys().hasOnly([
+            "type",
+            "source",
+            "placeId",
+            "name",
+            "formattedAddress",
+            "lat",
+            "lng",
+            "geoPoint"
+            ]) &&
+            venue.type == "inPerson" &&
+            venue.source in ["google_places", "device_current_location"] &&
+            venue.placeId is string &&
+            venue.placeId.size() > 0 &&
+            venue.name is string &&
+            venue.name.size() > 0 &&
+            venue.formattedAddress is string &&
+            venue.formattedAddress.size() > 0 &&
+            venue.lat is number &&
+            venue.lng is number;
+    }
+
+    function validVirtualVenue(venue) {
+      return venue is map &&
+        venue.keys().hasOnly([
+          "type",
+          "source",
+          "label",
+          "linkOrPlatform"
+        ]) &&
+        venue.type == "virtual" &&
+        venue.source == "manual" &&
+        venue.label is string &&
+        venue.label.size() > 0 &&
+        venue.label.size() <= 300 &&
+        venue.linkOrPlatform is string &&
+        venue.linkOrPlatform.size() > 0 &&
+        venue.linkOrPlatform.size() <= 500;
+    }
+
+    function validEventVenue(data) {
+      return (
+        data.venueType == "inPerson" &&
+        validInPersonVenue(data.venue)
+      ) || (
+        data.venueType == "virtual" &&
+        validVirtualVenue(data.venue)
+      );
+    }
+
+    function validEventCoreShape(data) {
+      return data.keys().hasOnly([
+        "creatorId",
+        "hostType",
+        "hostId",
+        "coHostUids",
+        "coHostCount",
+        "title",
+        "titleLower",
+        "description",
+        "theme",
+        "privacy",
+        "venueType",
+        "access",
+        "requireRegistration",
+        "maxAttendees",
+        "attendeeCount",
+        "registrationCount",
+        "category",
+        "tags",
+        "locationText",
+        "meetupInstructions",
+        "venue",
+        "isMultiSession",
+        "sessions",
+        "startsAt",
+        "endsAt",
+        "cover",
+        "media",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]) &&
+      data.creatorId == request.auth.uid &&
+      validEventHost(data) &&
+      data.coHostUids is list &&
+      data.coHostUids.size() <= 6 &&
+      data.coHostCount is int &&
+      data.coHostCount >= 0 &&
+      data.coHostCount <= 6 &&
+      data.coHostCount == data.coHostUids.size() &&
+      data.title is string &&
+      data.title.size() > 0 &&
+      data.title.size() <= 60 &&
+      data.titleLower is string &&
+      data.titleLower.size() > 0 &&
+      data.titleLower.size() <= 60 &&
+      data.description is string &&
+      data.description.size() > 0 &&
+      data.description.size() <= 2000 &&
+      data.theme is string &&
+      data.theme.size() > 0 &&
+      data.theme.size() <= 30 &&
+      validEventPrivacyForHost(data) &&
+      validEventVenueType(data.venueType) &&
+      validEventAccessForHost(data) &&
+      data.requireRegistration is bool &&
+      data.maxAttendees is int &&
+      data.maxAttendees > 0 &&
+      data.maxAttendees <= 100000 &&
+      data.attendeeCount is int &&
+      data.attendeeCount >= 0 &&
+      data.registrationCount is int &&
+      data.registrationCount >= 0 &&
+      data.category is string &&
+      data.category.size() > 0 &&
+      data.category.size() <= 40 &&
+      data.tags is list &&
+      data.tags.size() <= 12 &&
+      data.locationText is string &&
+      data.locationText.size() > 0 &&
+      data.locationText.size() <= 300 &&
+      data.meetupInstructions is string &&
+      data.meetupInstructions.size() <= 100 &&
+      validEventVenue(data) &&
+      data.isMultiSession is bool &&
+      validEventSessions(data.sessions) &&
+      data.startsAt is timestamp &&
+      data.endsAt is timestamp &&
+      data.endsAt > data.startsAt &&
+      validEventCover(data.cover) &&
+      validEventMedia(data.media) &&
+      validEventStatus(data.status) &&
+      data.createdAt is timestamp &&
+			data.updatedAt == request.time;
+    }
+
+    function validEventCreate() {
+      return signedIn() &&
+          request.resource.data.creatorId == request.auth.uid &&
+          validEventHost(request.resource.data) &&
+
+          request.resource.data.title is string &&
+          request.resource.data.title.size() > 0 &&
+          request.resource.data.title.size() <= 60 &&
+
+          request.resource.data.meetupInstructions is string &&
+          request.resource.data.meetupInstructions.size() <= 100 &&
+
+          request.resource.data.titleLower is string &&
+          request.resource.data.titleLower.size() > 0 &&
+          request.resource.data.titleLower.size() <= 60 &&
+
+          request.resource.data.description is string &&
+          request.resource.data.description.size() > 0 &&
+          request.resource.data.description.size() <= 2000 &&
+
+          request.resource.data.theme is string &&
+          request.resource.data.theme.size() > 0 &&
+          request.resource.data.theme.size() <= 30 &&
+
+          request.resource.data.category is string &&
+          request.resource.data.category.size() > 0 &&
+          request.resource.data.category.size() <= 40 &&
+
+          request.resource.data.tags is list &&
+          request.resource.data.tags.size() <= 12 &&
+
+          request.resource.data.requireRegistration is bool &&
+
+          request.resource.data.maxAttendees is int &&
+          request.resource.data.maxAttendees > 0 &&
+          request.resource.data.maxAttendees <= 100000 &&
+
+          request.resource.data.attendeeCount is int &&
+          request.resource.data.attendeeCount == 0 &&
+
+          request.resource.data.registrationCount is int &&
+          request.resource.data.registrationCount == 0 &&
+
+          request.resource.data.coHostUids is list &&
+          request.resource.data.coHostUids.size() <= 6 &&
+
+          request.resource.data.coHostCount is int &&
+          request.resource.data.coHostCount >= 0 &&
+          request.resource.data.coHostCount <= 6 &&
+          request.resource.data.coHostCount == request.resource.data.coHostUids.size() &&
+
+          validEventPrivacyForHost(request.resource.data) &&
+          validEventVenueType(request.resource.data.venueType) &&
+          validEventAccessForHost(request.resource.data) &&
+          validEventStatus(request.resource.data.status) &&
+
+          request.resource.data.locationText is string &&
+          request.resource.data.locationText.size() > 0 &&
+          request.resource.data.locationText.size() <= 300 &&
+
+          request.resource.data.isMultiSession is bool &&
+          validEventSessions(request.resource.data.sessions) &&
+          request.resource.data.startsAt is timestamp &&
+          request.resource.data.endsAt is timestamp &&
+          request.resource.data.endsAt > request.resource.data.startsAt &&
+
+          validEventCover(request.resource.data.cover) &&
+          request.resource.data.media is list &&
+					request.resource.data.media.size() <= 6 &&
+          validEventVenue(request.resource.data) &&
+
+          request.resource.data.createdAt == request.time &&
+					request.resource.data.updatedAt == request.time;
+    }
+
+    function validEventOwnerUpdate() {
+      return signedIn() &&
+        resource.data.creatorId == request.auth.uid &&
+        validEventCoreShape(request.resource.data) &&
+        request.resource.data.creatorId == resource.data.creatorId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.attendeeCount == resource.data.attendeeCount &&
+        request.resource.data.registrationCount == resource.data.registrationCount;
+    }
+
+    function canReadEventData(data) {
+      return signedIn() && (
+        isAdmin() ||
+        data.creatorId == request.auth.uid ||
+        data.privacy == "public" ||
+        (data.privacy == "connections" &&
+          data.hostType == "user" &&
+          isFriend(data.hostId, request.auth.uid))
+      );
+    }
+
+    match /usernames/{username} {
+      allow read: if signedIn();
+
+      allow create: if signedIn() &&
+        request.resource.data.uid == request.auth.uid;
+
+      allow delete: if signedIn() &&
+        resource.data.uid == request.auth.uid;
+
+      allow update: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+
+      allow create: if isMe(userId) && notWritingVerification();
+      allow update: if (isMe(userId) && notWritingVerification()) || isAdmin();
+      allow delete: if isMe(userId) || isAdmin();
+
+      match /friend_requests_in/{fromUid} {
+        allow read: if isMe(userId) ||
+          (signedIn() && request.auth.uid == fromUid) ||
+          isAdmin();
+
+        allow create: if signedIn() &&
+          request.auth.uid == fromUid &&
+          request.resource.data.fromUid == request.auth.uid &&
+          request.resource.data.toUid == userId &&
+          request.resource.data.status == "pending";
+
+        allow update: if false;
+
+        allow delete: if isMe(userId) ||
+          (signedIn() && request.auth.uid == fromUid) ||
+          isAdmin();
+      }
+
+      match /friend_requests_out/{toUid} {
+        allow read: if isMe(userId) ||
+          (signedIn() && request.auth.uid == toUid) ||
+          isAdmin();
+
+        allow create: if isMe(userId) &&
+          request.resource.data.fromUid == request.auth.uid &&
+          request.resource.data.toUid == toUid &&
+          request.resource.data.status == "pending";
+
+        allow update: if false;
+
+        allow delete: if isMe(userId) ||
+          (signedIn() && request.auth.uid == toUid) ||
+          isAdmin();
+      }
+
+      match /friends/{friendUid} {
+        allow read: if signedIn();
+
+        allow create, delete: if isMe(userId) ||
+          (signedIn() && request.auth.uid == friendUid) ||
+          isAdmin();
+
+        allow update: if isMe(userId) || isAdmin();
+      }
+
+      match /ping_invites/{pingId} {
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create: if signedIn() &&
+          pingExists(pingId) &&
+          canSendPingInvites(pingId) &&
+          request.auth.uid != userId &&
+          request.resource.data.pingId == pingId &&
+          request.resource.data.recipientUid == userId &&
+          request.resource.data.senderUid == request.auth.uid &&
+          request.resource.data.status == "pending";
+
+        allow update: if isMe(userId) || isAdmin();
+
+        allow delete: if isMe(userId) || canSendPingInvites(pingId) || isAdmin();
+      }
+
+      match /notifications/{notifId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create: if signedIn();
+        allow update, delete: if isMe(userId) || isAdmin();
+      }
+
+      match /saved_pings/{pingId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create, update, delete: if isMe(userId) || isAdmin();
+      }
+
+      match /profile_views/{viewId} {
+        allow read: if isMe(userId) || isAdmin();
+
+        allow create, update: if signedIn() &&
+          request.auth.uid != userId &&
+          request.resource.data.viewerUid == request.auth.uid &&
+          request.resource.data.keys().hasOnly([
+            "viewerUid",
+            "viewerCity",
+            "viewerDisplayLocation",
+            "viewerCountry",
+            "dayKey",
+            "viewedAt",
+            "expiresAt"
+          ]) &&
+          request.resource.data.dayKey is string &&
+          request.resource.data.expiresAt is timestamp;
+
+        allow delete: if false;
+      }
+    }
+
+    match /verification_requests/{requestId} {
+      allow read: if isAdmin() ||
+        (signedIn() && resource.data.uid == request.auth.uid);
+
+      allow create: if signedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.status == "pending";
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /pings/{pingId} {
+      allow get: if canReadPingData(resource.data, pingId);
+      allow list: if canReadPingData(resource.data, pingId);
+
+      allow create: if validPingCreate();
+
+      allow update: if
+        validPingUpdate() ||
+        validViewCountIncrement(pingId) ||
+        validParticipantCountChange(pingId);
+
+      allow delete: if signedIn() &&
+        resource.data.creatorId == request.auth.uid;
+
+      match /invites/{inviteeUid} {
+        allow read: if
+          isPingCreator(pingId) ||
+          isApprovedParticipant(pingId, request.auth.uid) ||
+          request.auth.uid == inviteeUid ||
+          isAdmin();
+
+        allow create: if signedIn() &&
+          pingExists(pingId) &&
+          canSendPingInvites(pingId) &&
+          request.auth.uid != inviteeUid &&
+          request.resource.data.pingId == pingId &&
+          request.resource.data.recipientUid == inviteeUid &&
+          request.resource.data.senderUid == request.auth.uid &&
+          request.resource.data.status == "pending";
+
+        allow update: if
+          isPingCreator(pingId) ||
+          request.auth.uid == inviteeUid ||
+          isAdmin();
+
+        allow delete: if
+          canSendPingInvites(pingId) ||
+          request.auth.uid == inviteeUid ||
+          isAdmin();
+      }
+
+      match /participants/{participantId} {
+        allow read: if canReadPingById(pingId) ||
+          (signedIn() && participantId == request.auth.uid);
+
+        allow create: if
+          validCreatorParticipantCreate(pingId, participantId) ||
+          validMemberParticipantCreate(pingId, participantId);
+
+        allow update: if (
+          signedIn() &&
+          participantId == request.auth.uid &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.get("role", "") == resource.data.get("role", "") &&
+          request.resource.data.get("status", "") == resource.data.get("status", "") &&
+          request.resource.data.get("mutedInChat", false) == resource.data.get("mutedInChat", false) &&
+          request.resource.data.get("requestedAt", null) == resource.data.get("requestedAt", null) &&
+          request.resource.data.get("joinedAt", null) == resource.data.get("joinedAt", null) &&
+          request.resource.data.get("approvedAt", null) == resource.data.get("approvedAt", null)
+        ) || (
+          validParticipantSelfLifecycleUpdate(pingId, participantId)
+        ) || (
+          isPingCreator(pingId) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.get("role", "") == resource.data.get("role", "")
+        );
+
+        allow delete: if (
+          signedIn() &&
+          participantId == request.auth.uid &&
+          resource.data.uid == request.auth.uid &&
+          resource.data.get("status", "") == "pending"
+        ) || (
+          isPingCreator(pingId) &&
+          resource.data.get("role", "") != "creator"
+        );
+      }
+
+      match /messages/{messageId} {
+        allow read: if isPingCreator(pingId) ||
+          isApprovedParticipant(pingId, request.auth.uid);
+
+        allow create: if signedIn() &&
+          (
+            isPingCreator(pingId) ||
+            (
+              isApprovedParticipant(pingId, request.auth.uid) &&
+              participantDoc(pingId, request.auth.uid).data.get("mutedInChat", false) != true
+            )
+          ) &&
+          (
+            request.resource.data.senderId == request.auth.uid ||
+            request.resource.data.uid == request.auth.uid
+          );
+
+        allow update, delete: if false;
+      }
+
+      match /activity/{activityId} {
+        allow read: if isPingCreator(pingId) || isAdmin();
+
+        allow create: if (
+            isPingCreator(pingId) &&
+            request.resource.data.actorUid == request.auth.uid
+          ) || (
+            signedIn() &&
+            request.resource.data.actorUid == request.auth.uid &&
+            request.resource.data.type == "join_request_received" &&
+            request.resource.data.title == "New join request" &&
+            request.resource.data.createdAt is timestamp &&
+            request.resource.data.extra is map &&
+            request.resource.data.extra.memberUid == request.auth.uid &&
+            participantExistsAfter(pingId, request.auth.uid) &&
+            participantDataAfter(pingId, request.auth.uid).status == "pending"
+          ) || (
+            canSendPingInvites(pingId) &&
+            request.resource.data.actorUid == request.auth.uid &&
+            request.resource.data.type == "friend_invited" &&
+            request.resource.data.createdAt is timestamp &&
+            request.resource.data.extra is map &&
+            request.resource.data.extra.pingId == pingId &&
+            request.resource.data.extra.friendUid is string
+          );
+
+        allow update, delete: if false;
+      }
+
+      match /views/{userId} {
+        allow create: if signedIn() &&
+          request.auth.uid == userId &&
+          canReadPingById(pingId) &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.keys().hasOnly(["uid", "viewedAt"]);
+
+        allow read: if signedIn() && (
+          request.auth.uid == userId ||
+          pingData(pingId).creatorId == request.auth.uid ||
+          isAdmin()
+        );
+
+        allow update, delete: if false;
+      }
+    }
+
+    match /communities/{communityId} {
+      allow read: if signedIn();
+
+      allow create: if
+        (signedIn() &&
+          request.resource.data.ownerUid == request.auth.uid) ||
+        isAdmin();
+
+      allow update, delete: if
+        (signedIn() &&
+          resource.data.ownerUid == request.auth.uid) ||
+        isAdmin();
+
+      match /{subcollection=**} {
+        allow read: if signedIn();
+
+        allow write: if
+          (
+            signedIn() &&
+            exists(/databases/$(database)/documents/communities/$(communityId)) &&
+            get(/databases/$(database)/documents/communities/$(communityId)).data.ownerUid == request.auth.uid
+          ) ||
+          isAdmin();
+      }
+    }
+
+    match /posts/{postId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn() &&
+        request.resource.data.creatorId == request.auth.uid;
+
+      allow update, delete: if signedIn() &&
+        resource.data.creatorId == request.auth.uid;
+    }
+
+    match /events/{eventId} {
+      allow get: if canReadEventData(resource.data);
+      allow list: if canReadEventData(resource.data);
+
+      allow create: if validEventCreate();
+      allow update: if validEventOwnerUpdate();
+      allow delete: if signedIn() && resource.data.creatorId == request.auth.uid;
+
+      match /hosts/{hostUid} {
+        allow read: if canReadEventData(get(/databases/$(database)/documents/events/$(eventId)).data);
+
+        allow create: if signedIn() && (
+          (
+            isEventCreator(eventId) &&
+            hostUid == request.auth.uid &&
+            request.resource.data.keys().hasOnly([
+              "uid",
+              "role",
+              "status",
+              "invitedBy",
+              "invitedAt",
+              "respondedAt",
+              "addedAt"
+            ]) &&
+            request.resource.data.uid == request.auth.uid &&
+            request.resource.data.role == "owner" &&
+            request.resource.data.status == "active" &&
+            request.resource.data.invitedBy == request.auth.uid &&
+            request.resource.data.invitedAt is timestamp &&
+            request.resource.data.respondedAt is timestamp &&
+            request.resource.data.addedAt is timestamp
+          ) ||
+          (
+            isEventCreator(eventId) &&
+            hostUid == request.resource.data.uid &&
+            request.resource.data.keys().hasOnly([
+              "uid",
+              "role",
+              "status",
+              "invitedBy",
+              "invitedAt"
+            ]) &&
+            request.resource.data.uid is string &&
+            request.resource.data.uid.size() > 0 &&
+            request.resource.data.role == "cohost" &&
+            request.resource.data.status == "pending" &&
+            request.resource.data.invitedBy == request.auth.uid &&
+            request.resource.data.invitedAt is timestamp
+          )
+        );
+
+        allow update: if signedIn() && (
+          isEventCreator(eventId) ||
+          (
+            hostUid == request.auth.uid &&
+            resource.data.uid == request.auth.uid &&
+            resource.data.role == "cohost" &&
+            resource.data.status == "pending" &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.invitedBy == resource.data.invitedBy &&
+            request.resource.data.invitedAt == resource.data.invitedAt &&
+            request.resource.data.keys().hasOnly([
+              "uid",
+              "role",
+              "status",
+              "invitedBy",
+              "invitedAt",
+              "respondedAt",
+              "addedAt"
+            ]) &&
+            (
+              (
+                request.resource.data.status == "active" &&
+                request.resource.data.respondedAt is timestamp &&
+                request.resource.data.addedAt is timestamp
+              ) ||
+              (
+                request.resource.data.status == "declined" &&
+                request.resource.data.respondedAt is timestamp
+              )
+            )
+          )
+        );
+
+        allow delete: if signedIn() && isEventCreator(eventId);
+      }
+    }
+    
+    
+
+    match /chats/{chatId} {
+      allow read: if signedIn() &&
+        request.auth.uid in resource.data.members;
+
+      allow create: if signedIn() &&
+        request.auth.uid in request.resource.data.members;
+
+      allow update: if signedIn() &&
+        request.auth.uid in resource.data.members;
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+
+        allow create: if signedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members &&
+          request.resource.data.senderId == request.auth.uid;
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

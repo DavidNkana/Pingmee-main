@@ -1,0 +1,290 @@
+name: ping_files
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+  intro_screen_onboarding_flutter: ^1.0.0
+  icons_plus: ^5.0.0
+  flutter_svg: ^2.1.0
+  firebase_core: ^4.2.0
+  firebase_auth: ^6.1.1
+  google_sign_in: ^6.2.5
+  lottie: ^3.3.2
+  cloud_firestore: ^6.0.3
+  http: ^1.6.0
+  flutter_launcher_icons: ^0.13.1
+  bcrypt: 1.1.3
+  image_picker: ^1.2.1  # or the latest version
+  firebase_storage: ^13.0.5
+  font_awesome_flutter: ^10.12.0
+  permission_handler: ^12.0.1
+  wechat_assets_picker: ^10.1.0
+  wechat_camera_picker: ^4.4.0
+  photo_manager: ^3.8.3
+  image_cropper: ^11.0.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  image_editor_plus: ^1.0.8
+  geolocator: ^14.0.2
+  shared_preferences: ^2.2.2
+  phosphor_flutter: ^2.1.0
+  maplibre_gl: ^0.25.0   # check latest you want
+  geoflutterfire_plus: ^0.0.34
+  rxdart: ^0.28.0
+  video_thumbnail: ^0.5.3
+  photo_view: ^0.15.0
+  video_player: ^2.9.1
+  chewie: ^1.8.5
+  file_picker: 10.3.10
+  open_filex: ^4.4.0
+  url_launcher: ^6.3.0
+  geocoding: ^3.0.0
+  intl: ^0.20.2
+  google_fonts: ^6.2.1
+  flutter_secure_storage: ^10.0.0
+  fl_chart: ^1.2.0
+  app_links: ^6.4.1
+
+
+
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  animated_splash_screen: 
+  firebase_app_check: ^0.4.1+2
+  wakelock_plus: ^1.4.0
+  stream_chat_flutter: 9.23.0
+  stream_chat_flutter_core: 9.23.0
+  stream_chat: 9.23.0
+  cloud_functions: ^6.2.0
+  flutter_slidable: ^4.0.3
+  stream_video: ^1.3.3
+  stream_video_flutter: ^1.3.3
+  just_audio: ^0.10.5
+  record: ^6.2.0
+  emoji_picker_flutter: ^4.4.0
+  giphy_get: ^3.6.1+1
+
+flutter_localizations:
+  sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# app icon 
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app-icon.png"
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  assets:
+    - assets/
+    # - assets/Pingmee.png
+    # - assets/onboading-blo.jpg
+    # - assets/onboading-loc.png
+    # - assets/onboarding-cha.jpg
+    # - assets/authscreen.png
+    # - assets/location.png
+    - assets/splash.png
+    - assets/pinglogo.png
+    - assets/pingooo.png
+    - assets/pingooo-white.png
+    - assets/pingoo-bg.png
+    - assets/intro_1.png
+    - assets/intro_2.png
+    - assets/intro_3.png
+    # - assets/chatting.png
+    - assets/icons/facebook.svg
+    - assets/icons/google-plus.svg
+    - assets/icons/twitter.svg
+    - assets/icons/linkedin.svg
+    - assets/images/login_bottom.png
+    - assets/images/main_bottom.png
+    - assets/images/pingoo-white.png
+    - assets/images/pingooo.png
+    - assets/images/main-bottom.png
+    - assets/images/main_top.png
+    - assets/images/main-top.png
+    - assets/images/signup_top.png
+    - assets/images/welcome.png
+    - assets/images/login.png
+    - assets/images/signup.png
+    - assets/images/verify.json
+    - assets/images/email-sent.json
+    - assets/images/location.json
+    - assets/images/chatting.json
+    - assets/images/share.json
+    - assets/images/welcome.json
+    - assets/images/login.json
+    - assets/images/signup.json
+    - assets/images/forgot.json
+    - assets/images/phone.json
+    - assets/images/water-load.json
+    - assets/images/loading.json
+    - assets/images/basic-profile-creation.json
+    - assets/images/default_cover.jpg
+    - assets/images/default_cover.png
+    - assets/images/ping_details.png
+    - assets/images/create_a_ping.png
+    - assets/images/note.png
+    - assets/images/create.png
+    - assets/images/mainappload.json
+    - assets/images/join.png
+    - assets/images/splash.png
+    - assets/images/grow.png
+    - assets/images/pingmee-white-new.png
+    - assets/event_covers/choices_1.jpg
+    - assets/event_covers/choices_2.jpg
+    - assets/event_covers/choices_3.jpg
+    - assets/event_covers/choices_4.jpg
+    - assets/event_covers/choices_5.jpg
+    - assets/event_covers/choices_6.jpg
+    - assets/event_covers/choices_7.jpg
+    - assets/event_covers/default_event_cover.png
+    - assets/images/onboarding_one.png
+    - assets/images/onboarding_two.png
+    - assets/images/onboarding_three.png
+    - assets/images/onboarding_four.png
+    - assets/images/onboarding_five.png
+    - assets/images/onboarding_six.png
+    - assets/images/onboarding_seven.png
+    - assets/images/onboarding_eight.png
+    - assets/images/onboarding_nine.png
+    - assets/images/onboarding_ten.png
+    - assets/images/loginemail.png
+    - assets/images/signupemail.png
+    - assets/images/phone.png
+    - assets/images/community_one.png
+    - assets/images/community_two.png
+    - assets/images/default_cover_community.png
+    - assets/images/finger-loading.json
+
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  fonts:
+    - family: Satoshi
+      fonts:
+        - asset: assets/fonts/Satoshi-Medium.ttf
+    # - family: Trajan Pro
+    #   fonts:
+    #     - asset: fonts/TrajanPro.ttf
+    #     - asset: fonts/TrajanPro_Bold.ttf
+    #       weight: 700
+    - family: Nunito
+      fonts:
+        - asset: assets/fonts/Nunito-Regular.ttf
+        - asset: assets/fonts/Nunito-Light.ttf
+        - asset: assets/fonts/Inter_18pt-Black.ttf
+        - asset: assets/fonts/Inter_18pt-Bold.ttf
+        - asset: assets/fonts/Inter_18pt-BlackItalic.ttf
+        - asset: assets/fonts/Inter_18pt-BoldItalic.ttf
+        - asset: assets/fonts/Inter_18pt-ExtraLight.ttf
+        - asset: assets/fonts/Inter_18pt-ExtraLightItalic.ttf
+        - asset: assets/fonts/Inter_18pt-Italic.ttf
+        - asset: assets/fonts/Inter_18pt-Light.ttf
+        - asset: assets/fonts/Inter_18pt-LightItalic.ttf
+        - asset: assets/fonts/Inter_18pt-Medium.ttf
+        - asset: assets/fonts/Inter_18pt-MediumItalic.ttf
+        - asset: assets/fonts/Inter_18pt-Regular.ttf
+        - asset: assets/fonts/Inter_18pt-SemiBold.ttf
+        - asset: assets/fonts/Inter_18pt-SemiBoldItalic.ttf
+        - asset: assets/fonts/Inter_18pt-Thin.ttf
+        - asset: assets/fonts/Inter_18pt-ThinItalic.ttf
+        - asset: assets/fonts/Inter_18pt-Black.ttf
+        - asset: assets/fonts/Inter_24pt-Bold.ttf
+        - asset: assets/fonts/Inter_24pt-BlackItalic.ttf
+        - asset: assets/fonts/Inter_24pt-BoldItalic.ttf
+        - asset: assets/fonts/Inter_24pt-ExtraLight.ttf
+        - asset: assets/fonts/Inter_24pt-ExtraLightItalic.ttf
+        - asset: assets/fonts/Inter_24pt-Italic.ttf
+        - asset: assets/fonts/Inter_24pt-Light.ttf
+        - asset: assets/fonts/Inter_24pt-LightItalic.ttf
+        - asset: assets/fonts/Inter_24pt-Medium.ttf
+        - asset: assets/fonts/Inter_24pt-MediumItalic.ttf
+        - asset: assets/fonts/Inter_24pt-Regular.ttf
+        - asset: assets/fonts/Inter_24pt-SemiBold.ttf
+        - asset: assets/fonts/Inter_24pt-SemiBoldItalic.ttf
+        - asset: assets/fonts/Inter_24pt-Thin.ttf
+        - asset: assets/fonts/Inter_24pt-ThinItalic.ttf
+        - asset: assets/fonts/Inter_28pt-Bold.ttf
+        - asset: assets/fonts/Inter_28pt-BlackItalic.ttf
+        - asset: assets/fonts/Inter_28pt-BoldItalic.ttf
+        - asset: assets/fonts/Inter_28pt-ExtraLight.ttf
+        - asset: assets/fonts/Inter_28pt-ExtraLightItalic.ttf
+        - asset: assets/fonts/Inter_28pt-Italic.ttf
+        - asset: assets/fonts/Inter_28pt-Light.ttf
+        - asset: assets/fonts/Inter_28pt-LightItalic.ttf
+        - asset: assets/fonts/Inter_28pt-Medium.ttf
+        - asset: assets/fonts/Inter_28pt-MediumItalic.ttf
+        - asset: assets/fonts/Inter_28pt-Regular.ttf
+        - asset: assets/fonts/Inter_28pt-SemiBold.ttf
+        - asset: assets/fonts/Inter_28pt-SemiBoldItalic.ttf
+        - asset: assets/fonts/Inter_28pt-Thin.ttf
+        - asset: assets/fonts/Inter_28pt-ThinItalic.ttf
+          weight: 300
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package
+
+dependency_overrides:
+  stream_chat_flutter: 9.23.0
+  stream_chat_flutter_core: 9.23.0
+  stream_chat: 9.23.0
