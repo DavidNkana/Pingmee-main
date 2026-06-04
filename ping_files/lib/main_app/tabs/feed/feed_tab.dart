@@ -1909,6 +1909,7 @@ class _MomentCard extends StatelessWidget {
   final VoidCallback onRepost;
   final VoidCallback onMore;
   final VoidCallback onShare;
+  final bool authorVerified;
 
   const _MomentCard({
     required this.data,
