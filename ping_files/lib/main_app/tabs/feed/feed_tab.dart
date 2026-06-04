@@ -823,6 +823,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
           ),
 
           // ── Feed peek blur overlay (tap to close) ───────────
+          // Placed AFTER main content in Stack so it renders ON TOP of the feed.
+          // Positioned to cover only the feed-peek strip (right of drawer edge).
           ValueListenableBuilder<double>(
             valueListenable: _drawerAnimController,
             builder: (context, animValue, _) {
@@ -836,8 +838,12 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                   onTap: _toggleDrawer,
                   child: ClipRect(
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-                      child: Container(color: Colors.black.withOpacity(0.08 * animValue)),
+                      filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1 * animValue),
+                        ),
+                      ),
                     ),
                   ),
                 ),
