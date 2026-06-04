@@ -870,8 +870,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
             child: AnimatedBuilder(
               animation: _drawerAnimController,
               builder: (context, _) => Transform.translate(
-                offset: Offset(drawerOffset.value, 0),
-                child: SafeArea(
+              offset: Offset(drawerOffset.value, 0),
+              child: SafeArea(
                 child: Column(
                   children: [
                     // Threads-style header — just hamburger + bell when closed
@@ -918,6 +918,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                   ],
                 ),
               ),
+            ),
             ),
           ),
         ],
@@ -1045,8 +1046,7 @@ class _DrawerItem extends StatelessWidget {
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 
