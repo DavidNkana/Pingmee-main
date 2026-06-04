@@ -35,6 +35,8 @@ enum _FeedMode {
   following,
   aroundMe,
   explore,
+  liked,
+  saved,
 }
 
 class FeedTab extends StatefulWidget {
@@ -116,6 +118,22 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   }
 
   void _selectFeedMode(_FeedMode mode) {
+    if (mode == _FeedMode.liked) {
+      _drawerAnimController.reverse();
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LikedMomentsScreen()),
+      );
+      return;
+    }
+    if (mode == _FeedMode.saved) {
+      _drawerAnimController.reverse();
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SavedMomentsScreen()),
+      );
+      return;
+    }
     setState(() => _feedMode = mode);
     _drawerAnimController.reverse();
   }
@@ -128,6 +146,10 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
         return 'Around Me';
       case _FeedMode.explore:
         return 'Explore';
+      case _FeedMode.liked:
+        return 'Liked Moments';
+      case _FeedMode.saved:
+        return 'Saved Moments';
     }
   }
 
@@ -228,22 +250,6 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
           const SnackBar(content: Text("Couldn't report Moment.")),
         );
       }
-      return;
-    }
-
-    if (action == "liked") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => LikedMomentsScreen()),
-      );
-      return;
-    }
-
-    if (action == "saved") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => SavedMomentsScreen()),
-      );
       return;
     }
   }
@@ -1028,6 +1034,22 @@ class _ThreadsDrawer extends StatelessWidget {
             const SizedBox(height: 20),
             const Padding(
               padding: EdgeInsets.fromLTRB(22, 0, 22, 8),
+              child: Divider(height: 1, color: Color(0xFFE4E6EB)),
+            ),
+            _DrawerItem(
+              icon: PhosphorIcons.heart(PhosphorIconsStyle.light),
+              label: 'Liked Moments',
+              selected: selected == _FeedMode.liked,
+              onTap: () => onSelect(_FeedMode.liked),
+            ),
+            _DrawerItem(
+              icon: PhosphorIcons.bookmark(PhosphorIconsStyle.light),
+              label: 'Saved Moments',
+              selected: selected == _FeedMode.saved,
+              onTap: () => onSelect(_FeedMode.saved),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 8, 0, 8),
               child: Divider(height: 1, color: Color(0xFFE4E6EB)),
             ),
             _DrawerItem(
@@ -3523,18 +3545,6 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              _MomentMoreTile(
-                icon: PhosphorIcons.heart(PhosphorIconsStyle.regular),
-                title: "Liked Moments",
-                onTap: () => Navigator.pop(context, "liked"),
-              ),
-              const SizedBox(height: 8),
-              _MomentMoreTile(
-                icon: PhosphorIcons.bookmark(PhosphorIconsStyle.regular),
-                title: "Saved Moments",
-                onTap: () => Navigator.pop(context, "saved"),
-              ),
-              const SizedBox(height: 8),
               if (isOwner)
                 _MomentMoreTile(
                   icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
