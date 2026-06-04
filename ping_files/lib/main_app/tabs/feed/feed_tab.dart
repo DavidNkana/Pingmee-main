@@ -2036,8 +2036,8 @@ class _MomentCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: "Nunito",
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                         color: Colors.black87,
                       ),
                     ),
@@ -2109,8 +2109,8 @@ class _MomentCard extends StatelessWidget {
                     label,
                     style: TextStyle(
                       fontFamily: "Nunito",
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
                       color: Colors.black.withOpacity(.62),
                     ),
                   ),
@@ -3533,8 +3533,8 @@ class _MomentMoreTile extends StatelessWidget {
                   title,
                   style: TextStyle(
                     fontFamily: "Nunito",
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                     color: color,
                   ),
                 ),
