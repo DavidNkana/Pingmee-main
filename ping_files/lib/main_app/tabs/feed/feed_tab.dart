@@ -225,8 +225,9 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       } catch (_) {
         if (!mounted) return;
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text("Couldn’t report Moment.")),
+          const SnackBar(content: Text("Couldn't report Moment.")),
         );
+      }
       return;
     }
 
