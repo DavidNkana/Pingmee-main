@@ -1942,6 +1942,7 @@ class _MomentCard extends StatelessWidget {
         : 0;   
 
     final authorPhotoUrl = _text("authorPhotoUrl");
+    final authorVerified = data["authorVerified"] == true;
     final text = _text("text");
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
@@ -2041,6 +2042,14 @@ class _MomentCard extends StatelessWidget {
                         color: Colors.black87,
                       ),
                     ),
+                    if (authorVerified) ...[
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.verified_rounded,
+                        size: 14,
+                        color: Color(0xFF1D9BF0),
+                      ),
+                    ],
                     const SizedBox(height: 2),
                     Text(
                       [
