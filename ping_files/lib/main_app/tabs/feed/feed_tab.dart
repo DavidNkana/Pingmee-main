@@ -934,14 +934,17 @@ class _ThreadsDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Constrain background to just the menu content width, not full screen.
+    // Box shadow is small (4px) so it doesn't spill past the content edge.
     return Container(
+      width: 260, // only as wide as the menu content needs
       decoration: const BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: Color(0xFFF5F5F5),
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
-            blurRadius: 24,
-            offset: Offset(4, 0),
+            blurRadius: 4,
+            offset: Offset(2, 0),
           ),
         ],
       ),
