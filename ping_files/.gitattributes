@@ -1,0 +1,15 @@
+# Force all files to use LF line endings to avoid ESLint/Windows CRLF issues
+* text=auto
+
+# Explicitly set JS/JSON/YAML files to LF
+*.js    eol=lf
+*.ts    eol=lf
+*.json  eol=lf
+*.yaml  eol=lf
+*.yml   eol=lf
+
+# Keep binary files as-is
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
