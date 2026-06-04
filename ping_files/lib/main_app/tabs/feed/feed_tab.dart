@@ -896,7 +896,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                           ? PhosphorIcons.x(PhosphorIconsStyle.bold)
                                           : PhosphorIcons.list(PhosphorIconsStyle.bold),
                                       size: 24,
-                                      color: Colors.black.withOpacity(.80),
+                                      color: Colors.white,
                                     ),
                                   ),
                                 ),
