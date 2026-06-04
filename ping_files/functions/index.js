@@ -1241,6 +1241,7 @@ exports.toggleMomentLike = onCall(
       }
 
       const activityId = cleanString(request.data && request.data.activityId);
+      const momentId = cleanString(request.data && request.data.momentId);
       const currentlyLiked =
         request.data && request.data.currentlyLiked === true;
       const existingReactionId = cleanString(
@@ -1253,6 +1254,8 @@ exports.toggleMomentLike = onCall(
             "Missing activityId.",
         );
       }
+
+      const firestoreMomentId = momentId || activityId;
 
       const client = getStreamFeedsClient();
 
@@ -1284,7 +1287,7 @@ exports.toggleMomentLike = onCall(
           // Remove from Firestore liked_moments subcollection
           await admin.firestore()
               .collection("users").doc(uid)
-              .collection("liked_moments").doc(activityId)
+              .collection("liked_moments").doc(firestoreMomentId)
               .delete()
               .catch(() => {}); // ignore if already absent
 
@@ -1307,7 +1310,7 @@ exports.toggleMomentLike = onCall(
         // Write to Firestore liked_moments subcollection
         await admin.firestore()
             .collection("users").doc(uid)
-            .collection("liked_moments").doc(activityId)
+            .collection("liked_moments").doc(firestoreMomentId)
             .set({likedAt: admin.firestore.FieldValue.serverTimestamp()})
             .catch(() => {}); // non-fatal
 
@@ -1357,6 +1360,7 @@ exports.toggleMomentBookmark = onCall(
       }
 
       const activityId = cleanString(request.data && request.data.activityId);
+      const momentId = cleanString(request.data && request.data.momentId);
       const currentlySaved =
         request.data && request.data.currentlySaved === true;
       const existingReactionId = cleanString(
@@ -1369,6 +1373,8 @@ exports.toggleMomentBookmark = onCall(
             "Missing activityId.",
         );
       }
+
+      const firestoreMomentId = momentId || activityId;
 
       const client = getStreamFeedsClient();
 
@@ -1398,7 +1404,7 @@ exports.toggleMomentBookmark = onCall(
           // Remove from Firestore saved_moments subcollection
           await admin.firestore()
               .collection("users").doc(uid)
-              .collection("saved_moments").doc(activityId)
+              .collection("saved_moments").doc(firestoreMomentId)
               .delete()
               .catch(() => {}); // ignore if already absent
 
@@ -1423,7 +1429,7 @@ exports.toggleMomentBookmark = onCall(
         // Write to Firestore saved_moments subcollection
         await admin.firestore()
             .collection("users").doc(uid)
-            .collection("saved_moments").doc(activityId)
+            .collection("saved_moments").doc(firestoreMomentId)
             .set({savedAt: admin.firestore.FieldValue.serverTimestamp()})
             .catch(() => {}); // non-fatal
 

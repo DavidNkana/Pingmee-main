@@ -318,6 +318,12 @@ Future<void> _toggleMomentBookmark(int index) async {
     final activityId = (moment["id"] ?? "").toString().trim();
     if (activityId.isEmpty) return;
 
+    // Extract Firestore document ID from foreignId (format: "moment:{firestoreId}")
+    final foreignId = (moment["foreignId"] ?? "").toString().trim();
+    final momentId = foreignId.startsWith("moment:")
+        ? foreignId.substring(7)
+        : activityId;
+
     if (_savingMomentIds.contains(activityId)) {
       debugPrint("🛑 Save ignored: already updating $activityId");
       return;
@@ -341,6 +347,7 @@ Future<void> _toggleMomentBookmark(int index) async {
         activityId: activityId,
         currentlySaved: currentlySaved,
         reactionId: reactionId,
+        momentId: momentId,
       );
 
       if (!mounted) return;
@@ -806,6 +813,12 @@ Future<void> _toggleMomentBookmark(int index) async {
     final activityId = (moment["id"] ?? "").toString().trim();
     if (activityId.isEmpty) return;
 
+    // Extract Firestore document ID from foreignId (format: "moment:{firestoreId}")
+    final foreignId = (moment["foreignId"] ?? "").toString().trim();
+    final momentId = foreignId.startsWith("moment:")
+        ? foreignId.substring(7)
+        : activityId;
+
     if (_likingMomentIds.contains(activityId)) {
       debugPrint("🛑 Like ignored: already updating $activityId");
       return;
@@ -834,6 +847,7 @@ Future<void> _toggleMomentBookmark(int index) async {
         activityId: activityId,
         currentlyLiked: currentlyLiked,
         reactionId: reactionId,
+        momentId: momentId,
       );
 
       if (!mounted) return;

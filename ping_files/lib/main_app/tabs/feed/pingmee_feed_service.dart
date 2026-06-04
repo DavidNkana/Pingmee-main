@@ -242,6 +242,7 @@ class PingmeeFeedService {
     required String activityId,
     required bool currentlyLiked,
     required String reactionId,
+    required String momentId,
   }) async {
     debugPrint("🟢 Calling toggleMomentLike function...");
 
@@ -252,6 +253,7 @@ class PingmeeFeedService {
         "activityId": activityId,
         "currentlyLiked": currentlyLiked,
         "reactionId": reactionId,
+        "momentId": momentId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -351,6 +353,7 @@ class PingmeeFeedService {
     required String activityId,
     required bool currentlySaved,
     required String reactionId,
+    required String momentId,
   }) async {
     debugPrint("🟢 Calling toggleMomentBookmark function...");
 
@@ -361,6 +364,7 @@ class PingmeeFeedService {
         "activityId": activityId,
         "currentlySaved": currentlySaved,
         "reactionId": reactionId,
+        "momentId": momentId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
