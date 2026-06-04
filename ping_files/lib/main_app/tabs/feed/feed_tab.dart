@@ -839,7 +839,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                   children: [
                     // Threads-style header
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 10, 16, 6),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 16, 6),
                       child: Row(
                         children: [
                           // Hamburger / Threads menu button
@@ -850,8 +850,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                               onTap: _toggleDrawer,
                               borderRadius: BorderRadius.circular(20),
                               child: Container(
-                                width: 44,
-                                height: 44,
+                                width: 40,
+                                height: 40,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(20),
                                 ),
@@ -862,7 +862,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                                       _drawerAnimController.value > 0.5
                                           ? PhosphorIcons.x(PhosphorIconsStyle.bold)
                                           : PhosphorIcons.list(PhosphorIconsStyle.bold),
-                                      size: 26,
+                                      size: 24,
                                       color: Colors.black.withOpacity(.80),
                                     ),
                                   ),
@@ -870,16 +870,20 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 4),
-                          // Current mode label
+                          const SizedBox(width: 6),
+                          // Current mode label — only visible when drawer is open
                           Expanded(
-                            child: Text(
-                              _feedModeLabel,
-                              style: const TextStyle(
-                                fontFamily: "Nunito",
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.black87,
+                            child: AnimatedOpacity(
+                              opacity: _drawerAnimController.value,
+                              duration: const Duration(milliseconds: 160),
+                              child: Text(
+                                _feedModeLabel,
+                                style: TextStyle(
+                                  fontFamily: "Nunito",
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black.withOpacity(.75),
+                                ),
                               ),
                             ),
                           ),
