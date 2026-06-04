@@ -1171,8 +1171,10 @@ class _ChatNavIconWithUnreadDotState extends State<_ChatNavIconWithUnreadDot> {
   StreamSubscription<Map<String, Channel>>? _channelsStreamSub;
   final Map<String, StreamSubscription<int>> _channelUnreadSubs = {};
   StreamChatClient? _client;
+  final Set<String> _archivedCids = {};
+  StreamSubscription? _archivedPrefsSub;
 
-  int _computeTotal(Map<String, Channel> channels) {
+  int _computeTotal(Map<String, Channel> channels, {bool excludeArchived = true}) {
     final currentUserId = _client?.state.currentUser?.id;
     int total = 0;
     for (final channel in channels.values) {
@@ -1182,6 +1184,9 @@ class _ChatNavIconWithUnreadDotState extends State<_ChatNavIconWithUnreadDot> {
 
       final cid = channel.cid ?? '';
       if (!cid.startsWith('messaging:')) continue;
+
+      // Skip archived channels
+      if (excludeArchived && _archivedCids.contains(cid)) continue;
 
       if (currentUserId != null &&
           state.members.isNotEmpty &&
@@ -1242,6 +1247,30 @@ class _ChatNavIconWithUnreadDotState extends State<_ChatNavIconWithUnreadDot> {
         });
 
         _syncChannelListeners(client.state.channels);
+
+        // Listen to Firestore to track which channels are archived
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) {
+          _archivedPrefsSub = FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .collection('chatPrefs')
+              .where('archived', isEqualTo: true)
+              .snapshots()
+              .listen((snap) {
+            if (!mounted) return;
+            final archived = <String>{};
+            for (final doc in snap.docs) {
+              final docId = Uri.decodeComponent(doc.id);
+              archived.add(docId);
+            }
+            setState(() {
+              _archivedCids.clear();
+              _archivedCids.addAll(archived);
+            });
+            _emitTotal();
+          });
+        }
       }
       return client;
     } catch (_) {
@@ -1255,6 +1284,7 @@ class _ChatNavIconWithUnreadDotState extends State<_ChatNavIconWithUnreadDot> {
     _unreadController?.close();
     _channelUnreadSubs.values.forEach((s) => s.cancel());
     _channelUnreadSubs.clear();
+    _archivedPrefsSub?.cancel();
     super.dispose();
   }
 
