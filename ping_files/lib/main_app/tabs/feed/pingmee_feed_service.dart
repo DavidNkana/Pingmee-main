@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -549,5 +550,87 @@ class PingmeeFeedService {
       debugPrintStack(stackTrace: st);
       rethrow;
     }
+  }
+
+  /// Load all moments the current user has liked.
+  /// Tries Firestore subcollection first (users/{uid}/liked_moments),
+  /// falls back to timeline + likedByMe filter.
+  Future<List<Map<String, dynamic>>> loadMyLikedMoments() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return [];
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(user.uid)
+          .collection("liked_moments")
+          .orderBy("likedAt", descending: true)
+          .limit(50)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final moments = <Map<String, dynamic>>[];
+        for (final doc in snap.docs) {
+          final momentId = doc.id;
+          try {
+            final momentSnap = await FirebaseFirestore.instance
+                .collection("moments")
+                .doc(momentId)
+                .get();
+            if (momentSnap.exists) {
+              final m = Map<String, dynamic>.from(momentSnap.data()!);
+              m["id"] = momentId;
+              m["likedByMe"] = true;
+              moments.add(m);
+            }
+          } catch (_) {}
+        }
+        return moments;
+      }
+    } catch (_) {}
+
+    final all = await loadMyTimelineMoments();
+    return all.where((m) => m["likedByMe"] == true).toList();
+  }
+
+  /// Load all moments the current user has saved/bookmarked.
+  /// Tries Firestore subcollection first (users/{uid}/saved_moments),
+  /// falls back to timeline + savedByMe filter.
+  Future<List<Map<String, dynamic>>> loadMySavedMoments() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return [];
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(user.uid)
+          .collection("saved_moments")
+          .orderBy("savedAt", descending: true)
+          .limit(50)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final moments = <Map<String, dynamic>>[];
+        for (final doc in snap.docs) {
+          final momentId = doc.id;
+          try {
+            final momentSnap = await FirebaseFirestore.instance
+                .collection("moments")
+                .doc(momentId)
+                .get();
+            if (momentSnap.exists) {
+              final m = Map<String, dynamic>.from(momentSnap.data()!);
+              m["id"] = momentId;
+              m["savedByMe"] = true;
+              moments.add(m);
+            }
+          } catch (_) {}
+        }
+        return moments;
+      }
+    } catch (_) {}
+
+    final all = await loadMyTimelineMoments();
+    return all.where((m) => m["savedByMe"] == true).toList();
   }
 }

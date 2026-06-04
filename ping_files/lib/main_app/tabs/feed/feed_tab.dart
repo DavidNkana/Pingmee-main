@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/features/pings/manage_ping_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
+import 'package:ping_files/main_app/tabs/feed/liked_moments_screen.dart';
+import 'package:ping_files/main_app/tabs/feed/saved_moments_screen.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
@@ -225,7 +227,23 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           const SnackBar(content: Text("Couldn’t report Moment.")),
         );
-      }
+      return;
+    }
+
+    if (action == "liked") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => LikedMomentsScreen()),
+      );
+      return;
+    }
+
+    if (action == "saved") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => SavedMomentsScreen()),
+      );
+      return;
     }
   }
 
@@ -3504,6 +3522,18 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
+              _MomentMoreTile(
+                icon: PhosphorIcons.heart(PhosphorIconsStyle.regular),
+                title: "Liked Moments",
+                onTap: () => Navigator.pop(context, "liked"),
+              ),
+              const SizedBox(height: 8),
+              _MomentMoreTile(
+                icon: PhosphorIcons.bookmark(PhosphorIconsStyle.regular),
+                title: "Saved Moments",
+                onTap: () => Navigator.pop(context, "saved"),
+              ),
+              const SizedBox(height: 8),
               if (isOwner)
                 _MomentMoreTile(
                   icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
