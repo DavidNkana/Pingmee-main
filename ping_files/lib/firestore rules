@@ -931,6 +931,16 @@ service cloud.firestore {
         allow create, update, delete: if isMe(userId) || isAdmin();
       }
 
+      match /liked_moments/{momentId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create, update, delete: if isMe(userId) || isAdmin();
+      }
+
+      match /saved_moments/{momentId} {
+        allow read: if isMe(userId) || isAdmin();
+        allow create, update, delete: if isMe(userId) || isAdmin();
+      }
+
       match /profile_views/{viewId} {
         allow read: if isMe(userId) || isAdmin();
 
