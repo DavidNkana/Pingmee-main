@@ -269,7 +269,22 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     }
   }
 
-  Future<void> _toggleMomentBookmark(int index) async {
+  
+  Future<void> _shareMoment(Map<String, dynamic> moment) async {
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ShareMomentSheet(moment: moment),
+      );
+    } catch (_) {
+      // Share cancelled or failed silently
+    }
+  }
+
+Future<void> _toggleMomentBookmark(int index) async {
     if (index < 0 || index >= _timelineMoments.length) return;
 
     final moment = Map<String, dynamic>.from(_timelineMoments[index]);
