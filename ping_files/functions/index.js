@@ -1148,14 +1148,18 @@ exports.loadMyTimelineMoments = onCall(
           } catch (err) {
             console.warn("Failed to backfill originalMedia:", err.message);
           }
+          // DEBUG: Log backfill details
+          console.log("DEBUG backfill repostNeedsMedia count:", repostNeedsMedia.length);
           for (const repost of repostNeedsMedia) {
             const orig = originalActivities.find(
               (a) => a && a.id === repost.originalActivityId,
             );
+            console.log("DEBUG backfill repost:", repost.originalActivityId, "orig found:", !!orig, "orig.media:", orig && orig.media ? orig.media.length : "none");
             if (orig && Array.isArray(orig.media) && orig.media.length > 0) {
               const a = results[repost.index];
               if (!Array.isArray(a.originalMedia)) {
                 a.originalMedia = orig.media;
+                console.log("DEBUG backfill applied media to repost index:", repost.index);
               }
             }
           }
@@ -1609,6 +1613,10 @@ exports.createMomentRepost = onCall(
             return item.url &&
               (item.type === "image" || item.type === "video");
           });
+
+      // DEBUG: Log originalMedia to trace why images aren't showing in reposts
+      console.log("DEBUG createRepost originalMedia count:", originalMedia.length);
+      console.log("DEBUG createRepost originalMedia:", JSON.stringify(originalMedia));
 
       if (!originalActivityId) {
         throw new HttpsError(
