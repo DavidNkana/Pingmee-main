@@ -423,6 +423,13 @@ class PingmeeFeedService {
         originalMoment["authorPhotoUrl"],
       ]);
 
+      // DEBUG: Log full originalMoment to trace media fields
+      debugPrint("🧪 repost originalMoment keys=${originalMoment.keys.toList()}");
+      debugPrint("🧪 repost originalMoment originalMedia=${originalMoment["originalMedia"]}");
+      debugPrint("🧪 repost originalMoment media=${originalMoment["media"]}");
+      debugPrint("🧪 repost originalMoment text=${originalMoment["text"]}");
+      debugPrint("🧪 repost originalMoment originalText=${originalMoment["originalText"]}");
+
       final originalMedia = originalMoment["originalMedia"] is List
           ? List<Map<String, dynamic>>.from(
               (originalMoment["originalMedia"] as List)
