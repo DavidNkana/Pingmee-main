@@ -1294,9 +1294,13 @@ exports.toggleMomentLike = onCall(
               .catch(() => {}); // ignore if already absent
 
           // Decrement Firestore likeCount
+          // eslint-disable-next-line max-len
           await admin.firestore()
               .collection("moments").doc(firestoreMomentId)
-              .set({likeCount: admin.firestore.FieldValue.increment(-1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+              .set({
+                likeCount: admin.firestore.FieldValue.increment(-1),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              }, {merge: true})
               .catch(() => {}); // non-fatal
 
           return {
@@ -1323,9 +1327,13 @@ exports.toggleMomentLike = onCall(
             .catch(() => {}); // non-fatal
 
         // Increment Firestore likeCount
+        // eslint-disable-next-line max-len
         await admin.firestore()
             .collection("moments").doc(firestoreMomentId)
-            .set({likeCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+            .set({
+              likeCount: admin.firestore.FieldValue.increment(1),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true})
             .catch(() => {}); // non-fatal
 
         return {
@@ -1423,9 +1431,13 @@ exports.toggleMomentBookmark = onCall(
               .catch(() => {}); // ignore if already absent
 
           // Decrement Firestore savedCount
+          // eslint-disable-next-line max-len
           await admin.firestore()
               .collection("moments").doc(firestoreMomentId)
-              .set({savedCount: admin.firestore.FieldValue.increment(-1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+              .set({
+                savedCount: admin.firestore.FieldValue.increment(-1),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              }, {merge: true})
               .catch(() => {}); // non-fatal
 
           return {
@@ -1454,9 +1466,13 @@ exports.toggleMomentBookmark = onCall(
             .catch(() => {}); // non-fatal
 
         // Increment Firestore savedCount
+        // eslint-disable-next-line max-len
         await admin.firestore()
             .collection("moments").doc(firestoreMomentId)
-            .set({savedCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+            .set({
+              savedCount: admin.firestore.FieldValue.increment(1),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true})
             .catch(() => {}); // non-fatal
 
         return {
@@ -1648,18 +1664,23 @@ exports.createMomentRepost = onCall(
         });
 
         // Increment Firestore repostCount on the original moment.
-        // The originalActivityId is the GetStream UUID. The Firestore moment ID
-        // can be derived from the original moment's foreignId (sent in the request).
-        const originalFirestoreId = cleanString(
+        // The originalActivityId is the GetStream UUID. The Firestore moment
+        // ID is derived from the original moment's foreignId from the request.
+        const originalForeignId = cleanString(
             request.data && request.data.originalForeignId,
-        ).startsWith("moment:") ?
-            cleanString(request.data && request.data.originalForeignId).substring(7) :
+        );
+        const originalFirestoreId = originalForeignId.startsWith("moment:") ?
+            originalForeignId.substring(7) :
             "";
         if (originalFirestoreId) {
+          // eslint-disable-next-line max-len
           await admin.firestore()
-            .collection("moments").doc(originalFirestoreId)
-            .set({repostCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
-            .catch(() => {}); // non-fatal
+              .collection("moments").doc(originalFirestoreId)
+              .set({
+                repostCount: admin.firestore.FieldValue.increment(1),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              }, {merge: true})
+              .catch(() => {}); // non-fatal
         }
 
         return {
@@ -1749,10 +1770,11 @@ exports.addMomentComment = onCall(
             },
         );
 
-        // Look up the activity to find its foreign_id (format: moment:{firestoreId})
-        // and increment Firestore commentCount on that moment doc.
+        // eslint-disable-next-line max-len
+        // Look up the activity to find its foreign_id, then increment
+        // Firestore commentCount on the moment doc.
         try {
-          const activity = await client.getActivities({ ids: [activityId] });
+          const activity = await client.getActivities({ids: [activityId]});
           const found = Array.isArray(activity && activity.activities) ?
             activity.activities.find((a) => a && a.id === activityId) :
             null;
@@ -1761,13 +1783,20 @@ exports.addMomentComment = onCall(
             foreignId.substring(7) :
             "";
           if (firestoreMomentId) {
+            // eslint-disable-next-line max-len
             await admin.firestore()
-              .collection("moments").doc(firestoreMomentId)
-              .set({commentCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
-              .catch(() => {});
+                .collection("moments").doc(firestoreMomentId)
+                .set({
+                  commentCount: admin.firestore.FieldValue.increment(1),
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, {merge: true})
+                .catch(() => {});
           }
-        } catch (e) {
-          console.error("addMomentComment: failed to update commentCount", { error: e && e.message });
+        } catch (error) {
+          console.error(
+              "addMomentComment: failed to update commentCount",
+              {error: error && error.message},
+          );
         }
 
         return {
