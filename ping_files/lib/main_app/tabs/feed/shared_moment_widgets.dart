@@ -859,7 +859,7 @@ class _CommentsMomentSheetState extends State<CommentsMomentSheet> {
                             child: Center(
                               child: _sending
                                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
-                                  : const Icon(PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.fill), color: Colors.white, size: 19),
+                                  : Icon(PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.fill), color: Colors.white, size: 19),
                             ),
                           ),
                         ),
