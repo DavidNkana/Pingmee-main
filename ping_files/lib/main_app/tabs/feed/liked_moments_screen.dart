@@ -82,8 +82,9 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
             .where((ms) => ms.exists)
             .map((ms) {
               final d = Map<String, dynamic>.from(ms.data()!);
-              d["id"] = ms.id;
               d["_id"] = ms.id;
+              d["id"] = (d["streamActivityId"] ?? "").toString().trim();
+              d["foreignId"] = (d["streamForeignId"] ?? "").toString().trim();
               // Pull author info from users/{authorUid}
               final authorUid = d["authorUid"]?.toString().trim() ?? "";
               final userData = userCache[authorUid] ?? {};
@@ -207,6 +208,7 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
   Future<void> _openComments(Map<String, dynamic> moment) async {
     final activityId = (moment["id"] ?? "").toString().trim();
     if (activityId.isEmpty) return;
+    final firestoreId = (moment["_id"] ?? activityId).toString().trim();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -215,20 +217,21 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       builder: (_) => CommentsMomentSheet(activityId: activityId, feedService: _feedService),
     );
     // Reload the moment so the comment count and any new info refreshes
-    await _refreshOne(activityId);
+    await _refreshOne(firestoreId);
   }
 
-  Future<void> _refreshOne(String momentId) async {
-    final idx = _moments.indexWhere((m) => (m["id"] ?? "") == momentId);
+  Future<void> _refreshOne(String firestoreId) async {
+    final idx = _moments.indexWhere((m) => (m["_id"] ?? "") == firestoreId);
     if (idx < 0) return;
     try {
       final ms = await FirebaseFirestore.instance
-          .collection("moments").doc(momentId).get();
+          .collection("moments").doc(firestoreId).get();
       if (!ms.exists || !mounted) return;
       setState(() {
         final d = Map<String, dynamic>.from(ms.data()!);
-        d["id"] = ms.id;
         d["_id"] = ms.id;
+              d["id"] = (d["streamActivityId"] ?? "").toString().trim();
+              d["foreignId"] = (d["streamForeignId"] ?? "").toString().trim();
         // Preserve myLikeReactionId + interaction state on refresh
         d["likedByMe"] = _moments[idx]["likedByMe"] ?? true;
         d["savedByMe"] = _moments[idx]["savedByMe"] ?? false;
