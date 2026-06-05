@@ -1149,7 +1149,7 @@ exports.loadMyTimelineMoments = onCall(
           }
           for (const repost of repostNeedsMedia) {
             const orig = originalActivities.find(
-              (a) => a && a.id === repost.originalActivityId,
+                (a) => a && a.id === repost.originalActivityId,
             );
             if (orig && Array.isArray(orig.media) && orig.media.length > 0) {
               const a = results[repost.index];
