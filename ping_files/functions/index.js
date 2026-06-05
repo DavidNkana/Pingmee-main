@@ -1141,8 +1141,8 @@ exports.loadMyTimelineMoments = onCall(
           try {
             const actResult = await client.getActivities({ids});
             originalActivities =
-              actResult && Array.isArray(actResult.activities) ?
-              actResult.activities :
+              actResult && actResult.results && Array.isArray(actResult.results) ?
+              actResult.results :
               [];
           } catch (err) {
             console.warn("Failed to backfill originalMedia:", err.message);
@@ -1606,7 +1606,7 @@ exports.createMomentRepost = onCall(
           })
           .filter((item) => {
             return item.url &&
-              item.type === "image";
+              (item.type === "image" || item.type === "video");
           });
 
       if (!originalActivityId) {

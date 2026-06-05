@@ -349,8 +349,20 @@ class SharedMomentCard extends StatelessWidget {
               },
             ),
           ],
-          if (isRepost && originalText.isNotEmpty) ...[
+          // Show original content for reposts (text and/or media)
+          if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             const SizedBox(height: 12),
+            // Repost indicator above original content
+            if (text.isEmpty) ...[
+              Row(
+                children: [
+                  Icon(PhosphorIcons.repeat(PhosphorIconsStyle.bold), size: 15, color: Colors.black.withOpacity(.45)),
+                  const SizedBox(width: 6),
+                  Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.black.withOpacity(.48))),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
             SharedOriginalCard(
               authorName: originalAuthorName.isNotEmpty ? originalAuthorName : "Pingmee user",
               text: originalText,
@@ -358,16 +370,6 @@ class SharedMomentCard extends StatelessWidget {
               authorVerified: originalAuthorVerified,
               originalMedia: originalMedia,
               activityId: activityId,
-            ),
-          ],
-          if (isRepost && text.isEmpty) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(PhosphorIcons.repeat(PhosphorIconsStyle.bold), size: 15, color: Colors.black.withOpacity(.45)),
-                const SizedBox(width: 6),
-                Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.black.withOpacity(.48))),
-              ],
             ),
           ],
           const SizedBox(height: 14),
