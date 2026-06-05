@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:ping_files/theme/colors.dart';
+import 'package:ping_files/theme/colors2.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 /// Shared moment card and avatar widgets for liked/saved moments screens.
