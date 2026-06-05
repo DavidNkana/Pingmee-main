@@ -1116,9 +1116,9 @@ exports.loadMyTimelineMoments = onCall(
           response.results :
           [];
 
-        // Identify repost activities that need originalMedia backfilled from the
-        // original activity (for old reposts created before originalMedia was
-        // added to the activity data).
+        // Identify reposts that need originalMedia backfilled from
+        // the original activity (for old reposts where originalMedia
+        // was not yet embedded in GetStream activity data).
         const repostNeedsMedia = [];
         for (let i = 0; i < results.length; i++) {
           const a = results[i] || {};
@@ -1127,17 +1127,21 @@ exports.loadMyTimelineMoments = onCall(
             a.originalActivityId &&
             (!Array.isArray(a.originalMedia) || a.originalMedia.length === 0)
           ) {
-            repostNeedsMedia.push({index: i, originalActivityId: a.originalActivityId});
+            repostNeedsMedia.push({
+              index: i,
+              originalActivityId: a.originalActivityId,
+            });
           }
         }
 
-        // Fetch original activities in parallel for reposts that need backfilling.
+        // Fetch original activities to backfill missing originalMedia.
         if (repostNeedsMedia.length > 0) {
           const ids = repostNeedsMedia.map((r) => r.originalActivityId);
           let originalActivities = [];
           try {
             const actResult = await client.getActivities({ids});
-            originalActivities = actResult && Array.isArray(actResult.activities) ?
+            originalActivities =
+              actResult && Array.isArray(actResult.activities) ?
               actResult.activities :
               [];
           } catch (err) {
