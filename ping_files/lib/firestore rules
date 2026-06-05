@@ -75,6 +75,12 @@ service cloud.firestore {
       );
     }
     
+    match /moments/{momentId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isMe(resource.data.creatorId);
+    }
+    
     match /{path=**}/participants/{participantId} {
       allow read: if signedIn() &&
         resource.data.uid == request.auth.uid;
