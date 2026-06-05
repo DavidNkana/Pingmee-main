@@ -1155,11 +1155,17 @@ exports.loadMyTimelineMoments = onCall(
               (a) => a && a.id === repost.originalActivityId,
             );
             console.log("DEBUG backfill repost:", repost.originalActivityId, "orig found:", !!orig, "orig.media:", orig && orig.media ? orig.media.length : "none");
-            if (orig && Array.isArray(orig.media) && orig.media.length > 0) {
-              const a = results[repost.index];
-              if (!Array.isArray(a.originalMedia)) {
+            const a = results[repost.index];
+            if (orig) {
+              // Backfill originalMedia if missing
+              if ((!a.originalMedia || a.originalMedia.length === 0) && Array.isArray(orig.media) && orig.media.length > 0) {
                 a.originalMedia = orig.media;
                 console.log("DEBUG backfill applied media to repost index:", repost.index);
+              }
+              // Backfill originalText if missing
+              if (!a.originalText && orig.text) {
+                a.originalText = orig.text;
+                console.log("DEBUG backfill applied text to repost index:", repost.index);
               }
             }
           }
