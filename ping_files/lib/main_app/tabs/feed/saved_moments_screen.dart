@@ -2,9 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
 
 /// Displays moments the current user has saved.
+/// Reuses the same look + workflow as the regular feed (SharedMomentCard).
 class SavedMomentsScreen extends StatefulWidget {
   const SavedMomentsScreen({super.key});
 
@@ -13,6 +15,10 @@ class SavedMomentsScreen extends StatefulWidget {
 }
 
 class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
+  final PingmeeFeedService _feedService = PingmeeFeedService();
+  final Set<String> _likingMomentIds = {};
+  final Set<String> _savingMomentIds = {};
+
   List<Map<String, dynamic>> _moments = [];
   bool _loading = true;
   String? _error;
@@ -30,31 +36,44 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
       return;
     }
     try {
-      final snap = await FirebaseFirestore.instance
+      final savedSnap = await FirebaseFirestore.instance
           .collection("users").doc(uid).collection("saved_moments")
           .orderBy("savedAt", descending: true).get();
 
-      if (snap.docs.isEmpty) {
+      final likedSnap = await FirebaseFirestore.instance
+          .collection("users").doc(uid).collection("liked_moments")
+          .get();
+      final likedIds = likedSnap.docs.map((d) => d.id).toSet();
+
+      if (savedSnap.docs.isEmpty) {
         setState(() { _loading = false; _moments = []; });
         return;
       }
 
-      final momentIds = snap.docs.map((d) => d.id).toList();
+      final momentIds = savedSnap.docs.map((d) => d.id).toList();
       final momentSnaps = await Future.wait(
         momentIds.map((id) => FirebaseFirestore.instance
             .collection("moments").doc(id).get()),
       );
 
-      final verifiedCache = <String, bool>{};
+      // Fetch author user data (username + photo + verified)
+      final authorUids = <String>{};
       for (final ms in momentSnaps) {
         if (!ms.exists) continue;
-        final authorUid = ms.data()?["authorUid"]?.toString() ?? "";
-        if (authorUid.isNotEmpty && !verifiedCache.containsKey(authorUid)) {
-          final userSnap = await FirebaseFirestore.instance
-              .collection("users").doc(authorUid).get();
-          verifiedCache[authorUid] = userSnap.data()?["verification"]?["status"] == "verified";
+        final authorUid = ms.data()?["authorUid"]?.toString().trim();
+        if (authorUid != null && authorUid.isNotEmpty) {
+          authorUids.add(authorUid);
         }
       }
+
+      final userCache = <String, Map<String, dynamic>>{};
+      await Future.forEach(authorUids, (authorUid) async {
+        final userSnap = await FirebaseFirestore.instance
+            .collection("users").doc(authorUid).get();
+        if (userSnap.exists) {
+          userCache[authorUid] = userSnap.data() ?? {};
+        }
+      });
 
       if (!mounted) return;
       setState(() {
@@ -62,9 +81,15 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
             .where((ms) => ms.exists)
             .map((ms) {
               final d = Map<String, dynamic>.from(ms.data()!);
+              d["id"] = ms.id;
               d["_id"] = ms.id;
-              final authorUid = d["authorUid"]?.toString() ?? "";
-              d["_authorVerified"] = verifiedCache[authorUid] ?? false;
+              final authorUid = d["authorUid"]?.toString().trim() ?? "";
+              final userData = userCache[authorUid] ?? {};
+              d["authorName"] = userData["username"]?.toString() ?? "Pingmee user";
+              d["authorPhotoUrl"] = userData["photoUrl"]?.toString() ?? "";
+              d["_authorVerified"] = userData["verification"]?["status"] == "verified";
+              d["savedByMe"] = true; // All moments here are saved
+              d["likedByMe"] = likedIds.contains(ms.id);
               return d;
             })
             .toList();
@@ -76,25 +101,215 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
     }
   }
 
-  Future<void> _toggleSave(String momentId, int idx) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final ref = FirebaseFirestore.instance.collection("users").doc(uid).collection("saved_moments").doc(momentId);
-    final doc = await ref.get();
-    final wasSaved = doc.exists;
-    if (wasSaved) {
-      await ref.delete();
-      FirebaseFirestore.instance.collection("moments").doc(momentId).update({"savedCount": FieldValue.increment(-1)});
-    } else {
-      await ref.set({"savedAt": FieldValue.serverTimestamp()});
-      FirebaseFirestore.instance.collection("moments").doc(momentId).update({"savedCount": FieldValue.increment(1)});
-    }
-    if (!mounted) return;
+  Future<void> _toggleLike(Map<String, dynamic> moment, int idx) async {
+    final activityId = (moment["id"] ?? "").toString().trim();
+    if (activityId.isEmpty || _likingMomentIds.contains(activityId)) return;
+
+    final foreignId = (moment["foreignId"] ?? "").toString().trim();
+    final momentId = foreignId.startsWith("moment:")
+        ? foreignId.substring(7)
+        : activityId;
+
+    _likingMomentIds.add(activityId);
+    final currentlyLiked = _moments[idx]["likedByMe"] == true;
+    final currentCount = _moments[idx]["likeCount"] is num
+        ? (_moments[idx]["likeCount"] as num).toInt()
+        : 0;
+
     setState(() {
-      final current = _moments[idx]["savedByMe"] == true;
-      _moments[idx]["savedByMe"] = !current;
-      _moments[idx]["savedCount"] = ((_moments[idx]["savedCount"] ?? 0) as num).toInt() + (current ? -1 : 1);
+      _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+      _moments[idx]["likedByMe"] = !currentlyLiked;
+      _moments[idx]["likeCount"] = currentlyLiked
+          ? (currentCount - 1).clamp(0, 999999)
+          : currentCount + 1;
     });
+
+    try {
+      final result = await _feedService.toggleMomentLike(
+        activityId: activityId,
+        currentlyLiked: currentlyLiked,
+        reactionId: (moment["myLikeReactionId"] ?? "").toString(),
+        momentId: momentId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["likedByMe"] = result["liked"] == true;
+        _moments[idx]["myLikeReactionId"] = (result["reactionId"] ?? "").toString();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["likedByMe"] = currentlyLiked;
+        _moments[idx]["likeCount"] = currentCount;
+      });
+    } finally {
+      _likingMomentIds.remove(activityId);
+    }
+  }
+
+  Future<void> _toggleSave(Map<String, dynamic> moment, int idx) async {
+    final activityId = (moment["id"] ?? "").toString().trim();
+    if (activityId.isEmpty || _savingMomentIds.contains(activityId)) return;
+
+    _savingMomentIds.add(activityId);
+    final currentlySaved = _moments[idx]["savedByMe"] == true;
+    final currentCount = _moments[idx]["savedCount"] is num
+        ? (_moments[idx]["savedCount"] as num).toInt()
+        : 0;
+
+    setState(() {
+      _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+      _moments[idx]["savedByMe"] = !currentlySaved;
+      _moments[idx]["savedCount"] = currentlySaved
+          ? (currentCount - 1).clamp(0, 999999)
+          : currentCount + 1;
+    });
+
+    try {
+      final result = await _feedService.toggleMomentBookmark(
+        activityId: activityId,
+        currentlySaved: currentlySaved,
+        reactionId: "",
+        momentId: activityId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["savedByMe"] = result["saved"] == true;
+      });
+      // If user just un-saved, remove it from the list
+      if (result["saved"] != true) {
+        setState(() => _moments.removeAt(idx));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["savedByMe"] = currentlySaved;
+        _moments[idx]["savedCount"] = currentCount;
+      });
+    } finally {
+      _savingMomentIds.remove(activityId);
+    }
+  }
+
+  Future<void> _openComments(Map<String, dynamic> moment) async {
+    final activityId = (moment["id"] ?? "").toString().trim();
+    if (activityId.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CommentsMomentSheet(activityId: activityId, feedService: _feedService),
+    );
+    await _refreshOne(activityId);
+  }
+
+  Future<void> _refreshOne(String momentId) async {
+    final idx = _moments.indexWhere((m) => (m["id"] ?? "") == momentId);
+    if (idx < 0) return;
+    try {
+      final ms = await FirebaseFirestore.instance
+          .collection("moments").doc(momentId).get();
+      if (!ms.exists || !mounted) return;
+      setState(() {
+        final d = Map<String, dynamic>.from(ms.data()!);
+        d["id"] = ms.id;
+        d["_id"] = ms.id;
+        d["likedByMe"] = _moments[idx]["likedByMe"] ?? false;
+        d["savedByMe"] = _moments[idx]["savedByMe"] ?? true;
+        d["myLikeReactionId"] = _moments[idx]["myLikeReactionId"] ?? "";
+        d["_authorVerified"] = _moments[idx]["_authorVerified"] ?? false;
+        _moments[idx] = d;
+      });
+    } catch (_) {/* ignore */}
+  }
+
+  Future<void> _openRepost(Map<String, dynamic> moment) async {
+    final action = await showModalBottomSheet<RepostAction>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => RepostMomentSheet(moment: moment),
+    );
+    if (action == null) return;
+    try {
+      await _feedService.createMomentRepost(originalMoment: moment, quoteText: action.quoteText);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(action.quoteText.trim().isEmpty ? "Moment reposted." : "Quote Moment posted.")),
+      );
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Couldn't repost Moment.")),
+      );
+    }
+  }
+
+  Future<void> _openMore(Map<String, dynamic> moment, int idx) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+    final authorUid = (moment["authorUid"] ?? "").toString().trim();
+    final isOwner = currentUid.isNotEmpty && currentUid == authorUid;
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MomentMoreSheet(isOwner: isOwner),
+    );
+    if (action == null || !mounted) return;
+
+    if (action == "delete" && isOwner) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Delete Moment?"),
+          content: const Text("This removes the Moment from your feed. This cannot be undone."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Delete")),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+      final activityId = (moment["id"] ?? "").toString().trim();
+      final foreignId = (moment["foreignId"] ?? "").toString().trim();
+      if (activityId.isEmpty || foreignId.isEmpty) return;
+      try {
+        await _feedService.deleteMoment(activityId: activityId, foreignId: foreignId);
+        if (!mounted) return;
+        setState(() => _moments.removeAt(idx));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Moment deleted.")),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn't delete Moment.")),
+        );
+      }
+    } else if (action == "report") {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Report submitted. Thank you.")),
+      );
+    }
+  }
+
+  Future<void> _shareMoment(Map<String, dynamic> moment) async {
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => ShareMomentSheet(moment: moment),
+      );
+    } catch (_) {/* cancelled silently */}
   }
 
   @override
@@ -118,7 +333,7 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
           : _error != null
               ? _ErrorState(message: _error!, onRetry: _load)
               : _moments.isEmpty
-                  ? _EmptySavedState()
+                  ? const _EmptySavedState()
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView.separated(
@@ -131,12 +346,12 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                           return SharedMomentCard(
                             data: m,
                             authorVerified: m["_authorVerified"] == true,
-                            onLike: () {},
-                            onComment: () {},
-                            onSave: () => _toggleSave(m["_id"], idx),
-                            onRepost: () {},
-                            onMore: () {},
-                            onShare: () {},
+                            onLike: () => _toggleLike(m, idx),
+                            onComment: () => _openComments(m),
+                            onSave: () => _toggleSave(m, idx),
+                            onRepost: () => _openRepost(m),
+                            onMore: () => _openMore(m, idx),
+                            onShare: () => _shareMoment(m),
                           );
                         },
                       ),
@@ -146,6 +361,7 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
 }
 
 class _EmptySavedState extends StatelessWidget {
+  const _EmptySavedState();
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -171,7 +387,6 @@ class _ErrorState extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
   const _ErrorState({required this.message, required this.onRetry});
-
   @override
   Widget build(BuildContext context) {
     return Center(
