@@ -84,11 +84,19 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
               d["_id"] = ms.id;
               d["id"] = (d["streamActivityId"] ?? "").toString().trim();
               d["foreignId"] = (d["streamForeignId"] ?? "").toString().trim();
-              final authorUid = d["authorUid"]?.toString().trim() ?? "";
+              // The Firestore moment doc uses creatorId, but the regular feed
+              // uses authorUid — accept either for compatibility.
+              final authorUid = (d["authorUid"] ?? d["creatorId"] ?? "").toString().trim();
               final userData = userCache[authorUid] ?? {};
-              d["authorName"] = userData["username"]?.toString() ?? "Pingmee user";
-              d["authorPhotoUrl"] = userData["photoUrl"]?.toString() ?? "";
-              d["_authorVerified"] = userData["verification"]?["status"] == "verified";
+              d["authorName"] = _pickFirstNonEmpty(userData, [
+                "displayName", "fullName", "name", "username",
+              ]) ?? "Pingmee user";
+              d["authorPhotoUrl"] = _pickFirstNonEmpty(userData, [
+                "photoUrl", "photoURL", "profilePhotoUrl", "avatarUrl", "image",
+              ]) ?? "";
+              final verification = userData["verification"];
+              d["_authorVerified"] = verification is Map &&
+                  (verification["status"] ?? "").toString().toLowerCase() == "verified";
               d["savedByMe"] = true; // All moments here are saved
               d["likedByMe"] = likedIds.contains(ms.id);
               return d;
@@ -410,4 +418,15 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Returns the first non-empty value for the given keys, or null if all are empty.
+String? _pickFirstNonEmpty(Map<String, dynamic> map, List<String> keys) {
+  for (final k in keys) {
+    final v = map[k];
+    if (v == null) continue;
+    final s = v.toString().trim();
+    if (s.isNotEmpty) return s;
+  }
+  return null;
 }
