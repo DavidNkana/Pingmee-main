@@ -115,11 +115,11 @@ class SharedMomentCard extends StatelessWidget {
     // Try originalMedia first, then fall back to media (GetStream may store original media here)
     final rawOriginalMedia = data["originalMedia"] is List
         ? List<Map<String, dynamic>>.from(
-            (data["originalMedia"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)),
+            (data["originalMedia"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)))),
           )
         : data["media"] is List
             ? List<Map<String, dynamic>>.from(
-                (data["media"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item))),
+                (data["media"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)))),
               )
             : <Map<String, dynamic>>[];
     final originalMedia = rawOriginalMedia;
