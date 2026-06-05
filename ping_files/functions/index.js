@@ -1116,6 +1116,46 @@ exports.loadMyTimelineMoments = onCall(
           response.results :
           [];
 
+        // Identify repost activities that need originalMedia backfilled from the
+        // original activity (for old reposts created before originalMedia was
+        // added to the activity data).
+        const repostNeedsMedia = [];
+        for (let i = 0; i < results.length; i++) {
+          const a = results[i] || {};
+          if (
+            (a.type === "repost" || a.type === "quote") &&
+            a.originalActivityId &&
+            (!Array.isArray(a.originalMedia) || a.originalMedia.length === 0)
+          ) {
+            repostNeedsMedia.push({index: i, originalActivityId: a.originalActivityId});
+          }
+        }
+
+        // Fetch original activities in parallel for reposts that need backfilling.
+        if (repostNeedsMedia.length > 0) {
+          const ids = repostNeedsMedia.map((r) => r.originalActivityId);
+          let originalActivities = [];
+          try {
+            const actResult = await client.getActivities({ids});
+            originalActivities = actResult && Array.isArray(actResult.activities) ?
+              actResult.activities :
+              [];
+          } catch (err) {
+            console.warn("Failed to backfill originalMedia:", err.message);
+          }
+          for (const repost of repostNeedsMedia) {
+            const orig = originalActivities.find(
+              (a) => a && a.id === repost.originalActivityId,
+            );
+            if (orig && Array.isArray(orig.media) && orig.media.length > 0) {
+              const a = results[repost.index];
+              if (!Array.isArray(a.originalMedia)) {
+                a.originalMedia = orig.media;
+              }
+            }
+          }
+        }
+
         const activities = results.map((item) => {
           const activity = item || {};
 
