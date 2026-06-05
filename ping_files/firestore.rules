@@ -19,6 +19,11 @@ service cloud.firestore {
       match /saved_moments/{momentId} {
         allow read, write: if request.auth.uid == userId;
       }
+
+      // All other user subcollections (notifications, pings, chats, etc.) — owner full access
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth.uid == userId;
+      }
     }
 
     // ── Moments (Pingmee feed posts) ──────────────────────

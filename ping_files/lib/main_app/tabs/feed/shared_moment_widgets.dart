@@ -1,6 +1,9 @@
+import 'dart:ui';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:ping_files/theme/colors.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 /// Shared moment card and avatar widgets for liked/saved moments screens.
@@ -337,6 +340,140 @@ class _SharedOriginalCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(text, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: "Nunito", fontSize: 13.5, fontWeight: FontWeight.w400, color: Colors.black.withOpacity(.70))),
         ],
+      ),
+    );
+  }
+}
+
+// Public share sheet for moments — accessible from liked/saved moments screens.
+// Mirrors _ShareMomentSheet from feed_tab.dart but with working share actions.
+class ShareMomentSheet extends StatelessWidget {
+  final Map<String, dynamic> moment;
+
+  const ShareMomentSheet({super.key, required this.moment});
+
+  String _text(String key) => (moment[key] ?? "").toString().trim();
+
+  Future<void> _copyText(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: _text("text")));
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Text copied!", style: TextStyle(fontFamily: "Nunito"))),
+      );
+    }
+  }
+
+  Future<void> _copyLink(BuildContext context) async {
+    final text = _text("text");
+    final excerpt = text.length > 100 ? '${text.substring(0, 100)}...' : text;
+    await Clipboard.setData(ClipboardData(text: '$excerpt\n\nShared from Pingmee'));
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Copied to clipboard!", style: TextStyle(fontFamily: "Nunito"))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _text("text");
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(.96),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 16),
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          "Share",
+                          style: TextStyle(
+                            fontFamily: "Nunito",
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close, size: 20, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.brandGreen.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: Icon(PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.fill), size: 22, color: AppColors.brandGreen),
+                    ),
+                  ),
+                  title: const Text("Copy moment text", style: TextStyle(fontFamily: "Nunito", fontSize: 15, fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    text.length > 50 ? '${text.substring(0, 50)}...' : text,
+                    style: TextStyle(fontFamily: "Nunito", fontSize: 13, color: Colors.black.withOpacity(.5)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => _copyText(context),
+                ),
+                ListTile(
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.link, size: 22, color: Colors.blue),
+                    ),
+                  ),
+                  title: const Text("Copy link", style: TextStyle(fontFamily: "Nunito", fontSize: 15, fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                    "Copy shareable link to clipboard",
+                    style: TextStyle(fontFamily: "Nunito", fontSize: 13, color: Colors.black45),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => _copyLink(context),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

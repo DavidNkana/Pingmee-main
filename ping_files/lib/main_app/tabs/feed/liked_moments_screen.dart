@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
 
 /// Displays moments the current user has liked.
@@ -13,6 +14,10 @@ class LikedMomentsScreen extends StatefulWidget {
 }
 
 class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
+  final PingmeeFeedService _feedService = PingmeeFeedService();
+  final Set<String> _likingMomentIds = {};
+  final Set<String> _savingMomentIds = {};
+
   List<Map<String, dynamic>> _moments = [];
   bool _loading = true;
   String? _error;
@@ -30,31 +35,45 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       return;
     }
     try {
-      final snap = await FirebaseFirestore.instance
+      // Fetch liked moments and saved moments in parallel
+      final likedSnap = await FirebaseFirestore.instance
           .collection("users").doc(uid).collection("liked_moments")
           .orderBy("likedAt", descending: true).get();
 
-      if (snap.docs.isEmpty) {
+      final savedSnap = await FirebaseFirestore.instance
+          .collection("users").doc(uid).collection("saved_moments")
+          .get();
+      final savedIds = savedSnap.docs.map((d) => d.id).toSet();
+
+      if (likedSnap.docs.isEmpty) {
         setState(() { _loading = false; _moments = []; });
         return;
       }
 
-      final momentIds = snap.docs.map((d) => d.id).toList();
+      final momentIds = likedSnap.docs.map((d) => d.id).toList();
       final momentSnaps = await Future.wait(
         momentIds.map((id) => FirebaseFirestore.instance
             .collection("moments").doc(id).get()),
       );
 
-      final verifiedCache = <String, bool>{};
+      // Collect unique author UIDs and fetch user data (username + verified)
+      final authorUids = <String>{};
       for (final ms in momentSnaps) {
         if (!ms.exists) continue;
-        final authorUid = ms.data()?["authorUid"]?.toString() ?? "";
-        if (authorUid.isNotEmpty && !verifiedCache.containsKey(authorUid)) {
-          final userSnap = await FirebaseFirestore.instance
-              .collection("users").doc(authorUid).get();
-          verifiedCache[authorUid] = userSnap.data()?["verification"]?["status"] == "verified";
+        final authorUid = ms.data()?["authorUid"]?.toString().trim();
+        if (authorUid != null && authorUid.isNotEmpty) {
+          authorUids.add(authorUid);
         }
       }
+
+      final userCache = <String, Map<String, dynamic>>{};
+      await Future.forEach(authorUids, (authorUid) async {
+        final userSnap = await FirebaseFirestore.instance
+            .collection("users").doc(authorUid).get();
+        if (userSnap.exists) {
+          userCache[authorUid] = userSnap.data() ?? {};
+        }
+      });
 
       if (!mounted) return;
       setState(() {
@@ -63,8 +82,13 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
             .map((ms) {
               final d = Map<String, dynamic>.from(ms.data()!);
               d["_id"] = ms.id;
-              final authorUid = d["authorUid"]?.toString() ?? "";
-              d["_authorVerified"] = verifiedCache[authorUid] ?? false;
+              final authorUid = d["authorUid"]?.toString().trim() ?? "";
+              final userData = userCache[authorUid] ?? {};
+              d["authorName"] = userData["username"]?.toString() ?? "Pingmee user";
+              d["authorPhotoUrl"] = userData["photoUrl"]?.toString() ?? "";
+              d["_authorVerified"] = userData["verification"]?["status"] == "verified";
+              d["likedByMe"] = true; // All moments here are liked
+              d["savedByMe"] = savedIds.contains(ms.id);
               return d;
             })
             .toList();
@@ -77,24 +101,84 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
   }
 
   Future<void> _toggleLike(String momentId, int idx) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final ref = FirebaseFirestore.instance.collection("users").doc(uid).collection("liked_moments").doc(momentId);
-    final doc = await ref.get();
-    final wasLiked = doc.exists;
-    if (wasLiked) {
-      await ref.delete();
-      FirebaseFirestore.instance.collection("moments").doc(momentId).update({"likeCount": FieldValue.increment(-1)});
-    } else {
-      await ref.set({"likedAt": FieldValue.serverTimestamp()});
-      FirebaseFirestore.instance.collection("moments").doc(momentId).update({"likeCount": FieldValue.increment(1)});
-    }
-    if (!mounted) return;
+    if (_likingMomentIds.contains(momentId)) return;
+    final currentlyLiked = _moments[idx]["likedByMe"] == true;
+    _likingMomentIds.add(momentId);
+
     setState(() {
-      final current = _moments[idx]["likedByMe"] == true;
-      _moments[idx]["likedByMe"] = !current;
-      _moments[idx]["likeCount"] = ((_moments[idx]["likeCount"] ?? 0) as num).toInt() + (current ? -1 : 1);
+      _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+      _moments[idx]["likedByMe"] = !currentlyLiked;
+      _moments[idx]["likeCount"] = ((_moments[idx]["likeCount"] ?? 0) as num).toInt() + (currentlyLiked ? -1 : 1);
     });
+
+    try {
+      final result = await _feedService.toggleMomentLike(
+        activityId: momentId,
+        currentlyLiked: currentlyLiked,
+        reactionId: "",
+        momentId: momentId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["likedByMe"] = result["liked"] == true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["likedByMe"] = currentlyLiked;
+      });
+    } finally {
+      _likingMomentIds.remove(momentId);
+    }
+  }
+
+  Future<void> _toggleSave(String momentId, int idx) async {
+    if (_savingMomentIds.contains(momentId)) return;
+    final currentlySaved = _moments[idx]["savedByMe"] == true;
+    _savingMomentIds.add(momentId);
+
+    setState(() {
+      _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+      _moments[idx]["savedByMe"] = !currentlySaved;
+    });
+
+    try {
+      final result = await _feedService.toggleMomentBookmark(
+        activityId: momentId,
+        currentlySaved: currentlySaved,
+        reactionId: "",
+        momentId: momentId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["savedByMe"] = result["saved"] == true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
+        _moments[idx]["savedByMe"] = currentlySaved;
+      });
+    } finally {
+      _savingMomentIds.remove(momentId);
+    }
+  }
+
+  Future<void> _shareMoment(Map<String, dynamic> moment) async {
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => ShareMomentSheet(moment: moment),
+      );
+    } catch (_) {
+      // Cancelled silently
+    }
   }
 
   @override
@@ -133,10 +217,10 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
                             authorVerified: m["_authorVerified"] == true,
                             onLike: () => _toggleLike(m["_id"], idx),
                             onComment: () {},
-                            onSave: () {},
+                            onSave: () => _toggleSave(m["_id"], idx),
                             onRepost: () {},
                             onMore: () {},
-                            onShare: () {},
+                            onShare: () => _shareMoment(m),
                           );
                         },
                       ),
