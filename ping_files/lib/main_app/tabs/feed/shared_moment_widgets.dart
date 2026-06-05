@@ -119,7 +119,7 @@ class SharedMomentCard extends StatelessWidget {
           )
         : data["media"] is List
             ? List<Map<String, dynamic>>.from(
-                (data["media"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)))),
+                (data["media"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item))),
               )
             : <Map<String, dynamic>>[];
     final originalMedia = rawOriginalMedia;
