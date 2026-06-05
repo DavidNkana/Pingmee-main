@@ -1185,9 +1185,9 @@ exports.loadMyTimelineMoments = onCall(
                 activity.originalAuthorPhotoUrl,
             ),
             originalText: cleanString(activity.originalText),
-            originalMedia: Array.isArray(activity.originalMedia)
-                ? activity.originalMedia
-                : [],
+            originalMedia: Array.isArray(activity.originalMedia) ?
+                activity.originalMedia :
+                [],
 
             likedByMe: ownLikes.length > 0,
             myLikeReactionId: ownLikes.length > 0 ?
