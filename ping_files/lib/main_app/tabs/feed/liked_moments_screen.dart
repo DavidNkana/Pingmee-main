@@ -6,7 +6,7 @@ import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
 
 /// Displays moments the current user has liked.
-/// Reuses the same look + workflow as the regular feed (SharedMomentCard).
+/// Reuses the regular feed's data load + UI — just filters to liked ones.
 class LikedMomentsScreen extends StatefulWidget {
   const LikedMomentsScreen({super.key});
 
@@ -20,6 +20,7 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
   final Set<String> _savingMomentIds = {};
 
   List<Map<String, dynamic>> _moments = [];
+  Map<String, bool> _verifiedCache = {};
   bool _loading = true;
   String? _error;
 
@@ -36,75 +37,52 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       return;
     }
     try {
-      // Fetch liked + saved + all comments counts in parallel
+      // 1) Load the user's liked moment IDs (Firestore doc IDs) from Firestore.
+      // 2) Load the full timeline from GetStream via the same service the feed uses.
+      // 3) Keep only moments whose firestore momentId is in the liked set.
       final likedSnap = await FirebaseFirestore.instance
           .collection("users").doc(uid).collection("liked_moments")
-          .orderBy("likedAt", descending: true).get();
-
-      final savedSnap = await FirebaseFirestore.instance
-          .collection("users").doc(uid).collection("saved_moments")
+          .orderBy("likedAt", descending: true)
           .get();
-      final savedIds = savedSnap.docs.map((d) => d.id).toSet();
+      final likedFirestoreIds = likedSnap.docs.map((d) => d.id).toSet();
 
-      if (likedSnap.docs.isEmpty) {
-        setState(() { _loading = false; _moments = []; });
-        return;
-      }
+      final timeline = await _feedService.loadMyTimelineMoments();
+      if (!mounted) return;
 
-      final momentIds = likedSnap.docs.map((d) => d.id).toList();
-      final momentSnaps = await Future.wait(
-        momentIds.map((id) => FirebaseFirestore.instance
-            .collection("moments").doc(id).get()),
-      );
-
-      // Fetch author user data (username + photo + verified)
-      final authorUids = <String>{};
-      for (final ms in momentSnaps) {
-        if (!ms.exists) continue;
-        final authorUid = ms.data()?["authorUid"]?.toString().trim();
-        if (authorUid != null && authorUid.isNotEmpty) {
-          authorUids.add(authorUid);
+      // Derive firestore momentId from foreignId (format: "moment:{firestoreId}")
+      // and keep only moments the user has liked.
+      final filtered = <Map<String, dynamic>>[];
+      for (final m in timeline) {
+        final foreignId = (m["foreignId"] ?? "").toString().trim();
+        if (!foreignId.startsWith("moment:")) continue;
+        final momentId = foreignId.substring(7);
+        if (likedFirestoreIds.contains(momentId)) {
+          filtered.add(m);
         }
       }
 
-      final userCache = <String, Map<String, dynamic>>{};
-      await Future.forEach(authorUids, (authorUid) async {
-        final userSnap = await FirebaseFirestore.instance
-            .collection("users").doc(authorUid).get();
-        if (userSnap.exists) {
-          userCache[authorUid] = userSnap.data() ?? {};
+      // Build verified cache from unique author uids (same pattern the feed uses).
+      final cache = <String, bool>{};
+      final uids = <String>{};
+      for (final m in filtered) {
+        final a = (m["authorUid"] ?? "").toString().trim();
+        if (a.isNotEmpty) uids.add(a);
+      }
+      for (final a in uids) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection("users").doc(a).get();
+          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+          cache[a] = (verification["status"] ?? "").toString().toLowerCase() == "verified";
+        } catch (_) {
+          cache[a] = false;
         }
-      });
+      }
 
       if (!mounted) return;
       setState(() {
-        _moments = momentSnaps
-            .where((ms) => ms.exists)
-            .map((ms) {
-              final d = Map<String, dynamic>.from(ms.data()!);
-              d["_id"] = ms.id;
-              d["id"] = (d["streamActivityId"] ?? "").toString().trim();
-              d["foreignId"] = (d["streamForeignId"] ?? "").toString().trim();
-              // Pull author info from users/{authorUid}
-              // The Firestore moment doc uses creatorId, but the regular feed
-              // uses authorUid — accept either for compatibility.
-              final authorUid = (d["authorUid"] ?? d["creatorId"] ?? "").toString().trim();
-              final userData = userCache[authorUid] ?? {};
-              d["authorName"] = _pickFirstNonEmpty(userData, [
-                "displayName", "fullName", "name", "username",
-              ]) ?? "Pingmee user";
-              d["authorPhotoUrl"] = _pickFirstNonEmpty(userData, [
-                "photoUrl", "photoURL", "profilePhotoUrl", "avatarUrl", "image",
-              ]) ?? "";
-              final verification = userData["verification"];
-              d["_authorVerified"] = verification is Map &&
-                  (verification["status"] ?? "").toString().toLowerCase() == "verified";
-              // User states
-              d["likedByMe"] = true; // All moments here are liked
-              d["savedByMe"] = savedIds.contains(ms.id);
-              return d;
-            })
-            .toList();
+        _moments = filtered;
+        _verifiedCache = cache;
         _loading = false;
       });
     } catch (e) {
@@ -113,21 +91,26 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     }
   }
 
-  // --- Like (toggle: when user un-likes from this screen, the moment is removed via cloud function) ---
+  // --- Helpers (same pattern as the feed) ---
+
+  String _activityId(Map<String, dynamic> m) => (m["id"] ?? "").toString().trim();
+  String _foreignId(Map<String, dynamic> m) => (m["foreignId"] ?? "").toString().trim();
+  String _momentIdFromForeign(Map<String, dynamic> m) {
+    final f = _foreignId(m);
+    return f.startsWith("moment:") ? f.substring(7) : _activityId(m);
+  }
+
+  // --- Like (optimistic UI; if user unlikes, remove from list) ---
 
   Future<void> _toggleLike(Map<String, dynamic> moment, int idx) async {
-    final activityId = (moment["id"] ?? "").toString().trim();
+    final activityId = _activityId(moment);
     if (activityId.isEmpty || _likingMomentIds.contains(activityId)) return;
-
-    final foreignId = (moment["foreignId"] ?? "").toString().trim();
-    final momentId = foreignId.startsWith("moment:")
-        ? foreignId.substring(7)
-        : activityId;
-
     _likingMomentIds.add(activityId);
-    final currentlyLiked = _moments[idx]["likedByMe"] == true;
-    final currentCount = _moments[idx]["likeCount"] is num
-        ? (_moments[idx]["likeCount"] as num).toInt()
+
+    final currentlyLiked = moment["likedByMe"] == true;
+    final reactionId = (moment["myLikeReactionId"] ?? "").toString().trim();
+    final currentCount = moment["likeCount"] is num
+        ? (moment["likeCount"] as num).toInt()
         : 0;
 
     setState(() {
@@ -142,8 +125,8 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       final result = await _feedService.toggleMomentLike(
         activityId: activityId,
         currentlyLiked: currentlyLiked,
-        reactionId: (moment["myLikeReactionId"] ?? "").toString(),
-        momentId: momentId,
+        reactionId: reactionId,
+        momentId: _momentIdFromForeign(moment),
       );
       if (!mounted) return;
       setState(() {
@@ -151,7 +134,7 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
         _moments[idx]["likedByMe"] = result["liked"] == true;
         _moments[idx]["myLikeReactionId"] = (result["reactionId"] ?? "").toString();
       });
-      // If the user just unliked, remove it from the list
+      // If user just unliked, drop it from the Liked list.
       if (result["liked"] != true) {
         setState(() => _moments.removeAt(idx));
       }
@@ -167,16 +150,16 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     }
   }
 
-  // --- Save (toggle bookmark) ---
+  // --- Save (optimistic UI; if user unsaves, remove from list) ---
 
   Future<void> _toggleSave(Map<String, dynamic> moment, int idx) async {
-    final activityId = (moment["id"] ?? "").toString().trim();
+    final activityId = _activityId(moment);
     if (activityId.isEmpty || _savingMomentIds.contains(activityId)) return;
-
     _savingMomentIds.add(activityId);
-    final currentlySaved = _moments[idx]["savedByMe"] == true;
-    final currentCount = _moments[idx]["savedCount"] is num
-        ? (_moments[idx]["savedCount"] as num).toInt()
+
+    final currentlySaved = moment["savedByMe"] == true;
+    final currentCount = moment["savedCount"] is num
+        ? (moment["savedCount"] as num).toInt()
         : 0;
 
     setState(() {
@@ -192,13 +175,16 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
         activityId: activityId,
         currentlySaved: currentlySaved,
         reactionId: "",
-        momentId: activityId,
+        momentId: _momentIdFromForeign(moment),
       );
       if (!mounted) return;
       setState(() {
         _moments[idx] = Map<String, dynamic>.from(_moments[idx]);
         _moments[idx]["savedByMe"] = result["saved"] == true;
       });
+      if (result["saved"] != true) {
+        setState(() => _moments.removeAt(idx));
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -211,12 +197,11 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     }
   }
 
-  // --- Comments (reuses the same sheet the feed uses) ---
+  // --- Comments ---
 
   Future<void> _openComments(Map<String, dynamic> moment) async {
-    final activityId = (moment["id"] ?? "").toString().trim();
+    final activityId = _activityId(moment);
     if (activityId.isEmpty) return;
-    final firestoreId = (moment["_id"] ?? activityId).toString().trim();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -224,33 +209,10 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => CommentsMomentSheet(activityId: activityId, feedService: _feedService),
     );
-    // Reload the moment so the comment count and any new info refreshes
-    await _refreshOne(firestoreId);
+    await _load();
   }
 
-  Future<void> _refreshOne(String firestoreId) async {
-    final idx = _moments.indexWhere((m) => (m["_id"] ?? "") == firestoreId);
-    if (idx < 0) return;
-    try {
-      final ms = await FirebaseFirestore.instance
-          .collection("moments").doc(firestoreId).get();
-      if (!ms.exists || !mounted) return;
-      setState(() {
-        final d = Map<String, dynamic>.from(ms.data()!);
-        d["_id"] = ms.id;
-              d["id"] = (d["streamActivityId"] ?? "").toString().trim();
-              d["foreignId"] = (d["streamForeignId"] ?? "").toString().trim();
-        // Preserve myLikeReactionId + interaction state on refresh
-        d["likedByMe"] = _moments[idx]["likedByMe"] ?? true;
-        d["savedByMe"] = _moments[idx]["savedByMe"] ?? false;
-        d["myLikeReactionId"] = _moments[idx]["myLikeReactionId"] ?? "";
-        d["_authorVerified"] = _moments[idx]["_authorVerified"] ?? false;
-        _moments[idx] = d;
-      });
-    } catch (_) {/* ignore */}
-  }
-
-  // --- Repost (reuses the same sheet the feed uses) ---
+  // --- Repost ---
 
   Future<void> _openRepost(Map<String, dynamic> moment) async {
     final action = await showModalBottomSheet<RepostAction>(
@@ -264,9 +226,9 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     try {
       await _feedService.createMomentRepost(originalMoment: moment, quoteText: action.quoteText);
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(action.quoteText.trim().isEmpty ? "Moment reposted." : "Quote Moment posted.")),
-      );
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(action.quoteText.trim().isEmpty ? "Moment reposted." : "Quote Moment posted."),
+      ));
       await _load();
     } catch (_) {
       if (!mounted) return;
@@ -276,7 +238,7 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     }
   }
 
-  // --- More (report / delete) ---
+  // --- More (delete if owner) ---
 
   Future<void> _openMore(Map<String, dynamic> moment, int idx) async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid ?? "";
@@ -303,8 +265,8 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
         ),
       );
       if (confirm != true || !mounted) return;
-      final activityId = (moment["id"] ?? "").toString().trim();
-      final foreignId = (moment["foreignId"] ?? "").toString().trim();
+      final activityId = _activityId(moment);
+      final foreignId = _foreignId(moment);
       if (activityId.isEmpty || foreignId.isEmpty) return;
       try {
         await _feedService.deleteMoment(activityId: activityId, foreignId: foreignId);
@@ -326,7 +288,7 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
     }
   }
 
-  // --- Share (reuses the same sheet the feed uses) ---
+  // --- Share ---
 
   Future<void> _shareMoment(Map<String, dynamic> moment) async {
     try {
@@ -373,7 +335,8 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
                           final m = _moments[idx];
                           return SharedMomentCard(
                             data: m,
-                            authorVerified: m["_authorVerified"] == true,
+                            authorVerified: _verifiedCache[
+                                (m["authorUid"] ?? "").toString().trim()] ?? false,
                             onLike: () => _toggleLike(m, idx),
                             onComment: () => _openComments(m),
                             onSave: () => _toggleSave(m, idx),
@@ -435,15 +398,4 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Returns the first non-empty value for the given keys, or null if all are empty.
-String? _pickFirstNonEmpty(Map<String, dynamic> map, List<String> keys) {
-  for (final k in keys) {
-    final v = map[k];
-    if (v == null) continue;
-    final s = v.toString().trim();
-    if (s.isNotEmpty) return s;
-  }
-  return null;
 }
