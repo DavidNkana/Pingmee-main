@@ -1141,7 +1141,8 @@ exports.loadMyTimelineMoments = onCall(
           try {
             const actResult = await client.getActivities({ids});
             originalActivities =
-              actResult && actResult.results && Array.isArray(actResult.results) ?
+              actResult && actResult.results &&
+              Array.isArray(actResult.results) ?
               actResult.results :
               [];
           } catch (err) {
