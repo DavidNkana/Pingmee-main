@@ -25,6 +25,7 @@ class SharedMomentCard extends StatelessWidget {
   final VoidCallback onMore;
   final VoidCallback onShare;
   final bool authorVerified;
+  final bool originalAuthorVerified;
   final void Function(BuildContext, List<Map<String, dynamic>>, int, String)? onMediaTap;
 
   const SharedMomentCard({
@@ -37,6 +38,7 @@ class SharedMomentCard extends StatelessWidget {
     required this.onMore,
     required this.onShare,
     required this.authorVerified,
+    this.originalAuthorVerified = false,
     this.onMediaTap,
   });
 
@@ -109,6 +111,12 @@ class SharedMomentCard extends StatelessWidget {
     final isRepost = type == "repost" || type == "quote";
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
+    final originalAuthorPhotoUrl = _text("originalAuthorPhotoUrl");
+    final originalMedia = data["originalMedia"] is List
+        ? List<Map<String, dynamic>>.from(
+            (data["originalMedia"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)),
+          )
+        : <Map<String, dynamic>>[];
     final repostLabel = type == "quote"
         ? "quoted a Moment"
         : type == "repost"
@@ -342,6 +350,10 @@ class SharedMomentCard extends StatelessWidget {
             SharedOriginalCard(
               authorName: originalAuthorName.isNotEmpty ? originalAuthorName : "Pingmee user",
               text: originalText,
+              authorPhotoUrl: originalAuthorPhotoUrl,
+              authorVerified: originalAuthorVerified,
+              originalMedia: originalMedia,
+              activityId: activityId,
             ),
           ],
           if (isRepost && text.isEmpty) ...[
@@ -469,22 +481,154 @@ class SharedMomentAction extends StatelessWidget {
 class SharedOriginalCard extends StatelessWidget {
   final String authorName;
   final String text;
-  const SharedOriginalCard({super.key, required this.authorName, required this.text});
+  final String authorPhotoUrl;
+  final bool authorVerified;
+  final List<Map<String, dynamic>> originalMedia;
+  final String activityId;
+
+  const SharedOriginalCard({
+    super.key,
+    required this.authorName,
+    required this.text,
+    this.authorPhotoUrl = "",
+    this.authorVerified = false,
+    this.originalMedia = const [],
+    this.activityId = "",
+  });
 
   @override
   Widget build(BuildContext context) {
+    final hasPhoto = authorPhotoUrl.trim().isNotEmpty;
+    final visualMedia = originalMedia.where((item) {
+      final type = (item["type"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return url.isNotEmpty && (type == "image" || type == "video");
+    }).toList();
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(.055)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(authorName, style: const TextStyle(fontFamily: "Nunito", fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.black87)),
-          const SizedBox(height: 4),
-          Text(text, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: "Nunito", fontSize: 13.5, fontWeight: FontWeight.w400, color: Colors.black.withOpacity(.70))),
+          // Author row: avatar + name + verified badge
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withOpacity(.08),
+                  image: hasPhoto
+                      ? DecorationImage(image: NetworkImage(authorPhotoUrl), fit: BoxFit.cover)
+                      : null,
+                ),
+                child: !hasPhoto
+                    ? Icon(PhosphorIcons.user(PhosphorIconsStyle.bold), size: 13, color: Colors.black.withOpacity(.55))
+                    : null,
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        authorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (authorVerified) ...[
+                      const SizedBox(width: 3),
+                      const Icon(
+                        Icons.verified_rounded,
+                        size: 13,
+                        color: Color(0xFF1D9BF0),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (text.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              text,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13.5,
+                fontWeight: FontWeight.w400,
+                height: 1.32,
+                color: Colors.black.withOpacity(.70),
+              ),
+            ),
+          ],
+          // Original media carousel
+          if (visualMedia.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 120,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: visualMedia.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final item = visualMedia[index];
+                  final mtype = (item["type"] ?? "").toString();
+                  final url = (item["url"] ?? "").toString().trim();
+                  final thumbUrl = (item["thumbUrl"] ?? "").toString().trim();
+                  final displayUrl = mtype == "video" && thumbUrl.isNotEmpty ? thumbUrl : url;
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 120,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.network(
+                            displayUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.black.withOpacity(.08),
+                              child: const Icon(Icons.broken_image, size: 22, color: Colors.black26),
+                            ),
+                          ),
+                          if (mtype == "video")
+                            Center(
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(.45),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );

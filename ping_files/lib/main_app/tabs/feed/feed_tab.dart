@@ -505,10 +505,13 @@ Future<void> _toggleMomentBookmark(int index) async {
       if (!mounted) return;
 
       // Build verified cache from all authors in loaded moments
+      // Also include originalAuthorUid for reposts (to show verified badge on repost card)
       final uniqueUids = <String>{};
       for (final m in moments) {
         final uid = (m["authorUid"] ?? "").toString().trim();
         if (uid.isNotEmpty) uniqueUids.add(uid);
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) uniqueUids.add(o);
       }
       final cache = <String, bool>{};
       for (final uid in uniqueUids) {
@@ -781,6 +784,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             onMore: () => _openMomentMoreSheet(moment, index - 1),
             onShare: () => _shareMoment(moment),
             authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
+            verifiedCache: _verifiedCache,
           );
         },
       ),
@@ -1965,6 +1969,7 @@ class _MomentCard extends StatelessWidget {
   final VoidCallback onMore;
   final VoidCallback onShare;
   final bool authorVerified;
+  final Map<String, bool> verifiedCache;
 
   const _MomentCard({
     required this.data,
@@ -1975,6 +1980,7 @@ class _MomentCard extends StatelessWidget {
     required this.onMore,
     required this.onShare,
     required this.authorVerified,
+    required this.verifiedCache,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -2356,6 +2362,11 @@ class _MomentCard extends StatelessWidget {
                   ? originalAuthorName
                   : "Pingmee user",
               text: originalText,
+              authorPhotoUrl: _text("originalAuthorPhotoUrl"),
+              authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
+              originalMedia: data["originalMedia"] is List
+                  ? List.from(data["originalMedia"])
+                  : [],
             ),
           ],
           if (isRepost && text.isEmpty) ...[
@@ -2727,14 +2738,29 @@ class _MomentMediaViewerPageState extends State<_MomentMediaViewerPage> {
 class _OriginalMomentMiniCard extends StatelessWidget {
   final String authorName;
   final String text;
+  final String authorPhotoUrl;
+  final bool authorVerified;
+  final List originalMedia;
 
   const _OriginalMomentMiniCard({
     required this.authorName,
     required this.text,
+    this.authorPhotoUrl = "",
+    this.authorVerified = false,
+    this.originalMedia = const [],
   });
 
   @override
   Widget build(BuildContext context) {
+    // Build media list for carousel (image/video only)
+    final mediaItems = (originalMedia as List).whereType<Map>().where((item) {
+      final type = (item["type"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return url.isNotEmpty && (type == "image" || type == "video");
+    }).toList();
+
+    final hasMedia = mediaItems.isNotEmpty;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(13),
@@ -2746,26 +2772,123 @@ class _OriginalMomentMiniCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            authorName,
-            style: const TextStyle(
-              fontFamily: "Nunito",
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
-              color: Colors.black87,
-            ),
+          // Author row: avatar + name + verified badge
+          Row(
+            children: [
+              if (authorPhotoUrl.isNotEmpty) ...[
+                CircleAvatar(
+                  radius: 13,
+                  backgroundColor: Colors.grey.shade200,
+                  backgroundImage: NetworkImage(authorPhotoUrl),
+                ),
+                const SizedBox(width: 7),
+              ],
+              Expanded(
+                child: Text(
+                  authorName.isNotEmpty ? authorName : "Pingmee user",
+                  style: const TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              if (authorVerified) ...[
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.verified,
+                  size: 14,
+                  color: Color(0xFF1B9BEF),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: 5),
-          Text(
-            text,
-            style: TextStyle(
-              fontFamily: "Nunito",
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-              height: 1.32,
-              color: Colors.black.withOpacity(.66),
+          if (text.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              text,
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                height: 1.32,
+                color: Colors.black.withOpacity(.66),
+              ),
             ),
-          ),
+          ],
+          // Horizontal media carousel
+          if (hasMedia) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 90,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: mediaItems.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (ctx, i) {
+                  final item = Map<String, dynamic>.from(mediaItems[i]);
+                  final type = (item["type"] ?? "").toString().trim();
+                  final url = (item["url"] ?? "").toString().trim();
+                  final thumbUrl = (item["thumbUrl"] ?? "").toString().trim();
+
+                  if (type == "video") {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Stack(
+                        children: [
+                          Image.network(
+                            thumbUrl.isNotEmpty ? thumbUrl : url,
+                            height: 90,
+                            width: 120,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              height: 90,
+                              width: 120,
+                              color: Colors.grey.shade300,
+                              child: const Icon(Icons.videocam, size: 24),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(.55),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      url,
+                      height: 90,
+                      width: 120,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 90,
+                        width: 120,
+                        color: Colors.grey.shade300,
+                        child: const Icon(Icons.image, size: 24),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );

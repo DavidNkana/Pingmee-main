@@ -62,11 +62,15 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
       }
 
       // Build verified cache from unique author uids (same pattern the feed uses).
+      // Also look up original author uid for reposts (to show verified badge on repost card).
       final cache = <String, bool>{};
       final uids = <String>{};
       for (final m in filtered) {
         final a = (m["authorUid"] ?? "").toString().trim();
         if (a.isNotEmpty) uids.add(a);
+        // Also cache the original author for reposts
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) uids.add(o);
       }
       for (final a in uids) {
         try {
@@ -338,6 +342,8 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                             data: m,
                             authorVerified: _verifiedCache[
                                 (m["authorUid"] ?? "").toString().trim()] ?? false,
+                            originalAuthorVerified: _verifiedCache[
+                                (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
                             onLike: () => _toggleLike(m, idx),
                             onComment: () => _openComments(m),
                             onSave: () => _toggleSave(m, idx),
