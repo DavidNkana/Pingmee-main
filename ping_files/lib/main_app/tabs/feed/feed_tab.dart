@@ -2366,7 +2366,9 @@ class _MomentCard extends StatelessWidget {
               authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
               originalMedia: data["originalMedia"] is List
                   ? List.from(data["originalMedia"])
-                  : [],
+                  : data["media"] is List
+                      ? List.from(data["media"])
+                      : [],
             ),
           ],
           if (isRepost && text.isEmpty) ...[
@@ -2767,12 +2769,11 @@ class _OriginalMomentMiniCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.black.withOpacity(.055)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Author row: avatar + name + verified badge
+          // Author row: avatar + name + verified badge (tight, badge next to name)
           Row(
             children: [
               if (authorPhotoUrl.isNotEmpty) ...[
@@ -2783,25 +2784,32 @@ class _OriginalMomentMiniCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 7),
               ],
-              Expanded(
-                child: Text(
-                  authorName.isNotEmpty ? authorName : "Pingmee user",
-                  style: const TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      authorName.isNotEmpty ? authorName : "Pingmee user",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black87,
+                      ),
+                    ),
                   ),
-                ),
+                  if (authorVerified) ...[
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.verified,
+                      size: 14,
+                      color: Color(0xFF1B9BEF),
+                    ),
+                  ],
+                ],
               ),
-              if (authorVerified) ...[
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.verified,
-                  size: 14,
-                  color: Color(0xFF1B9BEF),
-                ),
-              ],
             ],
           ),
           if (text.isNotEmpty) ...[

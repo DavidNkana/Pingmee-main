@@ -112,11 +112,17 @@ class SharedMomentCard extends StatelessWidget {
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
     final originalAuthorPhotoUrl = _text("originalAuthorPhotoUrl");
-    final originalMedia = data["originalMedia"] is List
+    // Try originalMedia first, then fall back to media (GetStream may store original media here)
+    final rawOriginalMedia = data["originalMedia"] is List
         ? List<Map<String, dynamic>>.from(
             (data["originalMedia"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)),
           )
-        : <Map<String, dynamic>>[];
+        : data["media"] is List
+            ? List<Map<String, dynamic>>.from(
+                (data["media"] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item))),
+              )
+            : <Map<String, dynamic>>[];
+    final originalMedia = rawOriginalMedia;
     final repostLabel = type == "quote"
         ? "quoted a Moment"
         : type == "repost"
@@ -510,7 +516,6 @@ class SharedOriginalCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(.055)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -551,7 +556,7 @@ class SharedOriginalCard extends StatelessWidget {
                       ),
                     ),
                     if (authorVerified) ...[
-                      const SizedBox(width: 3),
+                      const SizedBox(width: 2),
                       const Icon(
                         Icons.verified_rounded,
                         size: 13,
