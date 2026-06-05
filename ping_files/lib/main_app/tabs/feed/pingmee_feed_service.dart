@@ -441,9 +441,16 @@ class PingmeeFeedService {
       debugPrint("🧪 repost originalText=$originalText");
       debugPrint("🧪 repost originalMediaCount=${originalMedia.length}");
 
+      final originalForeignId = _firstNonEmpty([
+        originalMoment["originalForeignId"],
+        originalMoment["foreignId"],
+        originalMoment["streamForeignId"],
+      ]);
+
       final result = await callable.call({
         "originalActivityId": originalActivityId,
         "quoteText": quoteText.trim(),
+        "originalForeignId": originalForeignId,
         "originalAuthorUid": originalAuthorUid,
         "originalAuthorName": originalAuthorName,
         "originalAuthorPhotoUrl": originalAuthorPhotoUrl,

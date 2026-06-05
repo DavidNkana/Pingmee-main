@@ -1018,6 +1018,8 @@ exports.createMomentV2 = onCall(
 
           likeCount: 0,
           commentCount: 0,
+          savedCount: 0,
+          repostCount: 0,
           shareCount: 0,
           reportCount: 0,
 
@@ -1291,6 +1293,12 @@ exports.toggleMomentLike = onCall(
               .delete()
               .catch(() => {}); // ignore if already absent
 
+          // Decrement Firestore likeCount
+          await admin.firestore()
+              .collection("moments").doc(firestoreMomentId)
+              .set({likeCount: admin.firestore.FieldValue.increment(-1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+              .catch(() => {}); // non-fatal
+
           return {
             ok: true,
             liked: false,
@@ -1312,6 +1320,12 @@ exports.toggleMomentLike = onCall(
             .collection("users").doc(uid)
             .collection("liked_moments").doc(firestoreMomentId)
             .set({likedAt: admin.firestore.FieldValue.serverTimestamp()})
+            .catch(() => {}); // non-fatal
+
+        // Increment Firestore likeCount
+        await admin.firestore()
+            .collection("moments").doc(firestoreMomentId)
+            .set({likeCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
             .catch(() => {}); // non-fatal
 
         return {
@@ -1408,6 +1422,12 @@ exports.toggleMomentBookmark = onCall(
               .delete()
               .catch(() => {}); // ignore if already absent
 
+          // Decrement Firestore savedCount
+          await admin.firestore()
+              .collection("moments").doc(firestoreMomentId)
+              .set({savedCount: admin.firestore.FieldValue.increment(-1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+              .catch(() => {}); // non-fatal
+
           return {
             ok: true,
             saved: false,
@@ -1431,6 +1451,12 @@ exports.toggleMomentBookmark = onCall(
             .collection("users").doc(uid)
             .collection("saved_moments").doc(firestoreMomentId)
             .set({savedAt: admin.firestore.FieldValue.serverTimestamp()})
+            .catch(() => {}); // non-fatal
+
+        // Increment Firestore savedCount
+        await admin.firestore()
+            .collection("moments").doc(firestoreMomentId)
+            .set({savedCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
             .catch(() => {}); // non-fatal
 
         return {
@@ -1610,6 +1636,8 @@ exports.createMomentRepost = onCall(
 
           likeCount: 0,
           commentCount: 0,
+          savedCount: 0,
+          repostCount: 0,
           shareCount: 0,
           reportCount: 0,
 
@@ -1618,6 +1646,21 @@ exports.createMomentRepost = onCall(
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // Increment Firestore repostCount on the original moment.
+        // The originalActivityId is the GetStream UUID. The Firestore moment ID
+        // can be derived from the original moment's foreignId (sent in the request).
+        const originalFirestoreId = cleanString(
+            request.data && request.data.originalForeignId,
+        ).startsWith("moment:") ?
+            cleanString(request.data && request.data.originalForeignId).substring(7) :
+            "";
+        if (originalFirestoreId) {
+          await admin.firestore()
+            .collection("moments").doc(originalFirestoreId)
+            .set({repostCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+            .catch(() => {}); // non-fatal
+        }
 
         return {
           ok: true,
@@ -1705,6 +1748,27 @@ exports.addMomentComment = onCall(
               userId: uid,
             },
         );
+
+        // Look up the activity to find its foreign_id (format: moment:{firestoreId})
+        // and increment Firestore commentCount on that moment doc.
+        try {
+          const activity = await client.getActivities({ ids: [activityId] });
+          const found = Array.isArray(activity && activity.activities) ?
+            activity.activities.find((a) => a && a.id === activityId) :
+            null;
+          const foreignId = cleanString(found && found.foreign_id);
+          const firestoreMomentId = foreignId.startsWith("moment:") ?
+            foreignId.substring(7) :
+            "";
+          if (firestoreMomentId) {
+            await admin.firestore()
+              .collection("moments").doc(firestoreMomentId)
+              .set({commentCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true})
+              .catch(() => {});
+          }
+        } catch (e) {
+          console.error("addMomentComment: failed to update commentCount", { error: e && e.message });
+        }
 
         return {
           ok: true,
