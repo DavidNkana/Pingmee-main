@@ -116,7 +116,6 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
         activityId: momentId,
         currentlyLiked: currentlyLiked,
         reactionId: "",
-        momentId: momentId,
       );
       if (!mounted) return;
       setState(() {
@@ -149,7 +148,6 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
         activityId: momentId,
         currentlySaved: currentlySaved,
         reactionId: "",
-        momentId: momentId,
       );
       if (!mounted) return;
       setState(() {
