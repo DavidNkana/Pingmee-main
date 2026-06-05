@@ -2086,6 +2086,11 @@ class _MomentCard extends StatelessWidget {
 
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
+    final originalMedia = data["originalMedia"] is List
+        ? List.from(data["originalMedia"])
+        : data["media"] is List
+            ? List.from(data["media"])
+            : [];
 
     final repostLabel = type == "quote"
         ? "quoted a Moment"
@@ -2355,7 +2360,7 @@ class _MomentCard extends StatelessWidget {
             ),
           ],
 
-          if (isRepost && originalText.isNotEmpty) ...[
+          if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             const SizedBox(height: 12),
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
@@ -2364,11 +2369,7 @@ class _MomentCard extends StatelessWidget {
               text: originalText,
               authorPhotoUrl: _text("originalAuthorPhotoUrl"),
               authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
-              originalMedia: data["originalMedia"] is List
-                  ? List.from(data["originalMedia"])
-                  : data["media"] is List
-                      ? List.from(data["media"])
-                      : [],
+              originalMedia: originalMedia,
             ),
           ],
           if (isRepost && text.isEmpty) ...[
