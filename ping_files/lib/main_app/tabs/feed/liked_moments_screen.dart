@@ -413,6 +413,11 @@ class _ErrorState extends StatelessWidget {
           Icon(PhosphorIcons.warningCircle(PhosphorIconsStyle.light), size: 52, color: Colors.black.withOpacity(.25)),
           const SizedBox(height: 14),
           Text("Something went wrong", style: TextStyle(fontFamily: "Nunito", fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black.withOpacity(.45))),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(message, textAlign: TextAlign.center, style: TextStyle(fontFamily: "Nunito", fontSize: 12, color: Colors.black.withOpacity(.55))),
+          ),
           const SizedBox(height: 8),
           TextButton(onPressed: onRetry, child: const Text("Try again", style: TextStyle(fontFamily: "Nunito", fontSize: 14))),
         ],
