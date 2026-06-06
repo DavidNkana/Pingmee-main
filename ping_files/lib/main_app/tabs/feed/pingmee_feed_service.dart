@@ -201,8 +201,6 @@ class PingmeeFeedService {
       rethrow;
     }
   }
-    }
-  }
 
   Future<Map<String, dynamic>> createMoment({
     required String text,
