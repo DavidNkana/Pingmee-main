@@ -170,8 +170,8 @@ class PingmeeFeedService {
               .toList()
           : <Map<String, dynamic>>[];
 
-      final nextCursor = data["nextCursor"] as String?;
-      final hasMore = nextCursor != null;
+      final nextCursor = (data["nextCursor"] ?? "").toString().trim();
+      final hasMore = nextCursor.isNotEmpty;
 
       debugPrint("✅ Timeline Moments loaded");
       debugPrint("   count=${activities.length} hasMore=$hasMore nextCursor=$nextCursor");
@@ -187,7 +187,11 @@ class PingmeeFeedService {
         );
       }
 
-      return (moments: activities, nextCursor: nextCursor, hasMore: hasMore);
+      return (
+        moments: activities,
+        nextCursor: nextCursor.isEmpty ? null : nextCursor,
+        hasMore: hasMore,
+      );
     } on FirebaseFunctionsException catch (e, st) {
       debugPrint("🔥 loadMyTimelineMoments failed");
       debugPrint("   code=${e.code}");

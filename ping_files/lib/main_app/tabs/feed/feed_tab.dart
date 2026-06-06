@@ -101,7 +101,9 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
 
   void _onFeedScroll() {
-    if (_loadingMore || _loadingMoments) return;
+    if (_loadingMore || _loadingMoments || !_hasMore || _nextCursor == null) {
+      return;
+    }
     final sc = _feedScrollController;
     if (!sc.hasClients) return;
     final maxScroll = sc.position.maxScrollExtent;
@@ -574,7 +576,7 @@ Future<void> _toggleMomentBookmark(int index) async {
   }
 
   Future<void> _loadMoreMoments() async {
-    if (_loadingMore || _nextCursor == null) return;
+    if (_loadingMore || !_hasMore || _nextCursor == null) return;
 
     debugPrint("🟢 Loading more moments. cursor=${_nextCursor}");
 
@@ -609,7 +611,16 @@ Future<void> _toggleMomentBookmark(int index) async {
       }
 
       setState(() {
-        _timelineMoments = [..._timelineMoments, ...result.moments];
+        final existingIds = _timelineMoments
+            .map((m) => (m["id"] ?? "").toString())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final newMoments = result.moments.where((m) {
+          final id = (m["id"] ?? "").toString();
+          return id.isNotEmpty && !existingIds.contains(id);
+        }).toList();
+
+        _timelineMoments = [..._timelineMoments, ...newMoments];
         _nextCursor = result.nextCursor;
         _hasMore = result.hasMore;
         _loadingMore = false;
@@ -830,6 +841,8 @@ Future<void> _toggleMomentBookmark(int index) async {
       );
     }
 
+    final footerCount = (_hasMore || _loadingMore) ? 1 : 0;
+
     return RefreshIndicator(
       onRefresh: () => _loadTimelineMoments(reason: "pull refresh"),
       color: AppColors.brandGreen,
@@ -839,7 +852,7 @@ Future<void> _toggleMomentBookmark(int index) async {
           parent: BouncingScrollPhysics(),
         ),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
-        itemCount: _timelineMoments.length + 1,
+        itemCount: _timelineMoments.length + 1 + footerCount,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           if (index == 0) {
@@ -849,26 +862,25 @@ Future<void> _toggleMomentBookmark(int index) async {
             );
           }
 
-          // Loading footer at the last position
-          if (index == _timelineMoments.length) {
-            if (_loadingMore) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(child: CircularProgressIndicator(color: AppColors.brandGreen)),
-              );
-            }
-            return const SizedBox(height: 0);
+          final momentIndex = index - 1;
+          if (momentIndex >= _timelineMoments.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: CircularProgressIndicator(color: AppColors.brandGreen),
+              ),
+            );
           }
 
-          final moment = _timelineMoments[index - 1];
+          final moment = _timelineMoments[momentIndex];
 
           return _MomentCard(
             data: moment,
-            onLike: () => _toggleMomentLike(index - 1),
+            onLike: () => _toggleMomentLike(momentIndex),
             onComment: () => _openMomentComments(moment),
-            onSave: () => _toggleMomentBookmark(index - 1),
+            onSave: () => _toggleMomentBookmark(momentIndex),
             onRepost: () => _openRepostSheet(moment),
-            onMore: () => _openMomentMoreSheet(moment, index - 1),
+            onMore: () => _openMomentMoreSheet(moment, momentIndex),
             onShare: () => _shareMoment(moment),
             authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
             verifiedCache: _verifiedCache,

@@ -1115,7 +1115,7 @@ exports.loadMyTimelineMoments = onCall(
           user_id: uid,
         };
         if (before) {
-          getParams.before = before;
+          getParams.id_lt = before;
         }
 
         const response = await timelineFeed.get(getParams);
@@ -1123,6 +1123,12 @@ exports.loadMyTimelineMoments = onCall(
         const results = Array.isArray(response.results) ?
           response.results :
           [];
+
+        const lastActivityId = results.length > 0 ?
+          cleanString(results[results.length - 1].id) :
+          "";
+        const nextCursor = cleanString(response.next) ||
+          (results.length >= limit && lastActivityId ? lastActivityId : "");
 
         // Identify reposts that need originalMedia backfilled from
         // the original activity (for old reposts where originalMedia
@@ -1263,16 +1269,17 @@ exports.loadMyTimelineMoments = onCall(
           uid,
           count: activities.length,
           isPagination,
-          hasMore: !!response.next,
+          hasMore: !!nextCursor,
+          nextCursor: nextCursor || null,
         });
 
         return {
           ok: true,
-          debugVersion: "moments-location-v1",
+          debugVersion: "moments-pagination-v2",
           feed: `timeline:${uid}`,
           count: activities.length,
           activities,
-          nextCursor: response.next || null,
+          nextCursor: nextCursor || null,
           isPagination,
         };
       } catch (error) {
