@@ -99,6 +99,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     });
   }
 
+
   void _onFeedScroll() {
     if (!_hasMore || _loadingMore || _loadingMoments) return;
     final sc = _feedScrollController;
@@ -523,7 +524,45 @@ Future<void> _toggleMomentBookmark(int index) async {
 
     try {
       final result = await _feedService.loadMyTimelineMoments();
-      final moments = result.moments;
+
+      if (!mounted) return;
+
+      // Build verified cache from all authors in loaded moments
+      // Also include originalAuthorUid for reposts (to show verified badge on repost card)
+      final uniqueUids = <String>{};
+      for (final m in result.moments) {
+        final uid = (m["authorUid"] ?? "").toString().trim();
+        if (uid.isNotEmpty) uniqueUids.add(uid);
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) uniqueUids.add(o);
+      }
+      final cache = <String, bool>{};
+      for (final uid in uniqueUids) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection("users")
+              .doc(uid)
+              .get();
+          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+          cache[uid] = verification["status"] == "verified";
+        } catch (_) {
+          cache[uid] = false;
+        }
+      }
+
+
+      if (!mounted) return;
+
+      setState(() {
+        _timelineMoments = result.moments;
+        _verifiedCache = cache;
+        _nextCursor = result.nextCursor;
+        _hasMore = result.hasMore;
+        _loadingMoments = false;
+      });
+
+    try {
+      final moments = await _feedService.loadMyTimelineMoments();
 
       if (!mounted) return;
 
@@ -555,9 +594,17 @@ Future<void> _toggleMomentBookmark(int index) async {
       setState(() {
         _timelineMoments = moments;
         _verifiedCache = cache;
-        _nextCursor = result.nextCursor;
-        _hasMore = result.hasMore;
         _loadingMoments = false;
+      });
+    } catch (e, st) {
+      debugPrint("❌ Timeline Moments UI load failed: $e");
+      debugPrintStack(stackTrace: st);
+
+      if (!mounted) return;
+
+      setState(() {
+        _loadingMoments = false;
+        _momentsError = "Couldn’t load Moments.";
       });
     } catch (e, st) {
       debugPrint("❌ Timeline Moments UI load failed: $e");
@@ -618,39 +665,6 @@ Future<void> _toggleMomentBookmark(int index) async {
       debugPrintStack(stackTrace: st);
       if (!mounted) return;
       setState(() => _loadingMore = false);
-    }
-  }
-      final cache = <String, bool>{};
-      for (final uid in uniqueUids) {
-        try {
-          final snap = await FirebaseFirestore.instance
-              .collection("users")
-              .doc(uid)
-              .get();
-          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
-          cache[uid] = verification["status"] == "verified";
-        } catch (_) {
-          cache[uid] = false;
-        }
-      }
-
-      if (!mounted) return;
-
-      setState(() {
-        _timelineMoments = moments;
-        _verifiedCache = cache;
-        _loadingMoments = false;
-      });
-    } catch (e, st) {
-      debugPrint("❌ Timeline Moments UI load failed: $e");
-      debugPrintStack(stackTrace: st);
-
-      if (!mounted) return;
-
-      setState(() {
-        _loadingMoments = false;
-        _momentsError = "Couldn’t load Moments.";
-      });
     }
   }
 
