@@ -1095,8 +1095,11 @@ exports.loadMyTimelineMoments = onCall(
         Math.min(Math.max(rawLimit, 1), 30) :
         15;
 
-      const before = request.data && request.data.before;
-      const isPagination = !!before;
+      const rawOffset = Number(request.data && request.data.offset);
+      const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ?
+        Math.floor(rawOffset) :
+        0;
+      const isPagination = offset > 0;
 
       try {
         const client = getStreamFeedsClient();
@@ -1107,6 +1110,7 @@ exports.loadMyTimelineMoments = onCall(
 
         const getParams = {
           limit,
+          offset,
           reactions: {
             own: true,
             counts: true,
@@ -1114,9 +1118,6 @@ exports.loadMyTimelineMoments = onCall(
           },
           user_id: uid,
         };
-        if (before) {
-          getParams.id_lt = before;
-        }
 
         const response = await timelineFeed.get(getParams);
 
@@ -1124,11 +1125,8 @@ exports.loadMyTimelineMoments = onCall(
           response.results :
           [];
 
-        const lastActivityId = results.length > 0 ?
-          cleanString(results[results.length - 1].id) :
-          "";
-        const nextCursor = cleanString(response.next) ||
-          (results.length >= limit && lastActivityId ? lastActivityId : "");
+        const hasMore = results.length >= limit;
+        const nextOffset = offset + results.length;
 
         // Identify reposts that need originalMedia backfilled from
         // the original activity (for old reposts where originalMedia
@@ -1268,27 +1266,33 @@ exports.loadMyTimelineMoments = onCall(
         console.log("loadMyTimelineMoments complete", {
           uid,
           count: activities.length,
+          offset,
           isPagination,
-          hasMore: !!nextCursor,
-          nextCursor: nextCursor || null,
+          hasMore,
+          nextOffset: hasMore ? nextOffset : null,
         });
 
         return {
           ok: true,
-          debugVersion: "moments-pagination-v2",
+          debugVersion: "moments-pagination-v3-offset",
           feed: `timeline:${uid}`,
           count: activities.length,
           activities,
-          nextCursor: nextCursor || null,
+          offset,
+          hasMore,
+          nextOffset: hasMore ? nextOffset : null,
           isPagination,
         };
       } catch (error) {
         console.error("loadMyTimelineMoments failed", {
           uid,
+          offset,
           message: error && error.message,
           stack: error && error.stack,
           code: error && error.code,
           statusCode: error && error.statusCode,
+          streamCode: error && error.error && error.error.code,
+          streamDetail: error && error.error && error.error.detail,
         });
 
         throw new HttpsError(

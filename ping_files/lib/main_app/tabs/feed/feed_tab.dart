@@ -67,7 +67,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   bool _creatingMoment = false;
 
   String? _momentsError;
-  String? _nextCursor;
+  int _nextOffset = 0;
   bool _hasMore = true;
 
   late AnimationController _drawerAnimController;
@@ -101,7 +101,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
 
   void _onFeedScroll() {
-    if (_loadingMore || _loadingMoments || !_hasMore || _nextCursor == null) {
+    if (_loadingMore || _loadingMoments || !_hasMore) {
       return;
     }
     final sc = _feedScrollController;
@@ -520,7 +520,7 @@ Future<void> _toggleMomentBookmark(int index) async {
       _loadingMoments = true;
       _momentsError = null;
       // Reset pagination state on fresh load
-      _nextCursor = null;
+      _nextOffset = 0;
       _hasMore = true;
     });
 
@@ -558,7 +558,7 @@ Future<void> _toggleMomentBookmark(int index) async {
       setState(() {
         _timelineMoments = result.moments;
         _verifiedCache = cache;
-        _nextCursor = result.nextCursor;
+        _nextOffset = result.nextOffset;
         _hasMore = result.hasMore;
         _loadingMoments = false;
       });
@@ -576,14 +576,16 @@ Future<void> _toggleMomentBookmark(int index) async {
   }
 
   Future<void> _loadMoreMoments() async {
-    if (_loadingMore || !_hasMore || _nextCursor == null) return;
+    if (_loadingMore || !_hasMore) return;
 
-    debugPrint("🟢 Loading more moments. cursor=${_nextCursor}");
+    debugPrint("🟢 Loading more moments. offset=$_nextOffset");
 
     setState(() => _loadingMore = true);
 
     try {
-      final result = await _feedService.loadMyTimelineMoments(before: _nextCursor);
+      final result = await _feedService.loadMyTimelineMoments(
+        offset: _nextOffset,
+      );
 
       if (!mounted) return;
 
@@ -621,7 +623,7 @@ Future<void> _toggleMomentBookmark(int index) async {
         }).toList();
 
         _timelineMoments = [..._timelineMoments, ...newMoments];
-        _nextCursor = result.nextCursor;
+        _nextOffset = result.nextOffset;
         _hasMore = result.hasMore;
         _loadingMore = false;
       });

@@ -133,13 +133,13 @@ class PingmeeFeedService {
     }
   }
 
-  Future<({List<Map<String, dynamic>> moments, String? nextCursor, bool hasMore})>
-      loadMyTimelineMoments({String? before}) async {
+  Future<({List<Map<String, dynamic>> moments, int nextOffset, bool hasMore})>
+      loadMyTimelineMoments({int offset = 0}) async {
     final user = FirebaseAuth.instance.currentUser;
 
     debugPrint("🟢 Calling loadMyTimelineMoments function...");
     debugPrint("🟢 Current Firebase user before timeline call: ${user?.uid}");
-    if (before != null) debugPrint("🟢 Pagination: before=$before");
+    if (offset > 0) debugPrint("🟢 Pagination: offset=$offset");
 
     if (user == null) {
       debugPrint("🛑 Cannot load timeline: Firebase user is null.");
@@ -156,8 +156,10 @@ class PingmeeFeedService {
 
       final callable = _functions.httpsCallable("loadMyTimelineMoments");
 
-      final params = <String, dynamic>{"limit": 15};
-      if (before != null) params["before"] = before;
+      final params = <String, dynamic>{
+        "limit": 15,
+        "offset": offset,
+      };
 
       final result = await callable.call(params);
 
@@ -170,11 +172,14 @@ class PingmeeFeedService {
               .toList()
           : <Map<String, dynamic>>[];
 
-      final nextCursor = (data["nextCursor"] ?? "").toString().trim();
-      final hasMore = nextCursor.isNotEmpty;
+      final hasMore = data["hasMore"] == true;
+      final nextOffsetRaw = data["nextOffset"];
+      final nextOffset = nextOffsetRaw is num ?
+          nextOffsetRaw.toInt() :
+          offset + activities.length;
 
       debugPrint("✅ Timeline Moments loaded");
-      debugPrint("   count=${activities.length} hasMore=$hasMore nextCursor=$nextCursor");
+      debugPrint("   count=${activities.length} hasMore=$hasMore nextOffset=$nextOffset");
 
       for (final activity in activities) {
         debugPrint(
@@ -189,7 +194,7 @@ class PingmeeFeedService {
 
       return (
         moments: activities,
-        nextCursor: nextCursor.isEmpty ? null : nextCursor,
+        nextOffset: nextOffset,
         hasMore: hasMore,
       );
     } on FirebaseFunctionsException catch (e, st) {
