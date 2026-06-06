@@ -101,7 +101,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
 
   void _onFeedScroll() {
-    if (!_hasMore || _loadingMore || _loadingMoments) return;
+    if (_loadingMore || _loadingMoments) return;
     final sc = _feedScrollController;
     if (!sc.hasClients) return;
     final maxScroll = sc.position.maxScrollExtent;
@@ -574,7 +574,7 @@ Future<void> _toggleMomentBookmark(int index) async {
   }
 
   Future<void> _loadMoreMoments() async {
-    if (_loadingMore || !_hasMore || _nextCursor == null) return;
+    if (_loadingMore || _nextCursor == null) return;
 
     debugPrint("🟢 Loading more moments. cursor=${_nextCursor}");
 
