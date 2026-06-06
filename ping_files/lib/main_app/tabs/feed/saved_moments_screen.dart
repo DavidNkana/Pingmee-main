@@ -52,7 +52,7 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
       // Derive firestore momentId from foreignId (format: "moment:{firestoreId}")
       // and keep only moments the user has saved.
       final filtered = <Map<String, dynamic>>[];
-      for (final m in timeline) {
+      for (final m in timeline.moments) {
         final foreignId = (m["foreignId"] ?? "").toString().trim();
         if (!foreignId.startsWith("moment:")) continue;
         final momentId = foreignId.substring(7);

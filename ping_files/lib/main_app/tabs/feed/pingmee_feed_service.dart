@@ -616,7 +616,7 @@ class PingmeeFeedService {
     } catch (_) {}
 
     final all = await loadMyTimelineMoments();
-    return all.where((m) => m["likedByMe"] == true).toList();
+    return all.moments.where((m) => m["likedByMe"] == true).toList();
   }
 
   /// Load all moments the current user has saved/bookmarked.
@@ -657,6 +657,6 @@ class PingmeeFeedService {
     } catch (_) {}
 
     final all = await loadMyTimelineMoments();
-    return all.where((m) => m["savedByMe"] == true).toList();
+    return all.moments.where((m) => m["savedByMe"] == true).toList();
   }
 }
