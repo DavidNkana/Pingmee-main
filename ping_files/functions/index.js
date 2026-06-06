@@ -1095,6 +1095,9 @@ exports.loadMyTimelineMoments = onCall(
         Math.min(Math.max(rawLimit, 1), 30) :
         15;
 
+      const before = request.data && request.data.before;
+      const isPagination = !!before;
+
       try {
         const client = getStreamFeedsClient();
         const timelineFeed = client.feed("timeline", uid);
@@ -1102,7 +1105,7 @@ exports.loadMyTimelineMoments = onCall(
         // Make sure own posts are visible in own timeline.
         await safeFollowFeed(timelineFeed, "user", uid);
 
-        const response = await timelineFeed.get({
+        const getParams = {
           limit,
           reactions: {
             own: true,
@@ -1110,7 +1113,12 @@ exports.loadMyTimelineMoments = onCall(
             recent: true,
           },
           user_id: uid,
-        });
+        };
+        if (before) {
+          getParams.before = before;
+        }
+
+        const response = await timelineFeed.get(getParams);
 
         const results = Array.isArray(response.results) ?
           response.results :
@@ -1254,6 +1262,8 @@ exports.loadMyTimelineMoments = onCall(
         console.log("loadMyTimelineMoments complete", {
           uid,
           count: activities.length,
+          isPagination,
+          hasMore: !!response.next,
         });
 
         return {
@@ -1262,6 +1272,8 @@ exports.loadMyTimelineMoments = onCall(
           feed: `timeline:${uid}`,
           count: activities.length,
           activities,
+          nextCursor: response.next || null,
+          isPagination,
         };
       } catch (error) {
         console.error("loadMyTimelineMoments failed", {
