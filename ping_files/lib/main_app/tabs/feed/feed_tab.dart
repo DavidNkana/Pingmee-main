@@ -63,11 +63,15 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   Map<String, bool> _verifiedCache = {};
 
   bool _loadingMoments = false;
+  bool _loadingMore = false;
   bool _creatingMoment = false;
 
   String? _momentsError;
+  String? _nextCursor;
+  bool _hasMore = true;
 
   late AnimationController _drawerAnimController;
+  final ScrollController _feedScrollController = ScrollController();
 
   @override
   void initState() {
@@ -77,6 +81,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
+
+    _feedScrollController.addListener(_onFeedScroll);
 
     debugPrint("🟢 FeedTab initState fired");
 
@@ -93,6 +99,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     });
   }
 
+  void _onFeedScroll() {
+    if (!_hasMore || _loadingMore || _loadingMoments) return;
+    final sc = _feedScrollController;
+    if (!sc.hasClients) return;
+    final maxScroll = sc.position.maxScrollExtent;
+    final currentScroll = sc.offset;
+    // Trigger loadMore when within 400px of the bottom
+    if (maxScroll - currentScroll < 400) {
+      _loadMoreMoments();
+    }
+  }
 
   void _toggleDrawer() {
     if (_drawerAnimController.isDismissed) {
@@ -155,6 +172,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    _feedScrollController.removeListener(_onFeedScroll);
+    _feedScrollController.dispose();
     _authSub?.cancel();
     _drawerAnimController.dispose();
     super.dispose();
@@ -497,10 +516,14 @@ Future<void> _toggleMomentBookmark(int index) async {
     setState(() {
       _loadingMoments = true;
       _momentsError = null;
+      // Reset pagination state on fresh load
+      _nextCursor = null;
+      _hasMore = true;
     });
 
     try {
-      final moments = await _feedService.loadMyTimelineMoments();
+      final result = await _feedService.loadMyTimelineMoments();
+      final moments = result.moments;
 
       if (!mounted) return;
 
@@ -513,6 +536,90 @@ Future<void> _toggleMomentBookmark(int index) async {
         final o = (m["originalAuthorUid"] ?? "").toString().trim();
         if (o.isNotEmpty) uniqueUids.add(o);
       }
+      final cache = <String, bool>{};
+      for (final uid in uniqueUids) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection("users")
+              .doc(uid)
+              .get();
+          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+          cache[uid] = verification["status"] == "verified";
+        } catch (_) {
+          cache[uid] = false;
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _timelineMoments = moments;
+        _verifiedCache = cache;
+        _nextCursor = result.nextCursor;
+        _hasMore = result.hasMore;
+        _loadingMoments = false;
+      });
+    } catch (e, st) {
+      debugPrint("❌ Timeline Moments UI load failed: $e");
+      debugPrintStack(stackTrace: st);
+
+      if (!mounted) return;
+
+      setState(() {
+        _loadingMoments = false;
+        _momentsError = "Couldn't load Moments.";
+      });
+    }
+  }
+
+  Future<void> _loadMoreMoments() async {
+    if (_loadingMore || !_hasMore || _nextCursor == null) return;
+
+    debugPrint("🟢 Loading more moments. cursor=${_nextCursor}");
+
+    setState(() => _loadingMore = true);
+
+    try {
+      final result = await _feedService.loadMyTimelineMoments(before: _nextCursor);
+
+      if (!mounted) return;
+
+      // Build verified cache for new authors
+      final uniqueUids = <String>{};
+      for (final m in result.moments) {
+        final uid = (m["authorUid"] ?? "").toString().trim();
+        if (uid.isNotEmpty) uniqueUids.add(uid);
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) uniqueUids.add(o);
+      }
+      for (final uid in uniqueUids) {
+        if (!_verifiedCache.containsKey(uid)) {
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection("users")
+                .doc(uid)
+                .get();
+            final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+            _verifiedCache[uid] = verification["status"] == "verified";
+          } catch (_) {
+            _verifiedCache[uid] = false;
+          }
+        }
+      }
+
+      setState(() {
+        _timelineMoments = [..._timelineMoments, ...result.moments];
+        _nextCursor = result.nextCursor;
+        _hasMore = result.hasMore;
+        _loadingMore = false;
+      });
+    } catch (e, st) {
+      debugPrint("❌ _loadMoreMoments failed: $e");
+      debugPrintStack(stackTrace: st);
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+    }
+  }
       final cache = <String, bool>{};
       for (final uid in uniqueUids) {
         try {
@@ -759,6 +866,7 @@ Future<void> _toggleMomentBookmark(int index) async {
       onRefresh: () => _loadTimelineMoments(reason: "pull refresh"),
       color: AppColors.brandGreen,
       child: ListView.separated(
+        controller: _feedScrollController,
         physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics(),
         ),
@@ -771,6 +879,17 @@ Future<void> _toggleMomentBookmark(int index) async {
               creating: _creatingMoment,
               onCreateMoment: _openCreateMomentSheet,
             );
+          }
+
+          // Loading footer at the last position
+          if (index == _timelineMoments.length) {
+            if (_loadingMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: CircularProgressIndicator(color: AppColors.brandGreen)),
+              );
+            }
+            return const SizedBox(height: 0);
           }
 
           final moment = _timelineMoments[index - 1];
