@@ -2926,6 +2926,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
                 color: Colors.black.withOpacity(.66),
               ),
             ),
+            const SizedBox(height: 8),
           ],
           // Horizontal media carousel
           if (hasMedia) ...[
