@@ -358,7 +358,7 @@ class SharedMomentCard extends StatelessWidget {
                 children: [
                   Icon(PhosphorIcons.repeat(PhosphorIconsStyle.bold), size: 15, color: Colors.black.withOpacity(.45)),
                   const SizedBox(width: 6),
-                  Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.black.withOpacity(.48))),
+                  Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w300, color: Colors.black.withOpacity(.48))),
                 ],
               ),
               const SizedBox(height: 8),
