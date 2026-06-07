@@ -887,6 +887,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             onShare: () => _shareMoment(moment),
             authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
             verifiedCache: _verifiedCache,
+            feedService: _feedService,
           );
         },
       ),
@@ -2072,6 +2073,7 @@ class _MomentCard extends StatelessWidget {
   final VoidCallback onShare;
   final bool authorVerified;
   final Map<String, bool> verifiedCache;
+  final PingmeeFeedService feedService;
 
   const _MomentCard({
     required this.data,
@@ -2083,6 +2085,7 @@ class _MomentCard extends StatelessWidget {
     required this.onShare,
     required this.authorVerified,
     required this.verifiedCache,
+    required this.feedService,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -2518,7 +2521,7 @@ class _MomentCard extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => MomentDetailScreen(
                       moment: originalMoment,
-                      feedService: _feedService,
+                      feedService: feedService,
                       authorVerified:
                           verifiedCache[_text("originalAuthorUid")] ?? false,
                     ),
