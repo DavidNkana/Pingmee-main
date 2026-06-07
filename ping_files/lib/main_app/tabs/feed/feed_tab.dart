@@ -10,6 +10,7 @@ import 'package:ping_files/features/pings/manage_ping_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'package:ping_files/main_app/tabs/feed/liked_moments_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/saved_moments_screen.dart';
+import 'package:ping_files/main_app/tabs/feed/moment_detail_screen.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
@@ -2494,6 +2495,36 @@ class _MomentCard extends StatelessWidget {
               authorPhotoUrl: _text("originalAuthorPhotoUrl"),
               authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
               originalMedia: originalMedia,
+              onOriginalTap: () {
+                // Build the original moment's data as if it were a standalone post
+                final originalMoment = Map<String, dynamic>.from(data);
+                originalMoment["authorName"] = originalAuthorName.isNotEmpty
+                    ? originalAuthorName
+                    : "Pingmee user";
+                originalMoment["authorPhotoUrl"] = _text("originalAuthorPhotoUrl");
+                originalMoment["authorUid"] = _text("originalAuthorUid");
+                originalMoment["text"] = originalText;
+                originalMoment["media"] = originalMedia;
+                originalMoment["type"] = "moment";
+                // Remove repost wrapper fields so it shows as a regular post
+                originalMoment.remove("originalAuthorName");
+                originalMoment.remove("originalAuthorPhotoUrl");
+                originalMoment.remove("originalAuthorUid");
+                originalMoment.remove("originalText");
+                originalMoment.remove("originalMedia");
+                originalMoment.remove("originalActivityId");
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MomentDetailScreen(
+                      moment: originalMoment,
+                      feedService: _feedService,
+                      authorVerified:
+                          verifiedCache[_text("originalAuthorUid")] ?? false,
+                    ),
+                  ),
+                );
+              },
             ),
           ],
           const SizedBox(height: 14),
@@ -2846,6 +2877,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
   final String authorPhotoUrl;
   final bool authorVerified;
   final List originalMedia;
+  final VoidCallback? onOriginalTap;
 
   const _OriginalMomentMiniCard({
     required this.authorName,
@@ -2853,6 +2885,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
     this.authorPhotoUrl = "",
     this.authorVerified = false,
     this.originalMedia = const [],
+    this.onOriginalTap,
   });
 
   @override
@@ -2866,14 +2899,16 @@ class _OriginalMomentMiniCard extends StatelessWidget {
 
     final hasMedia = mediaItems.isNotEmpty;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
+    return GestureDetector(
+      onTap: onOriginalTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Author row: avatar + name + verified badge (tight, badge next to name)
@@ -3002,6 +3037,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

@@ -27,6 +27,9 @@ class SharedMomentCard extends StatelessWidget {
   final bool authorVerified;
   final bool originalAuthorVerified;
   final void Function(BuildContext, List<Map<String, dynamic>>, int, String)? onMediaTap;
+  /// Called when the repost/quote original card is tapped — navigates to the
+  /// original post's own detail screen showing true likes/comments/saves.
+  final VoidCallback? onOriginalTap;
 
   const SharedMomentCard({
     super.key,
@@ -40,6 +43,7 @@ class SharedMomentCard extends StatelessWidget {
     required this.authorVerified,
     this.originalAuthorVerified = false,
     this.onMediaTap,
+    this.onOriginalTap,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -363,13 +367,16 @@ class SharedMomentCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            SharedOriginalCard(
-              authorName: originalAuthorName.isNotEmpty ? originalAuthorName : "Pingmee user",
-              text: originalText,
-              authorPhotoUrl: originalAuthorPhotoUrl,
-              authorVerified: originalAuthorVerified,
-              originalMedia: originalMedia,
-              activityId: activityId,
+            GestureDetector(
+              onTap: onOriginalTap,
+              child: SharedOriginalCard(
+                authorName: originalAuthorName.isNotEmpty ? originalAuthorName : "Pingmee user",
+                text: originalText,
+                authorPhotoUrl: originalAuthorPhotoUrl,
+                authorVerified: originalAuthorVerified,
+                originalMedia: originalMedia,
+                activityId: activityId,
+              ),
             ),
           ],
           const SizedBox(height: 14),

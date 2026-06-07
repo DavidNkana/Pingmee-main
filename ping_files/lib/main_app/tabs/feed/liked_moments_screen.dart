@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
+import 'moment_detail_screen.dart';
 
 /// Displays moments the current user has liked.
 /// Reuses the regular feed's data load + UI — just filters to liked ones.
@@ -432,18 +433,35 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
                             );
                           }
                           final m = _moments[idx];
-                          return SharedMomentCard(
-                            data: m,
-                            authorVerified: _verifiedCache[
-                                (m["authorUid"] ?? "").toString().trim()] ?? false,
-                            originalAuthorVerified: _verifiedCache[
-                                (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
-                            onLike: () => _toggleLike(m, idx),
-                            onComment: () => _openComments(m),
-                            onSave: () => _toggleSave(m, idx),
-                            onRepost: () => _openRepost(m),
-                            onMore: () => _openMore(m, idx),
-                            onShare: () => _shareMoment(m),
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MomentDetailScreen(
+                                    moment: Map<String, dynamic>.from(m),
+                                    feedService: _feedService,
+                                    authorVerified: _verifiedCache[
+                                        (m["authorUid"] ?? "").toString().trim()] ?? false,
+                                    originalAuthorVerified: _verifiedCache[
+                                        (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: SharedMomentCard(
+                              data: m,
+                              authorVerified: _verifiedCache[
+                                  (m["authorUid"] ?? "").toString().trim()] ?? false,
+                              originalAuthorVerified: _verifiedCache[
+                                  (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
+                              onLike: () => _toggleLike(m, idx),
+                              onComment: () => _openComments(m),
+                              onSave: () => _toggleSave(m, idx),
+                              onRepost: () => _openRepost(m),
+                              onMore: () => _openMore(m, idx),
+                              onShare: () => _shareMoment(m),
+                            ),
                           );
                         },
                       ),
