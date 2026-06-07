@@ -2915,7 +2915,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
             ],
           ),
           if (text.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             Text(
               text,
               style: TextStyle(
