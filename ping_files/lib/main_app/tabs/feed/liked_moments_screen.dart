@@ -22,12 +22,35 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
   List<Map<String, dynamic>> _moments = [];
   Map<String, bool> _verifiedCache = {};
   bool _loading = true;
+  bool _loadingMore = false;
   String? _error;
+  int _nextOffset = 0;
+  bool _hasMore = true;
+  Set<String> _likedFirestoreIds = {}; // All liked IDs loaded once for filtering
+
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_loadingMore || !_hasMore) return;
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    if (maxScroll - currentScroll < 400) {
+      _loadMore();
+    }
   }
 
   Future<void> _load() async {
@@ -36,63 +59,128 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
       setState(() { _loading = false; _error = "Not signed in."; });
       return;
     }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+      _moments = [];
+      _verifiedCache = {};
+      _nextOffset = 0;
+      _hasMore = true;
+    });
+
     try {
-      // 1) Load the user's liked moment IDs (Firestore doc IDs) from Firestore.
-      // 2) Load the full timeline from GetStream via the same service the feed uses.
-      // 3) Keep only moments whose firestore momentId is in the liked set.
+      // Load ALL liked moment IDs from Firestore (for filtering across all pages)
       final likedSnap = await FirebaseFirestore.instance
           .collection("users").doc(uid).collection("liked_moments")
           .orderBy("likedAt", descending: true)
           .get();
-      final likedFirestoreIds = likedSnap.docs.map((d) => d.id).toSet();
+      _likedFirestoreIds = likedSnap.docs.map((d) => d.id).toSet();
 
-      final timeline = await _feedService.loadMyTimelineMoments();
+      // Load first page of timeline
+      final timeline = await _feedService.loadMyTimelineMoments(offset: _nextOffset);
       if (!mounted) return;
 
-      // Derive firestore momentId from foreignId (format: "moment:{firestoreId}")
-      // and keep only moments the user has liked.
-      final filtered = <Map<String, dynamic>>[];
-      for (final m in timeline.moments) {
-        final foreignId = (m["foreignId"] ?? "").toString().trim();
-        if (!foreignId.startsWith("moment:")) continue;
-        final momentId = foreignId.substring(7);
-        if (likedFirestoreIds.contains(momentId)) {
-          filtered.add(m);
-        }
-      }
+      final filtered = _filterToLiked(timeline.moments);
 
-      // Build verified cache from unique author uids (same pattern the feed uses).
-      // Also look up original author uid for reposts (to show verified badge on repost card).
-      final cache = <String, bool>{};
-      final uids = <String>{};
-      for (final m in filtered) {
-        final a = (m["authorUid"] ?? "").toString().trim();
-        if (a.isNotEmpty) uids.add(a);
-        // Also cache the original author for reposts
-        final o = (m["originalAuthorUid"] ?? "").toString().trim();
-        if (o.isNotEmpty) uids.add(o);
-      }
-      for (final a in uids) {
-        try {
-          final snap = await FirebaseFirestore.instance
-              .collection("users").doc(a).get();
-          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
-          cache[a] = (verification["status"] ?? "").toString().toLowerCase() == "verified";
-        } catch (_) {
-          cache[a] = false;
-        }
-      }
+      // Build verified cache
+      final cache = await _buildVerifiedCache(filtered);
 
       if (!mounted) return;
       setState(() {
         _moments = filtered;
         _verifiedCache = cache;
+        _nextOffset = timeline.nextOffset;
+        _hasMore = timeline.hasMore;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() { _loading = false; _error = e.toString(); });
     }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+
+    setState(() => _loadingMore = true);
+
+    try {
+      final timeline = await _feedService.loadMyTimelineMoments(offset: _nextOffset);
+      if (!mounted) return;
+
+      final filtered = _filterToLiked(timeline.moments);
+
+      // Build verified cache for new authors only
+      final newUids = <String>{};
+      for (final m in filtered) {
+        final a = (m["authorUid"] ?? "").toString().trim();
+        if (a.isNotEmpty) newUids.add(a);
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) newUids.add(o);
+      }
+      for (final uid in newUids) {
+        if (!_verifiedCache.containsKey(uid)) {
+          try {
+            final snap = await FirebaseFirestore.instance.collection("users").doc(uid).get();
+            final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+            _verifiedCache[uid] = verification["status"] == "verified";
+          } catch (_) {
+            _verifiedCache[uid] = false;
+          }
+        }
+      }
+
+      // Deduplicate against existing moments
+      final existingIds = _moments.map((m) => _activityId(m)).toSet();
+      final newFiltered = filtered.where((m) => !existingIds.contains(_activityId(m))).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _moments = [..._moments, ...newFiltered];
+        _nextOffset = timeline.nextOffset;
+        _hasMore = timeline.hasMore;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  List<Map<String, dynamic>> _filterToLiked(List<Map<String, dynamic>> moments) {
+    final filtered = <Map<String, dynamic>>[];
+    for (final m in moments) {
+      final foreignId = (m["foreignId"] ?? "").toString().trim();
+      if (!foreignId.startsWith("moment:")) continue;
+      final momentId = foreignId.substring(7);
+      if (_likedFirestoreIds.contains(momentId)) {
+        filtered.add(m);
+      }
+    }
+    return filtered;
+  }
+
+  Future<Map<String, bool>> _buildVerifiedCache(List<Map<String, dynamic>> moments) async {
+    final cache = <String, bool>{};
+    final uids = <String>{};
+    for (final m in moments) {
+      final a = (m["authorUid"] ?? "").toString().trim();
+      if (a.isNotEmpty) uids.add(a);
+      final o = (m["originalAuthorUid"] ?? "").toString().trim();
+      if (o.isNotEmpty) uids.add(o);
+    }
+    for (final uid in uids) {
+      if (cache.containsKey(uid)) continue;
+      try {
+        final snap = await FirebaseFirestore.instance.collection("users").doc(uid).get();
+        final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+        cache[uid] = (verification["status"] ?? "").toString().toLowerCase() == "verified";
+      } catch (_) {
+        cache[uid] = false;
+      }
+    }
+    return cache;
   }
 
   // --- Helpers (same pattern as the feed) ---
@@ -331,11 +419,18 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView.separated(
+                        controller: _scrollController,
                         physics: const BouncingScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
-                        itemCount: _moments.length,
+                        itemCount: _moments.length + (_loadingMore ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 14),
                         itemBuilder: (ctx, idx) {
+                          if (_loadingMore && idx == _moments.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
                           final m = _moments[idx];
                           return SharedMomentCard(
                             data: m,

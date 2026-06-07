@@ -24,10 +24,31 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
   bool _loading = true;
   String? _error;
 
+  // Infinite scroll state
+  Set<String> _savedFirestoreIds = {};
+  int _nextOffset = 0;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+  late ScrollController _scrollController;
+
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController()..addListener(_onScroll);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent - 200;
+    final currentScroll = _scrollController.position.pixels;
+    if (currentScroll >= maxScroll) _loadMore();
   }
 
   Future<void> _load() async {
@@ -37,62 +58,112 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
       return;
     }
     try {
-      // 1) Load the user's saved moment IDs (Firestore doc IDs) from Firestore.
-      // 2) Load the full timeline from GetStream via the same service the feed uses.
-      // 3) Keep only moments whose firestore momentId is in the saved set.
+      // Load ALL saved Firestore IDs once (persists across load-more calls).
       final savedSnap = await FirebaseFirestore.instance
           .collection("users").doc(uid).collection("saved_moments")
           .orderBy("savedAt", descending: true)
           .get();
-      final savedFirestoreIds = savedSnap.docs.map((d) => d.id).toSet();
+      _savedFirestoreIds = savedSnap.docs.map((d) => d.id).toSet();
 
-      final timeline = await _feedService.loadMyTimelineMoments();
+      // Load first page of timeline with offset pagination.
+      final timeline = await _feedService.loadMyTimelineMoments(offset: _nextOffset);
       if (!mounted) return;
 
-      // Derive firestore momentId from foreignId (format: "moment:{firestoreId}")
-      // and keep only moments the user has saved.
-      final filtered = <Map<String, dynamic>>[];
-      for (final m in timeline.moments) {
-        final foreignId = (m["foreignId"] ?? "").toString().trim();
-        if (!foreignId.startsWith("moment:")) continue;
-        final momentId = foreignId.substring(7);
-        if (savedFirestoreIds.contains(momentId)) {
-          filtered.add(m);
-        }
-      }
+      final filtered = _filterToSaved(timeline.moments);
 
-      // Build verified cache from unique author uids (same pattern the feed uses).
-      // Also look up original author uid for reposts (to show verified badge on repost card).
-      final cache = <String, bool>{};
-      final uids = <String>{};
-      for (final m in filtered) {
-        final a = (m["authorUid"] ?? "").toString().trim();
-        if (a.isNotEmpty) uids.add(a);
-        // Also cache the original author for reposts
-        final o = (m["originalAuthorUid"] ?? "").toString().trim();
-        if (o.isNotEmpty) uids.add(o);
-      }
-      for (final a in uids) {
-        try {
-          final snap = await FirebaseFirestore.instance
-              .collection("users").doc(a).get();
-          final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
-          cache[a] = (verification["status"] ?? "").toString().toLowerCase() == "verified";
-        } catch (_) {
-          cache[a] = false;
-        }
-      }
+      // Build verified cache.
+      final cache = await _buildVerifiedCache(filtered);
 
       if (!mounted) return;
       setState(() {
         _moments = filtered;
         _verifiedCache = cache;
+        _nextOffset = timeline.nextOffset;
+        _hasMore = timeline.hasMore;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() { _loading = false; _error = e.toString(); });
     }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+
+    setState(() => _loadingMore = true);
+
+    try {
+      final timeline = await _feedService.loadMyTimelineMoments(offset: _nextOffset);
+      if (!mounted) return;
+
+      final filtered = _filterToSaved(timeline.moments);
+
+      // Build verified cache for new authors only.
+      for (final m in filtered) {
+        final author = (m["authorUid"] ?? "").toString().trim();
+        final original = (m["originalAuthorUid"] ?? "").toString().trim();
+        for (final uid in [author, original]) {
+          if (uid.isEmpty || _verifiedCache.containsKey(uid)) continue;
+          try {
+            final snap = await FirebaseFirestore.instance.collection("users").doc(uid).get();
+            _verifiedCache[uid] = (snap.data()?["verification"]?["status"] ?? "").toString().toLowerCase() == "verified";
+          } catch (_) {
+            _verifiedCache[uid] = false;
+          }
+        }
+      }
+
+      // Deduplicate against existing moments.
+      final existingIds = _moments.map((m) => _activityId(m)).toSet();
+      final newFiltered = filtered.where((m) => !existingIds.contains(_activityId(m))).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _moments = [..._moments, ...newFiltered];
+        _nextOffset = timeline.nextOffset;
+        _hasMore = timeline.hasMore;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  List<Map<String, dynamic>> _filterToSaved(List<Map<String, dynamic>> moments) {
+    final filtered = <Map<String, dynamic>>[];
+    for (final m in moments) {
+      final foreignId = (m["foreignId"] ?? "").toString().trim();
+      if (!foreignId.startsWith("moment:")) continue;
+      final momentId = foreignId.substring(7);
+      if (_savedFirestoreIds.contains(momentId)) {
+        filtered.add(m);
+      }
+    }
+    return filtered;
+  }
+
+  Future<Map<String, bool>> _buildVerifiedCache(List<Map<String, dynamic>> moments) async {
+    final cache = <String, bool>{};
+    final uids = <String>{};
+    for (final m in moments) {
+      final a = (m["authorUid"] ?? "").toString().trim();
+      if (a.isNotEmpty) uids.add(a);
+      final o = (m["originalAuthorUid"] ?? "").toString().trim();
+      if (o.isNotEmpty) uids.add(o);
+    }
+    for (final uid in uids) {
+      if (cache.containsKey(uid)) continue;
+      try {
+        final snap = await FirebaseFirestore.instance.collection("users").doc(uid).get();
+        final verification = Map<String, dynamic>.from(snap.data()?["verification"] ?? {});
+        cache[uid] = (verification["status"] ?? "").toString().toLowerCase() == "verified";
+      } catch (_) {
+        cache[uid] = false;
+      }
+    }
+    return cache;
   }
 
   // --- Helpers (same pattern as the feed) ---
@@ -332,11 +403,18 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView.separated(
+                        controller: _scrollController,
                         physics: const BouncingScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
-                        itemCount: _moments.length,
+                        itemCount: _moments.length + (_loadingMore ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 14),
                         itemBuilder: (ctx, idx) {
+                          if (_loadingMore && idx == _moments.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
                           final m = _moments[idx];
                           return SharedMomentCard(
                             data: m,
