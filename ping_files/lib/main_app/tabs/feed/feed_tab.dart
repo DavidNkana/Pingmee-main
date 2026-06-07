@@ -2295,6 +2295,7 @@ class _MomentCard extends StatelessWidget {
                 color: Colors.black.withOpacity(.82),
               ),
             ),
+            const SizedBox(height: 8),
           ],
           
           if (hashtags.isNotEmpty) ...[
@@ -2915,7 +2916,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
             ],
           ),
           if (text.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Text(
               text,
               style: TextStyle(
