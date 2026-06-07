@@ -8,11 +8,17 @@ import 'shared_moment_widgets.dart';
 /// Full-screen single moment view — reuses SharedMomentCard exactly as it appears
 /// in the feed, liked screen, and saved screen. Shows the moment with its own
 /// true like/comment/save counts (not the quote/repost wrapper's counts).
+///
+/// If opened for a repost/quote's original moment, pass originalActivityId to
+/// fetch and display the original's true engagement stats.
 class MomentDetailScreen extends StatefulWidget {
   final Map<String, dynamic> moment;
   final PingmeeFeedService feedService;
   final bool authorVerified;
   final bool originalAuthorVerified;
+  /// When provided, the screen will fetch the original moment's true stats
+  /// (likeCount, commentCount, etc.) from this GetStream activity ID.
+  final String? originalActivityId;
 
   const MomentDetailScreen({
     super.key,
@@ -20,6 +26,7 @@ class MomentDetailScreen extends StatefulWidget {
     required this.feedService,
     this.authorVerified = false,
     this.originalAuthorVerified = false,
+    this.originalActivityId,
   });
 
   @override
@@ -30,6 +37,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   late Map<String, dynamic> _moment;
   bool _liking = false;
   bool _saving = false;
+  bool _loadingOriginal = false;
 
   String get _activityId {
     final id = (_moment["id"] ?? "").toString().trim();
@@ -47,6 +55,39 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   void initState() {
     super.initState();
     _moment = Map<String, dynamic>.from(widget.moment);
+    if (widget.originalActivityId != null) {
+      _fetchOriginalStats();
+    }
+  }
+
+  Future<void> _fetchOriginalStats() async {
+    setState(() => _loadingOriginal = true);
+    try {
+      final data = await widget.feedService.loadSingleActivity(
+        widget.originalActivityId!,
+      );
+      if (!mounted) return;
+      if (data["ok"] == true && data["activity"] != null) {
+        final orig = Map<String, dynamic>.from(data["activity"]);
+        setState(() {
+          // Use the original's true engagement stats
+          _moment["likeCount"] = orig["likeCount"];
+          _moment["commentCount"] = orig["commentCount"];
+          // Keep current user's like/bookmark state from the original activity
+          _moment["likedByMe"] = orig["likedByMe"] == true;
+          _moment["savedByMe"] = orig["savedByMe"] == true;
+          _moment["myLikeReactionId"] = orig["myLikeReactionId"] ?? "";
+          _moment["myBookmarkReactionId"] = orig["myBookmarkReactionId"] ?? "";
+          _moment["id"] = orig["id"];
+          _loadingOriginal = false;
+        });
+      } else {
+        setState(() => _loadingOriginal = false);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingOriginal = false);
+    }
   }
 
   Future<void> _toggleLike() async {
@@ -124,7 +165,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       final result = await widget.feedService.toggleMomentBookmark(
         activityId: _activityId,
         currentlySaved: currentlySaved,
-        reactionId: "",
+        reactionId: _moment["myBookmarkReactionId"] ?? "",
         momentId: _momentIdFromForeign(),
       );
       if (!mounted) return;

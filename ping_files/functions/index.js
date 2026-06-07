@@ -1306,6 +1306,113 @@ exports.loadMyTimelineMoments = onCall(
         );
       }
     },
+  );
+
+// Load a single GetStream activity by ID — used by MomentDetailScreen to
+// fetch the original moment's true stats when opening a repost/quote's original.
+exports.loadSingleActivity = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      const activityId = request.data && request.data.activityId;
+
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "Must be signed in.");
+      }
+      if (!activityId) {
+        throw new HttpsError("invalid-argument", "activityId is required.");
+      }
+
+      try {
+        const client = stream.connect(
+            STREAM_API_KEY, STREAM_API_SECRET, {
+              location: REGION,
+            });
+
+        let results = [];
+        try {
+          const actResult = await client.getActivities({ids: [activityId]});
+          results = actResult && actResult.results && Array.isArray(actResult.results)
+              ? actResult.results
+              : [];
+        } catch (err) {
+          console.warn("loadSingleActivity: getActivities failed:", err.message);
+        }
+
+        const activity = results.length > 0 ? results[0] : null;
+        if (!activity) {
+          return {ok: false, error: "Activity not found."};
+        }
+
+        const reactionCounts = activity.reaction_counts || {};
+        const ownReactions = activity.own_reactions || {};
+        const ownLikes = Array.isArray(ownReactions.like)
+            ? ownReactions.like : [];
+        const ownBookmarks = Array.isArray(ownReactions.bookmark)
+            ? ownReactions.bookmark : [];
+
+        const parsedLat = Number(activity.lat);
+        const parsedLng = Number(activity.lng);
+        const activityLat = Number.isFinite(parsedLat) ? parsedLat : null;
+        const activityLng = Number.isFinite(parsedLng) ? parsedLng : null;
+
+        return {
+          ok: true,
+          activity: {
+            id: cleanString(activity.id),
+            actor: cleanString(activity.actor),
+            verb: cleanString(activity.verb),
+            object: cleanString(activity.object),
+            foreignId: cleanString(activity.foreign_id),
+            time: cleanString(activity.time),
+            type: cleanString(activity.type),
+            text: cleanString(activity.text),
+            authorUid: cleanString(activity.authorUid),
+            authorName: cleanString(activity.authorName),
+            authorPhotoUrl: cleanString(activity.authorPhotoUrl),
+            visibility: cleanString(activity.visibility) || "public",
+            locationLabel: cleanString(activity.locationLabel),
+            city: cleanString(activity.city),
+            country: cleanString(activity.country),
+            lat: activityLat,
+            lng: activityLng,
+            media: Array.isArray(activity.media) ? activity.media : [],
+            hashtags: Array.isArray(activity.hashtags) ? activity.hashtags : [],
+            savedByMe: ownBookmarks.length > 0,
+            myBookmarkReactionId: ownBookmarks.length > 0
+                ? cleanString(ownBookmarks[0].id) : "",
+            pingId: cleanString(activity.pingId),
+            eventId: cleanString(activity.eventId),
+            reactionCounts,
+            likeCount: Number(reactionCounts.like || 0),
+            commentCount: Number(reactionCounts.comment || 0),
+            originalActivityId: cleanString(activity.originalActivityId),
+            originalAuthorUid: cleanString(activity.originalAuthorUid),
+            originalAuthorName: cleanString(activity.originalAuthorName),
+            originalAuthorPhotoUrl: cleanString(activity.originalAuthorPhotoUrl),
+            originalText: cleanString(activity.originalText),
+            originalMedia: Array.isArray(activity.originalMedia)
+                ? activity.originalMedia : [],
+            likedByMe: ownLikes.length > 0,
+            myLikeReactionId: ownLikes.length > 0
+                ? cleanString(ownLikes[0].id) : "",
+          },
+        };
+      } catch (error) {
+        console.error("loadSingleActivity failed", {
+          uid, activityId,
+          message: error && error.message,
+          stack: error && error.stack,
+        });
+        throw new HttpsError(
+            "internal", "Could not load activity.", {
+              message: error && error.message,
+            });
+      }
+    },
 );
 
 exports.toggleMomentLike = onCall(

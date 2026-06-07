@@ -211,6 +211,30 @@ class PingmeeFeedService {
     }
   }
 
+  /// Load a single GetStream activity by its ID — used to fetch the original
+  /// moment's true stats (likeCount, commentCount, etc.) when opening a repost
+  /// or quote's original post in MomentDetailScreen.
+  Future<Map<String, dynamic>> loadSingleActivity(String activityId) async {
+    debugPrint("🟢 Calling loadSingleActivity for id=$activityId");
+
+    try {
+      final callable = _functions.httpsCallable("loadSingleActivity");
+      final result = await callable.call({"activityId": activityId});
+      final data = Map<String, dynamic>.from(result.data as Map);
+
+      debugPrint("✅ loadSingleActivity done for id=$activityId");
+      return data;
+    } on FirebaseFunctionsException catch (e, st) {
+      debugPrint("🔥 loadSingleActivity failed: code=${e.code} message=${e.message}");
+      debugPrintStack(stackTrace: st);
+      rethrow;
+    } catch (e, st) {
+      debugPrint("🔥 loadSingleActivity unknown failure: $e");
+      debugPrintStack(stackTrace: st);
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> createMoment({
     required String text,
     String visibility = "public",

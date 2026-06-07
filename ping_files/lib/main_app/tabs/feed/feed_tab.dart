@@ -2524,6 +2524,7 @@ class _MomentCard extends StatelessWidget {
                       feedService: feedService,
                       authorVerified:
                           verifiedCache[_text("originalAuthorUid")] ?? false,
+                      originalActivityId: _text("originalActivityId"),
                     ),
                   ),
                 );
