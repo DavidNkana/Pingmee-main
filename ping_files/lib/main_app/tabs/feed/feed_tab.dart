@@ -2482,7 +2482,7 @@ class _MomentCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
             ],
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
