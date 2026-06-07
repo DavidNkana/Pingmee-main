@@ -1327,10 +1327,7 @@ exports.loadSingleActivity = onCall(
       }
 
       try {
-        const client = stream.connect(
-            STREAM_API_KEY, STREAM_API_SECRET, {
-              location: REGION,
-            });
+        const client = getStreamFeedsClient();
 
         let activity = null;
         try {
@@ -1344,9 +1341,6 @@ exports.loadSingleActivity = onCall(
           console.error("loadSingleActivity: getActivities failed:", err.message, err.stack);
         }
 
-        if (!activity) {
-          return {ok: false, error: "Activity not found."};
-        }
         if (!activity) {
           return {ok: false, error: "Activity not found."};
         }
