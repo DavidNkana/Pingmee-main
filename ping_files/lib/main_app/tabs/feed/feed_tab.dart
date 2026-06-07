@@ -2483,6 +2483,7 @@ class _MomentCard extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
             ],
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
