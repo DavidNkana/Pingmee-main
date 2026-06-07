@@ -2463,6 +2463,7 @@ class _MomentCard extends StatelessWidget {
 
           if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             if (text.isEmpty) ...[
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Icon(
@@ -2482,7 +2483,6 @@ class _MomentCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
             ],
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
