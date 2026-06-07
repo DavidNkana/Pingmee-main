@@ -1332,10 +1332,16 @@ exports.loadSingleActivity = onCall(
         let activity = null;
         try {
           // getActivities returns {activities: [...]} for a single ID array
-          const actResult = await client.getActivities({ids: [activityId]});
-          const activities = actResult && actResult.activities && Array.isArray(actResult.activities)
-              ? actResult.activities
-              : [];
+          // reactions: {counts: true} triggers the enrich/activities/ endpoint
+          // which returns reaction_counts and own_reactions on each activity.
+          const actResult = await client.getActivities({
+            ids: [activityId],
+            reactions: {counts: true, own: true},
+          });
+          const activities = actResult && actResult.activities &&
+              Array.isArray(actResult.activities) ?
+              actResult.activities :
+              [];
           activity = activities.length > 0 ? activities[0] : null;
         } catch (err) {
           console.error("loadSingleActivity: getActivities failed:", err.message, err.stack);
