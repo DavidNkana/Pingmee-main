@@ -550,7 +550,7 @@ class SharedOriginalCard extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: "Nunito",
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
                       ),
@@ -577,7 +577,7 @@ class SharedOriginalCard extends StatelessWidget {
               style: TextStyle(
                 fontFamily: "Nunito",
                 fontSize: 13.5,
-                fontWeight: FontWeight.w400,
+                fontWeight: FontWeight.w300,
                 height: 1.32,
                 color: Colors.black.withOpacity(.70),
               ),
