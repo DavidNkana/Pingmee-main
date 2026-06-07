@@ -1332,17 +1332,21 @@ exports.loadSingleActivity = onCall(
               location: REGION,
             });
 
-        let results = [];
+        let activity = null;
         try {
+          // getActivities returns {activities: [...]} for a single ID array
           const actResult = await client.getActivities({ids: [activityId]});
-          results = actResult && actResult.results && Array.isArray(actResult.results)
-              ? actResult.results
+          const activities = actResult && actResult.activities && Array.isArray(actResult.activities)
+              ? actResult.activities
               : [];
+          activity = activities.length > 0 ? activities[0] : null;
         } catch (err) {
-          console.warn("loadSingleActivity: getActivities failed:", err.message);
+          console.error("loadSingleActivity: getActivities failed:", err.message, err.stack);
         }
 
-        const activity = results.length > 0 ? results[0] : null;
+        if (!activity) {
+          return {ok: false, error: "Activity not found."};
+        }
         if (!activity) {
           return {ok: false, error: "Activity not found."};
         }
