@@ -2462,19 +2462,7 @@ class _MomentCard extends StatelessWidget {
           ],
 
           if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
-            const SizedBox(height: 12),
-            _OriginalMomentMiniCard(
-              authorName: originalAuthorName.isNotEmpty
-                  ? originalAuthorName
-                  : "Pingmee user",
-              text: originalText,
-              authorPhotoUrl: _text("originalAuthorPhotoUrl"),
-              authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
-              originalMedia: originalMedia,
-            ),
-          ],
-          if (isRepost && text.isEmpty) ...[
-              const SizedBox(height: 12),
+            if (text.isEmpty) ...[
               Row(
                 children: [
                   Icon(
@@ -2488,13 +2476,24 @@ class _MomentCard extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: "Nunito",
                       fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w300,
                       color: Colors.black.withOpacity(.48),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
             ],
+            _OriginalMomentMiniCard(
+              authorName: originalAuthorName.isNotEmpty
+                  ? originalAuthorName
+                  : "Pingmee user",
+              text: originalText,
+              authorPhotoUrl: _text("originalAuthorPhotoUrl"),
+              authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
+              originalMedia: originalMedia,
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
@@ -2897,7 +2896,7 @@ class _OriginalMomentMiniCard extends StatelessWidget {
                       style: const TextStyle(
                         fontFamily: "Nunito",
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                         color: Colors.black87,
                       ),
                     ),
