@@ -419,6 +419,14 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                           final m = _moments[idx];
                           return GestureDetector(
                             onTap: () {
+                              // If this moment is a repost/quote wrapper, the timeline payload
+                              // carries the ORIGINAL activity's GetStream ID under
+                              // "originalActivityId". Pass it through so the detail
+                              // screen can fetch the original's true engagement stats
+                              // (likeCount, commentCount, savedCount) instead of
+                              // accidentally showing the repost wrapper's counts.
+                              final wrapperOriginalId =
+                                  (m["originalActivityId"] ?? "").toString().trim();
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -429,6 +437,9 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                                         (m["authorUid"] ?? "").toString().trim()] ?? false,
                                     originalAuthorVerified: _verifiedCache[
                                         (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
+                                    originalActivityId: wrapperOriginalId.isNotEmpty
+                                        ? wrapperOriginalId
+                                        : null,
                                   ),
                                 ),
                               );
