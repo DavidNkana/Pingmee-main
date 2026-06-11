@@ -687,10 +687,13 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final heroTag = "moment_media_${widget.activityId}_${widget.index}_${url.hashCode}";
 
     // Decide the frame height:
-    //  - landscape images: about 60% of screen height
-    //  - square images:    full item width (1:1)
-    //  - portrait images:  derive from aspect ratio, capped at maxHeight
-    //  - unknown aspect:   fall back to 75% of screen height
+    //  - single tall portrait: a smaller "shrinked" preview (capped at
+    //    ~45% of screen) so a very tall solo image does not dominate
+    //    the feed. BoxFit.cover crops mildly on the smaller box.
+    //  - other portraits / multi-image carousels: natural aspect,
+    //    capped at one screen height.
+    //  - landscape / square: capped at ~60% of screen height.
+    //  - unknown aspect: fall back to 75% of screen height.
     final screenH = MediaQuery.of(context).size.height;
     final fallback = screenH * 0.75;
     final aspect = _aspect;
@@ -701,9 +704,17 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
       // Landscape or square — cap to a comfortable row height.
       itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
     } else {
-      // Portrait — derive from aspect, cap to screen height.
       final byAspect = widget.itemWidth / aspect;
-      itemHeight = byAspect.clamp(160.0, widget.maxHeight);
+      if (widget.totalCount == 1) {
+        // Single tall portrait — show as a smaller "shrinked" preview so
+        // a very tall photo does not take over the feed. Same rounded
+        // look and tap-to-fullscreen as everything else.
+        itemHeight = byAspect.clamp(160.0, screenH * 0.45);
+      } else {
+        // Multi-image carousel portrait — original variable-height,
+        // capped at the row's maxHeight (one screen).
+        itemHeight = byAspect.clamp(160.0, widget.maxHeight);
+      }
     }
 
     return SizedBox(
