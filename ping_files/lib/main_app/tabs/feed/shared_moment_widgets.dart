@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:video_player/video_player.dart';
-import 'package:visibility_detector/visibility_detector.dart';
 import 'pingmee_feed_service.dart';
 
 /// Shared moment card, share sheet, comments sheet, repost sheet, more sheet.
@@ -31,6 +30,10 @@ class SharedMomentCard extends StatelessWidget {
   /// Called when the repost/quote original card is tapped — navigates to the
   /// original post's own detail screen showing true likes/comments/saves.
   final VoidCallback? onOriginalTap;
+  /// Called when the moment's author avatar or display name is tapped.
+  /// Receives the author's UID so the caller can navigate to their
+  /// profile. May be null in previews or test contexts.
+  final void Function(String authorUid)? onAuthorTap;
 
   const SharedMomentCard({
     super.key,
@@ -45,6 +48,7 @@ class SharedMomentCard extends StatelessWidget {
     this.originalAuthorVerified = false,
     this.onMediaTap,
     this.onOriginalTap,
+    this.onAuthorTap,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -150,52 +154,64 @@ class SharedMomentCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              SharedMomentAvatar(photoUrl: authorPhotoUrl),
+              _AuthorTapTarget(
+                authorUid: _text("authorUid"),
+                onAuthorTap: onAuthorTap,
+                child: SharedMomentAvatar(photoUrl: authorPhotoUrl),
+              ),
               const SizedBox(width: 11),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: "Nunito",
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onAuthorTap == null || _text("authorUid").isEmpty
+                      ? null
+                      : () => onAuthorTap!(_text("authorUid")),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              authorName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: "Nunito",
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
                             ),
                           ),
-                        ),
-                        if (authorVerified) ...[
-                          const SizedBox(width: 4),
-                          const Icon(Icons.verified_rounded, size: 14, color: Color(0xFF1D9BF0)),
+                          if (authorVerified) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified_rounded, size: 14, color: Color(0xFF1D9BF0)),
+                          ],
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      [
-                        repostLabel,
-                        if (locationLine.isNotEmpty) locationLine,
-                        if (time.isNotEmpty) time,
-                      ].join(" · "),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: "Nunito",
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black.withOpacity(.45),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          repostLabel,
+                          if (locationLine.isNotEmpty) locationLine,
+                          if (time.isNotEmpty) time,
+                        ].join(" · "),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 ),
               ),
               InkWell(
@@ -372,6 +388,32 @@ class SharedMomentCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Invisible GestureDetector wrapper that fires [onAuthorTap] with
+/// the moment author's UID when the wrapped child is tapped. The
+/// child is shown as-is; the wrapper only adds the tap behaviour.
+/// If either [authorUid] is empty or [onAuthorTap] is null, the
+/// wrapper is a pass-through (no tap handling).
+class _AuthorTapTarget extends StatelessWidget {
+  final String authorUid;
+  final void Function(String authorUid)? onAuthorTap;
+  final Widget child;
+  const _AuthorTapTarget({
+    required this.authorUid,
+    required this.onAuthorTap,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (onAuthorTap == null || authorUid.isEmpty) return child;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onAuthorTap!(authorUid),
+      child: child,
     );
   }
 }
@@ -688,58 +730,52 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final heroTag = "moment_media_${widget.activityId}_${widget.index}_${url.hashCode}";
 
     // Decide the frame height:
-    //  - single tall portrait: a smaller "shrinked" preview (capped at
-    //    ~45% of screen) so a very tall solo image does not dominate
-    //    the feed. BoxFit.cover crops mildly on the smaller box.
-    //  - other portraits / multi-image carousels: natural aspect,
-    //    capped at one screen height.
-    //  - landscape / square: capped at ~60% of screen height.
-    //  - unknown aspect: fall back to 75% of screen height.
+    //  - landscape images: about 60% of screen height
+    //  - square images:    full item width (1:1)
+    //  - portrait images:  derive from aspect ratio, capped at maxHeight
+    //  - unknown aspect:   fall back to 75% of screen height
     final screenH = MediaQuery.of(context).size.height;
     final fallback = screenH * 0.75;
     final aspect = _aspect;
     double itemHeight;
     if (aspect == null) {
+      // Still loading or errored — fall back to a comfortable preview size.
       itemHeight = fallback;
     } else if (aspect >= 1.0) {
-      // Landscape or square — cap to a comfortable row height.
+      // Landscape or square — natural height capped to ~60% of screen so
+      // wide photos do not push the card taller than the rest of the feed.
       itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
     } else {
-      final byAspect = widget.itemWidth / aspect;
-      if (widget.totalCount == 1) {
-        // Single tall portrait — show as a smaller "shrinked" preview so
-        // a very tall photo does not take over the feed. Same rounded
-        // look and tap-to-fullscreen as everything else.
-        itemHeight = byAspect.clamp(160.0, screenH * 0.45);
-      } else {
-        // Multi-image carousel portrait — original variable-height,
-        // capped at the row's maxHeight (one screen).
-        itemHeight = byAspect.clamp(160.0, widget.maxHeight);
-      }
+      // Portrait — natural height capped to ~55% of screen so a very tall
+      // image still fits in the card. The container's width AND height
+      // match the image's natural aspect — the image fills it edge-to-edge
+      // with no letterbox and no crop.
+      itemHeight = (widget.itemWidth / aspect).clamp(160.0, screenH * 0.55);
     }
 
-    return SizedBox(
-      width: widget.itemWidth,
-      height: itemHeight,
-      child: GestureDetector(
-        onTap: widget.onMediaTap ?? widget.onDefaultTap,
-        child: Hero(
-          tag: heroTag,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+    return GestureDetector(
+      onTap: widget.onMediaTap ?? widget.onDefaultTap,
+      child: Hero(
+        tag: heroTag,
+        // The ClipRRect's rounded border is the ONLY border the user sees
+        // around media — no other chrome, no letterbox, no backdrop.
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: SizedBox(
+            width: widget.itemWidth,
+            height: itemHeight,
             child: Stack(
-              fit: StackFit.expand,
+              // Pass loose (not StackFit.expand) so the image lays out at
+              // its natural size within a box that already matches its
+              // aspect — no letterbox, no crop, no extra edges.
+              fit: StackFit.loose,
               children: [
-                if (mtype == "video")
-                  _InlineVideoPlayer(
-                    url: widget.item["url"]?.toString() ?? "",
-                    thumbUrl: _displayUrl,
-                    onOpenFullscreen: widget.onMediaTap ?? widget.onDefaultTap,
-                  )
-                else
-                  Image.network(
+                Positioned.fill(
+                  child: Image.network(
                     _displayUrl,
-                    fit: BoxFit.cover,
+                    // SizedBox is already sized to the image's natural
+                    // aspect, so we do not need a BoxFit. Without one the
+                    // image lays out at its natural size.
                     loadingBuilder: (context, child, progress) {
                       if (progress == null) return child;
                       return Container(
@@ -766,11 +802,16 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
                       );
                     },
                   ),
-                // Multi-image carousel counter is only shown for image
-                // tiles — the inline video is recognizable as media on
-                // its own and the counter would compete with the sound
-                // toggle for the corner real estate.
-                if (mtype != "video" && widget.totalCount > 1)
+                ),
+                if (mtype == "video")
+                  const Center(
+                    child: SizedBox(
+                      width: 54,
+                      height: 54,
+                      child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
+                    ),
+                  ),
+                if (widget.totalCount > 1)
                   Positioned(
                     top: 10,
                     right: 10,
@@ -919,6 +960,71 @@ class _SharedMomentMediaViewerPageState extends State<SharedMomentMediaViewerPag
   }
 }
 
+class SharedMomentVideoItem extends StatefulWidget {
+  final String url;
+  const SharedMomentVideoItem({super.key, required this.url});
+
+  @override
+  State<SharedMomentVideoItem> createState() => _SharedMomentVideoItemState();
+}
+
+class _SharedMomentVideoItemState extends State<SharedMomentVideoItem> {
+  late final VideoPlayerController _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _ready = true);
+        _controller.play();
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+      );
+    }
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _controller.value.isPlaying ? _controller.pause() : _controller.play();
+        });
+      },
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: _controller.value.aspectRatio,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(_controller),
+              AnimatedOpacity(
+                opacity: _controller.value.isPlaying ? 0 : 1,
+                duration: const Duration(milliseconds: 180),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.45), shape: BoxShape.circle),
+                  child: const Icon(Icons.pause_rounded, color: Colors.white, size: 44),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // ============================================================
 // CommentsSheet — used by feed, liked, saved screens
@@ -1435,257 +1541,6 @@ class ShareMomentSheet extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-
-// ============================================================
-// Inline video player
-// ============================================================
-
-/// A simple full-screen video player for the moment media viewer.
-/// The full-screen viewer is always in the foreground when shown, so
-/// no visibility-based pause is needed — just init / dispose.
-class SharedMomentVideoItem extends StatefulWidget {
-  final String url;
-  const SharedMomentVideoItem({super.key, required this.url});
-
-  @override
-  State<SharedMomentVideoItem> createState() => _SharedMomentVideoItemState();
-}
-
-class _SharedMomentVideoItemState extends State<SharedMomentVideoItem> {
-  late final VideoPlayerController _controller;
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() => _ready = true);
-        _controller.play();
-      });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_ready) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-      );
-    }
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _controller.value.isPlaying ? _controller.pause() : _controller.play();
-        });
-      },
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              VideoPlayer(_controller),
-              AnimatedOpacity(
-                opacity: _controller.value.isPlaying ? 0 : 1,
-                duration: const Duration(milliseconds: 180),
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.45),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.pause_rounded, color: Colors.white, size: 44),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A small, self-contained inline video player for a single Moment's
-/// media tile. Behaviour:
-///   * Renders a thumbnail (thumbUrl) immediately so the tile is never
-///     blank while the video initializes.
-///   * Initializes a VideoPlayerController from the video URL.
-///   * Once initialized, auto-plays the video MUTED.
-///   * Pauses when scrolled out of the viewport (via VisibilityDetector).
-///   * Pauses on dispose.
-///   * Shows a sound toggle (speaker / muted-speaker) in the bottom-right
-///     corner. Tapping it unmutes / re-mutes.
-///   * Tapping anywhere else on the video opens the full-screen viewer
-///     (the parent passes onOpenFullscreen for this).
-class _InlineVideoPlayer extends StatefulWidget {
-  final String url;
-  final String thumbUrl;
-  final VoidCallback onOpenFullscreen;
-
-  const _InlineVideoPlayer({
-    required this.url,
-    required this.thumbUrl,
-    required this.onOpenFullscreen,
-  });
-
-  @override
-  State<_InlineVideoPlayer> createState() => _InlineVideoPlayerState();
-}
-
-class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
-  VideoPlayerController? _controller;
-  bool _initialized = false;
-  bool _muted = true;
-  bool _currentlyVisible = false;
-  Object? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _initController();
-  }
-
-  Future<void> _initController() async {
-    if (widget.url.isEmpty) return;
-    try {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(widget.url),
-      );
-      await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      await controller.setLooping(true);
-      await controller.setVolume(_muted ? 0.0 : 1.0);
-      setState(() {
-        _controller = controller;
-        _initialized = true;
-      });
-      if (_currentlyVisible) {
-        await controller.play();
-        if (mounted) setState(() {});
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  void _onVisibilityChanged(VisibilityInfo info) {
-    final visible = info.visibleFraction > 0.4;
-    if (visible == _currentlyVisible) return;
-    _currentlyVisible = visible;
-    if (_controller == null || !_initialized) return;
-    if (visible) {
-      _controller!.play();
-    } else {
-      _controller!.pause();
-    }
-  }
-
-  Future<void> _toggleMute() async {
-    if (_controller == null || !_initialized) return;
-    setState(() => _muted = !_muted);
-    await _controller!.setVolume(_muted ? 0.0 : 1.0);
-    if (!_muted && _currentlyVisible) {
-      await _controller!.play();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onOpenFullscreen,
-      behavior: HitTestBehavior.opaque,
-      child: VisibilityDetector(
-        key: ValueKey("inline_video_${widget.url.hashCode}"),
-        onVisibilityChanged: _onVisibilityChanged,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (widget.thumbUrl.isNotEmpty)
-              Image.network(
-                widget.thumbUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.black.withOpacity(.4),
-                ),
-              )
-            else
-              Container(color: Colors.black.withOpacity(.4)),
-            if (_initialized && _controller != null)
-              FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: _controller!.value.size.width,
-                  height: _controller!.value.size.height,
-                  child: VideoPlayer(_controller!),
-                ),
-              ),
-            if (!_initialized && _error == null)
-              const Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            if (_error != null)
-              const Center(
-                child: Icon(
-                  Icons.broken_image,
-                  color: Colors.white70,
-                  size: 32,
-                ),
-              ),
-            if (_initialized && _error == null)
-              Positioned(
-                right: 10,
-                bottom: 10,
-                child: GestureDetector(
-                  onTap: _toggleMute,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(.55),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      _muted
-                          ? Icons.volume_off_rounded
-                          : Icons.volume_up_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
-          ],
         ),
       ),
     );
