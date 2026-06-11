@@ -35,6 +35,7 @@ class MomentDetailScreen extends StatefulWidget {
 
 class _MomentDetailScreenState extends State<MomentDetailScreen> {
   late Map<String, dynamic> _moment;
+  String? _resolvedOriginalActivityId;
   bool _liking = false;
   bool _saving = false;
   bool _loadingOriginal = false;
@@ -48,7 +49,9 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   /// wrapper's stats — we don't yet know if the wrapper's counts belong
   /// to the original or to the repost.
   bool get _isResolvingOriginal =>
-      widget.originalActivityId != null && !_originalResolved;
+      _resolvedOriginalActivityId != null &&
+      _resolvedOriginalActivityId!.isNotEmpty &&
+      !_originalResolved;
 
   String get _activityId {
     final id = (_moment["id"] ?? "").toString().trim();
@@ -66,7 +69,20 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   void initState() {
     super.initState();
     _moment = Map<String, dynamic>.from(widget.moment);
-    if (widget.originalActivityId != null) {
+
+    // Defensive: if the caller did not pass originalActivityId but the wrapper
+    // moment has one embedded (e.g. a repost/quote opened from liked/saved/feed
+    // that forgot to forward the param), pick it up here so we still resolve
+    // the original's true stats instead of showing the wrapper's counts.
+    String? originalId = widget.originalActivityId;
+    if (originalId == null || originalId.isEmpty) {
+      final embedded = (_moment["originalActivityId"] ?? "").toString().trim();
+      if (embedded.isNotEmpty) originalId = embedded;
+    }
+    _resolvedOriginalActivityId = originalId;
+
+    if (_resolvedOriginalActivityId != null &&
+        _resolvedOriginalActivityId!.isNotEmpty) {
       _fetchOriginalStats();
     } else {
       // No original to resolve — the moment passed in is already canonical.
@@ -81,7 +97,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
     });
     try {
       final data = await widget.feedService.loadSingleActivity(
-        widget.originalActivityId!,
+        _resolvedOriginalActivityId!,
       );
       if (!mounted) return;
       // Log what we got so future debugging is trivial.
