@@ -276,7 +276,7 @@ class SharedMomentCard extends StatelessWidget {
                       children: [
                         for (int index = 0; index < visualMedia.length; index++) ...[
                           if (index > 0) const SizedBox(width: 10),
-                          SharedMediaItem(
+                          _SharedMediaItem(
                             item: visualMedia[index],
                             index: index,
                             itemWidth: itemWidth,
@@ -606,7 +606,7 @@ class SharedOriginalCard extends StatelessWidget {
 /// image fills the available card area without distorting or being
 /// cropped. Tapping opens the full-screen media viewer for the original
 /// (un-cropped, full-resolution) view.
-class SharedMediaItem extends StatefulWidget {
+class _SharedMediaItem extends StatefulWidget {
   final Map<String, dynamic> item;
   final int index;
   final double itemWidth;
@@ -616,7 +616,7 @@ class SharedMediaItem extends StatefulWidget {
   final VoidCallback? onMediaTap;
   final VoidCallback onDefaultTap;
 
-  const SharedMediaItem({
+  const _SharedMediaItem({
     required this.item,
     required this.index,
     required this.itemWidth,
@@ -628,10 +628,10 @@ class SharedMediaItem extends StatefulWidget {
   });
 
   @override
-  State<SharedMediaItem> createState() => _SharedMediaItemState();
+  State<_SharedMediaItem> createState() => _SharedMediaItemState();
 }
 
-class _SharedMediaItemState extends State<SharedMediaItem> {
+class _SharedMediaItemState extends State<_SharedMediaItem> {
   double? _aspect; // width / height of the image, once known
   ImageStreamListener? _listener;
 
@@ -696,69 +696,56 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final aspect = _aspect;
     double itemHeight;
     if (aspect == null) {
-      // Still loading or errored — fall back to a comfortable preview size.
       itemHeight = fallback;
     } else if (aspect >= 1.0) {
-      // Landscape or square — natural height capped to ~60% of screen so
-      // wide photos do not push the card taller than the rest of the feed.
+      // Landscape or square — cap to a comfortable row height.
       itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
     } else {
-      // Portrait — natural height capped to ~55% of screen so a very tall
-      // image still fits in the card. The container's width AND height
-      // match the image's natural aspect — the image fills it edge-to-edge
-      // with no letterbox and no crop.
-      itemHeight = (widget.itemWidth / aspect).clamp(160.0, screenH * 0.55);
+      // Portrait — derive from aspect, cap to screen height.
+      final byAspect = widget.itemWidth / aspect;
+      itemHeight = byAspect.clamp(160.0, widget.maxHeight);
     }
 
-    return GestureDetector(
-      onTap: widget.onMediaTap ?? widget.onDefaultTap,
-      child: Hero(
-        tag: heroTag,
-        // The ClipRRect's rounded border is the ONLY border the user sees
-        // around media — no other chrome, no letterbox, no backdrop.
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: SizedBox(
-            width: widget.itemWidth,
-            height: itemHeight,
+    return SizedBox(
+      width: widget.itemWidth,
+      height: itemHeight,
+      child: GestureDetector(
+        onTap: widget.onMediaTap ?? widget.onDefaultTap,
+        child: Hero(
+          tag: heroTag,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
             child: Stack(
-              // Pass loose (not StackFit.expand) so the image lays out at
-              // its natural size within a box that already matches its
-              // aspect — no letterbox, no crop, no extra edges.
-              fit: StackFit.loose,
+              fit: StackFit.expand,
               children: [
-                Positioned.fill(
-                  child: Image.network(
-                    _displayUrl,
-                    // SizedBox is already sized to the image's natural
-                    // aspect, so we do not need a BoxFit. Without one the
-                    // image lays out at its natural size.
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        color: Colors.black.withOpacity(.045),
-                        child: const Center(
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
+                Image.network(
+                  _displayUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: Colors.black.withOpacity(.045),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      );
-                    },
-                    errorBuilder: (_, __, ___) {
-                      return Container(
-                        color: Colors.black.withOpacity(.055),
-                        child: Center(
-                          child: Icon(
-                            PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
-                            size: 28,
-                            color: Colors.black.withOpacity(.38),
-                          ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (_, __, ___) {
+                    return Container(
+                      color: Colors.black.withOpacity(.055),
+                      child: Center(
+                        child: Icon(
+                          PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
+                          size: 28,
+                          color: Colors.black.withOpacity(.38),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
                 if (mtype == "video")
                   const Center(
