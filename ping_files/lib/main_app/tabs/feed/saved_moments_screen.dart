@@ -5,11 +5,16 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
 import 'moment_detail_screen.dart';
+import '../profile/profile_tab.dart';
 
 /// Displays moments the current user has saved.
 /// Reuses the regular feed's data load + UI — just filters to saved ones.
 class SavedMomentsScreen extends StatefulWidget {
-  const SavedMomentsScreen({super.key});
+  /// Called when the user taps an avatar or display name on a moment
+  /// card. Receives the tapped user's UID.
+  final void Function(String authorUid)? onOpenUserProfile;
+
+  const SavedMomentsScreen({super.key, this.onOpenUserProfile});
 
   @override
   State<SavedMomentsScreen> createState() => _SavedMomentsScreenState();
@@ -450,6 +455,7 @@ class _SavedMomentsScreenState extends State<SavedMomentsScreen> {
                                   (m["authorUid"] ?? "").toString().trim()] ?? false,
                               originalAuthorVerified: _verifiedCache[
                                   (m["originalAuthorUid"] ?? "").toString().trim()] ?? false,
+                              onAuthorTap: (uid) => _openUserProfile(context, uid),
                               onLike: () => _toggleLike(m, idx),
                               onComment: () => _openComments(m),
                               onSave: () => _toggleSave(m, idx),
@@ -512,4 +518,17 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Navigate to the ProfileTab for a given user UID. Used by the
+/// moment card author-tap handlers in liked/saved/moment-detail
+/// screens, which don't have a reference to the main app shell.
+void _openUserProfile(BuildContext context, String uid) {
+  if (uid.trim().isEmpty) return;
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ProfileTab(profileUid: uid.trim()),
+    ),
+  );
 }
