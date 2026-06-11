@@ -48,6 +48,10 @@ class FeedTab extends StatefulWidget {
   State<FeedTab> createState() => _FeedTabState();
 }
 
+/// Public alias for the FeedTab's State so the main app shell can
+/// hold a GlobalKey<FeedTabState> and call scrollToTop() on it.
+typedef FeedTabState = _FeedTabState;
+
 class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   final PingmeeFeedService _feedService = PingmeeFeedService();
 
@@ -74,6 +78,20 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   late AnimationController _drawerAnimController;
   final ScrollController _feedScrollController = ScrollController();
+
+  /// Scroll the feed back to the very top. Used by the main app shell
+  /// so that re-tapping the Moments tab while already on the feed
+  /// behaves like a "scroll to top" affordance, even when the same
+  /// widget state is reused via IndexedStack.
+  void scrollToTop() {
+    if (!_feedScrollController.hasClients) return;
+    if (_feedScrollController.offset <= 0) return;
+    _feedScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   @override
   void initState() {
