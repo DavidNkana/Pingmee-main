@@ -695,73 +695,70 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final fallback = screenH * 0.75;
     final aspect = _aspect;
     double itemHeight;
-    // Whether this image is tall enough that, shown at its natural aspect,
-    // it would otherwise dominate the feed. If so, we display the WHOLE
-    // image at a reduced size (BoxFit.contain) instead of cropping it.
-    bool showFullImage = false;
     if (aspect == null) {
+      // Still loading or errored — fall back to a comfortable preview size.
       itemHeight = fallback;
     } else if (aspect >= 1.0) {
-      // Landscape or square — cap to a comfortable row height.
+      // Landscape or square — natural height capped to ~60% of screen so
+      // wide photos do not push the card taller than the rest of the feed.
       itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
     } else {
-      // Portrait — derive from the natural aspect ratio.
-      final byAspect = widget.itemWidth / aspect;
-      if (byAspect > screenH * 0.55) {
-        // Very tall portrait: would dominate the feed. Show the WHOLE image
-        // at a reduced, fixed size (≈55% of screen height) so the user
-        // sees the complete image without it pushing everything else off
-        // screen. Tapping still opens the full-resolution viewer.
-        itemHeight = screenH * 0.55;
-        showFullImage = true;
-      } else {
-        // Moderately tall portrait — natural aspect ratio fits comfortably.
-        itemHeight = byAspect.clamp(160.0, screenH * 0.55);
-      }
+      // Portrait — natural height capped to ~55% of screen so a very tall
+      // image still fits in the card. The container's width AND height
+      // match the image's natural aspect — the image fills it edge-to-edge
+      // with no letterbox and no crop.
+      itemHeight = (widget.itemWidth / aspect).clamp(160.0, screenH * 0.55);
     }
 
-    return SizedBox(
-      width: widget.itemWidth,
-      height: itemHeight,
-      child: GestureDetector(
-        onTap: widget.onMediaTap ?? widget.onDefaultTap,
-        child: Hero(
-          tag: heroTag,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+    return GestureDetector(
+      onTap: widget.onMediaTap ?? widget.onDefaultTap,
+      child: Hero(
+        tag: heroTag,
+        // The ClipRRect's rounded border is the ONLY border the user sees
+        // around media — no other chrome, no letterbox, no backdrop.
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: SizedBox(
+            width: widget.itemWidth,
+            height: itemHeight,
             child: Stack(
-              fit: StackFit.expand,
+              // Pass loose (not StackFit.expand) so the image lays out at
+              // its natural size within a box that already matches its
+              // aspect — no letterbox, no crop, no extra edges.
+              fit: StackFit.loose,
               children: [
-                if (showFullImage)
-                  Container(color: Colors.black),
-                Image.network(
-                  _displayUrl,
-                  fit: showFullImage ? BoxFit.contain : BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(
-                      color: Colors.black.withOpacity(.045),
-                      child: const Center(
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                Positioned.fill(
+                  child: Image.network(
+                    _displayUrl,
+                    // SizedBox is already sized to the image's natural
+                    // aspect, so we do not need a BoxFit. Without one the
+                    // image lays out at its natural size.
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: Colors.black.withOpacity(.045),
+                        child: const Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (_, __, ___) {
-                    return Container(
-                      color: Colors.black.withOpacity(.055),
-                      child: Center(
-                        child: Icon(
-                          PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
-                          size: 28,
-                          color: Colors.black.withOpacity(.38),
+                      );
+                    },
+                    errorBuilder: (_, __, ___) {
+                      return Container(
+                        color: Colors.black.withOpacity(.055),
+                        child: Center(
+                          child: Icon(
+                            PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
+                            size: 28,
+                            color: Colors.black.withOpacity(.38),
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
                 if (mtype == "video")
                   const Center(
