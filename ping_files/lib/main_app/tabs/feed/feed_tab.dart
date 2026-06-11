@@ -918,6 +918,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
             verifiedCache: _verifiedCache,
             feedService: _feedService,
+            onAuthorTap: _onOpenUserProfile,
           );
         },
       ),
