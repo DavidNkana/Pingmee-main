@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'shared_moment_widgets.dart';
+import '../profile/profile_tab.dart';
 
 /// Full-screen single moment view — reuses SharedMomentCard exactly as it appears
 /// in the feed, liked screen, and saved screen. Shows the moment with its own
@@ -505,6 +506,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
             data: _moment,
             authorVerified: widget.authorVerified,
             originalAuthorVerified: widget.originalAuthorVerified,
+            onAuthorTap: (uid) => _openUserProfile(context, uid),
             onLike: _toggleLike,
             onComment: _openComments,
             onSave: _toggleSave,
@@ -621,4 +623,17 @@ class _SkeletonBoxState extends State<_SkeletonBox>
       },
     );
   }
+}
+
+
+/// Navigate to the ProfileTab for a given user UID. Used by the
+/// moment card author-tap handlers in liked/saved/moment-detail
+/// screens, which don't have a reference to the main app shell.
+void _openUserProfile(BuildContext context, String uid) {
+  if (uid.trim().isEmpty) return;
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ProfileTab(profileUid: uid.trim()),
+    ),
+  );
 }
