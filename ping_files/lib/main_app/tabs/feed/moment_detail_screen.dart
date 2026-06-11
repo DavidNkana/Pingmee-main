@@ -95,16 +95,28 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       _loadingOriginal = true;
       _originalFetchFailed = false;
     });
+    // ignore: avoid_print
+    print("[MomentDetail] _fetchOriginalStats START "
+        "widgetOriginalActivityId=${widget.originalActivityId} "
+        "resolvedOriginalActivityId=$_resolvedOriginalActivityId "
+        "wrapperHasOriginalField=${(_moment["originalActivityId"] ?? "").toString().trim().isNotEmpty} "
+        "wrapperId=${_moment["id"]} wrapperForeignId=${_moment["foreignId"]} "
+        "wrapperLikeCount=${_moment["likeCount"]} wrapperCommentCount=${_moment["commentCount"]} "
+        "wrapperType=${_moment["type"]}");
     try {
       final data = await widget.feedService.loadSingleActivity(
         _resolvedOriginalActivityId!,
       );
       if (!mounted) return;
-      // Log what we got so future debugging is trivial.
       // ignore: avoid_print
-      print("[MomentDetail] loadSingleActivity response: ok=${data["ok"]} "
+      print("[MomentDetail] _fetchOriginalStats RESPONSE for id=$_resolvedOriginalActivityId: "
+          "ok=${data["ok"]} "
           "hasActivity=${data["activity"] != null} "
-          "error=${data["error"] ?? "<none>"}");
+          "error=${data["error"] ?? "<none>"} "
+          "activityLikeCount=${data["activity"]?["likeCount"]} "
+          "activityCommentCount=${data["activity"]?["commentCount"]} "
+          "activitySavedCount=${data["activity"]?["savedCount"]} "
+          "activityId=${data["activity"]?["id"]}");
 
       if (data["ok"] == true && data["activity"] != null) {
         final orig = Map<String, dynamic>.from(data["activity"]);
