@@ -809,11 +809,7 @@ Future<void> _toggleMomentBookmark(int index) async {
       );
     }
     if (_bootingFeed && !_feedBooted) {
-      return const _MomentsCenterState(
-        title: "Connecting Moments...",
-        subtitle: "Setting up your local feed.",
-        loading: true,
-      );
+      return const _FeedMomentsSkeleton();
     }
 
     if (_feedBootError != null) {
@@ -826,11 +822,7 @@ Future<void> _toggleMomentBookmark(int index) async {
     }
 
     if (_loadingMoments && _timelineMoments.isEmpty) {
-      return const _MomentsCenterState(
-        title: "Loading Moments...",
-        subtitle: "Checking what’s happening around you.",
-        loading: true,
-      );
+      return const _FeedMomentsSkeleton();
     }
 
     if (_momentsError != null && _timelineMoments.isEmpty) {
@@ -5833,6 +5825,215 @@ class _GlassBottomSheet extends StatelessWidget {
           ),
           child: child,
         ),
+      ),
+    );
+  }
+}
+
+
+// ============================================================
+// Feed skeleton (content-loading placeholder)
+// ============================================================
+
+/// A self-animating stack of placeholder moment cards used while the
+/// feed is booting or refreshing. Mirrors the real `_MomentCard`
+/// shape (avatar + name + text + media + action bar) so the user
+/// sees a believable content layout, not a centred green spinner.
+class _FeedMomentsSkeleton extends StatefulWidget {
+  final int itemCount;
+  const _FeedMomentsSkeleton({this.itemCount = 4});
+
+  @override
+  State<_FeedMomentsSkeleton> createState() => _FeedMomentsSkeletonState();
+}
+
+class _FeedMomentsSkeletonState extends State<_FeedMomentsSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final pulse = 0.55 + (_controller.value * 0.30);
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
+          children: [
+            // A faded create-moment preview at the top, just like the
+            // real feed has at index 0.
+            const _FeedSkeletonCreateBar(pulse: 0.55),
+            const SizedBox(height: 12),
+            for (int i = 0; i < widget.itemCount; i++) ...[
+              if (i > 0) const SizedBox(height: 12),
+              _FeedSkeletonMomentCard(
+                // Vary the line count and media presence so the skeleton
+                // doesn't look like 4 identical cards.
+                withMedia: i % 2 == 0,
+                textLines: i == 0 ? 3 : (i == 2 ? 1 : 2),
+                pulse: pulse,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FeedSkeletonCreateBar extends StatelessWidget {
+  final double pulse;
+  const _FeedSkeletonCreateBar({required this.pulse});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.92),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.black.withOpacity(.055)),
+      ),
+      child: Row(
+        children: [
+          _FeedSkeletonBar(width: 36, height: 36, radius: 18, pulse: pulse),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _FeedSkeletonBar(
+              width: double.infinity,
+              height: 14,
+              radius: 6,
+              pulse: pulse,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedSkeletonMomentCard extends StatelessWidget {
+  final bool withMedia;
+  final int textLines;
+  final double pulse;
+  const _FeedSkeletonMomentCard({
+    required this.withMedia,
+    required this.textLines,
+    required this.pulse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.92),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.black.withOpacity(.055)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Author row: avatar + 2 stacked name/time bars
+          Row(
+            children: [
+              _FeedSkeletonBar(width: 40, height: 40, radius: 20, pulse: pulse),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _FeedSkeletonBar(width: 130, height: 13, radius: 4, pulse: pulse),
+                    const SizedBox(height: 6),
+                    _FeedSkeletonBar(width: 80, height: 11, radius: 4, pulse: pulse),
+                  ],
+                ),
+              ),
+              _FeedSkeletonBar(width: 18, height: 18, radius: 9, pulse: pulse),
+            ],
+          ),
+          // Text lines
+          if (textLines > 0) ...[
+            const SizedBox(height: 14),
+            for (int i = 0; i < textLines; i++) ...[
+              if (i > 0) const SizedBox(height: 7),
+              _FeedSkeletonBar(
+                width: i == textLines - 1 ? 180 : double.infinity,
+                height: 13,
+                radius: 4,
+                pulse: pulse,
+              ),
+            ],
+          ],
+          // Media placeholder
+          if (withMedia) ...[
+            const SizedBox(height: 12),
+            _FeedSkeletonBar(
+              width: double.infinity,
+              height: 200,
+              radius: 18,
+              pulse: pulse,
+            ),
+          ],
+          // Action bar
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _FeedSkeletonBar(width: 52, height: 22, radius: 11, pulse: pulse),
+              const SizedBox(width: 16),
+              _FeedSkeletonBar(width: 52, height: 22, radius: 11, pulse: pulse),
+              const SizedBox(width: 16),
+              _FeedSkeletonBar(width: 52, height: 22, radius: 11, pulse: pulse),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedSkeletonBar extends StatelessWidget {
+  final double width;
+  final double height;
+  final double radius;
+  final double pulse;
+  const _FeedSkeletonBar({
+    required this.width,
+    required this.height,
+    required this.radius,
+    required this.pulse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Color.lerp(
+          const Color(0xFFE6E8EC),
+          const Color(0xFFF2F3F5),
+          pulse,
+        ),
+        borderRadius: BorderRadius.circular(radius),
       ),
     );
   }
