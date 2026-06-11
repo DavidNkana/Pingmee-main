@@ -1154,6 +1154,11 @@ class _RepostMomentSheetState extends State<RepostMomentSheet> {
 // MomentMoreSheet — owner actions
 // ============================================================
 
+/// Three-dot action sheet used by MomentDetailScreen, LikedMomentsScreen,
+/// and SavedMomentsScreen. Mirrors the look of the main feed's
+/// _MomentMoreSheet: a drag handle, a single action row
+/// (Delete Moment if owner, Report Moment otherwise), and a Cancel row
+/// so the user can always dismiss the sheet explicitly.
 class MomentMoreSheet extends StatelessWidget {
   final bool isOwner;
   const MomentMoreSheet({super.key, required this.isOwner});
@@ -1161,36 +1166,106 @@ class MomentMoreSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(.96),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            color: Colors.white.withOpacity(.92),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: Colors.white.withOpacity(.65)),
           ),
           child: SafeArea(
             top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.black.withOpacity(.12), borderRadius: BorderRadius.circular(999))),
-                const SizedBox(height: 10),
-                ListTile(
-                  leading: const Icon(Icons.flag_outlined, color: Colors.black87),
-                  title: const Text("Report Moment", style: TextStyle(fontFamily: "Nunito", fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(context, "report"),
-                ),
-                if (isOwner)
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-                    title: const Text("Delete Moment", style: TextStyle(fontFamily: "Nunito", fontWeight: FontWeight.w600, color: Color(0xFFEF4444))),
-                    onTap: () => Navigator.pop(context, "delete"),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
-                const SizedBox(height: 8),
-              ],
+                  const SizedBox(height: 14),
+                  if (isOwner)
+                    _MomentMoreActionTile(
+                      icon: Icons.delete_outline_rounded,
+                      title: "Delete Moment",
+                      danger: true,
+                      onTap: () => Navigator.pop(context, "delete"),
+                    )
+                  else
+                    _MomentMoreActionTile(
+                      icon: Icons.flag_outlined,
+                      title: "Report Moment",
+                      danger: false,
+                      onTap: () => Navigator.pop(context, "report"),
+                    ),
+                  const SizedBox(height: 8),
+                  _MomentMoreActionTile(
+                    icon: Icons.close_rounded,
+                    title: "Cancel",
+                    danger: false,
+                    onTap: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentMoreActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final bool danger;
+  final VoidCallback onTap;
+  const _MomentMoreActionTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? const Color(0xFFEF4444) : Colors.black87;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: danger
+                ? const Color(0xFFEF4444).withOpacity(.08)
+                : const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
