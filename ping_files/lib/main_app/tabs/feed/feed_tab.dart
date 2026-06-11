@@ -838,19 +838,40 @@ Future<void> _toggleMomentBookmark(int index) async {
       return RefreshIndicator(
         onRefresh: () => _loadTimelineMoments(reason: "pull refresh empty"),
         color: AppColors.brandGreen,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
-          ),
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 120),
-          children: [
-            _CreateMomentPreviewCard(
-              creating: _creatingMoment,
-              onCreateMoment: _openCreateMomentSheet,
-            ),
-            const SizedBox(height: 18),
-            const _MomentsEmptyCard(),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Center the empty state vertically so the user's eye lands
+            // on it without scrolling. The create-moment preview sits
+            // at the natural top of the column, the empty card sits
+            // below it, and the whole thing is vertically centered
+            // within the available feed area.
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 120),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 18 - 120,
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _CreateMomentPreviewCard(
+                        creating: _creatingMoment,
+                        onCreateMoment: _openCreateMomentSheet,
+                      ),
+                      const SizedBox(height: 24),
+                      _MomentsEmptyCard(
+                        onCreateMoment: _openCreateMomentSheet,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       );
     }
@@ -3847,49 +3868,116 @@ class _MomentMoreTile extends StatelessWidget {
   }
 }
 
+/// Friendly empty-state card for the feed. Renders centered, with a
+/// hero icon, headline, body copy, and a primary call-to-action so
+/// the user knows exactly what to do next. Width is capped so the
+/// card reads as a single coherent block on any phone size.
 class _MomentsEmptyCard extends StatelessWidget {
-  const _MomentsEmptyCard();
+  final VoidCallback? onCreateMoment;
+  const _MomentsEmptyCard({this.onCreateMoment});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.80),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.black.withOpacity(.055)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            PhosphorIcons.mapPinArea(PhosphorIconsStyle.light),
-            size: 42,
-            color: Colors.black.withOpacity(.48),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "Your area is quiet right now.",
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: "Nunito",
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 360),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(.92),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.black.withOpacity(.055)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(.04),
+              blurRadius: 22,
+              offset: const Offset(0, 8),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            "Start the first Moment here, or later we’ll widen your feed when nearby activity is low.",
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: "Nunito",
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-              color: Colors.black.withOpacity(.55),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Soft circular badge with the icon — gives the empty
+            // state a focal anchor and matches the rest of the
+            // card-based design language.
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.brandGreen.withOpacity(.10),
+              ),
+              child: Icon(
+                PhosphorIcons.mapPinArea(PhosphorIconsStyle.fill),
+                size: 32,
+                color: AppColors.brandGreen,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            const Text(
+              "Your area is quiet right now.",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Be the first to share what's happening around you — your Moment will show up here, and we'll widen the feed when nearby activity is low.",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+                color: Colors.black.withOpacity(.55),
+              ),
+            ),
+            if (onCreateMoment != null) ...[
+              const SizedBox(height: 22),
+              FilledButton(
+                onPressed: onCreateMoment,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.brandGreen,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      PhosphorIcons.plus(PhosphorIconsStyle.bold),
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      "Create the first Moment",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
