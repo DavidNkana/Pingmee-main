@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:video_player/video_player.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'pingmee_feed_service.dart';
 
 /// Shared moment card, share sheet, comments sheet, repost sheet, more sheet.
@@ -729,44 +730,47 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Image.network(
-                  _displayUrl,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(
-                      color: Colors.black.withOpacity(.045),
-                      child: const Center(
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (_, __, ___) {
-                    return Container(
-                      color: Colors.black.withOpacity(.055),
-                      child: Center(
-                        child: Icon(
-                          PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
-                          size: 28,
-                          color: Colors.black.withOpacity(.38),
-                        ),
-                      ),
-                    );
-                  },
-                ),
                 if (mtype == "video")
-                  const Center(
-                    child: SizedBox(
-                      width: 54,
-                      height: 54,
-                      child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
-                    ),
+                  _InlineVideoPlayer(
+                    url: widget.item["url"]?.toString() ?? "",
+                    thumbUrl: _displayUrl,
+                    onOpenFullscreen: widget.onMediaTap ?? widget.onDefaultTap,
+                  )
+                else
+                  Image.network(
+                    _displayUrl,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: Colors.black.withOpacity(.045),
+                        child: const Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    },
+                    errorBuilder: (_, __, ___) {
+                      return Container(
+                        color: Colors.black.withOpacity(.055),
+                        child: Center(
+                          child: Icon(
+                            PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
+                            size: 28,
+                            color: Colors.black.withOpacity(.38),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                if (widget.totalCount > 1)
+                // Multi-image carousel counter is only shown for image
+                // tiles — the inline video is recognizable as media on
+                // its own and the counter would compete with the sound
+                // toggle for the corner real estate.
+                if (mtype != "video" && widget.totalCount > 1)
                   Positioned(
                     top: 10,
                     right: 10,
@@ -915,71 +919,6 @@ class _SharedMomentMediaViewerPageState extends State<SharedMomentMediaViewerPag
   }
 }
 
-class SharedMomentVideoItem extends StatefulWidget {
-  final String url;
-  const SharedMomentVideoItem({super.key, required this.url});
-
-  @override
-  State<SharedMomentVideoItem> createState() => _SharedMomentVideoItemState();
-}
-
-class _SharedMomentVideoItemState extends State<SharedMomentVideoItem> {
-  late final VideoPlayerController _controller;
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() => _ready = true);
-        _controller.play();
-      });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_ready) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-      );
-    }
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _controller.value.isPlaying ? _controller.pause() : _controller.play();
-        });
-      },
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              VideoPlayer(_controller),
-              AnimatedOpacity(
-                opacity: _controller.value.isPlaying ? 0 : 1,
-                duration: const Duration(milliseconds: 180),
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.45), shape: BoxShape.circle),
-                  child: const Icon(Icons.pause_rounded, color: Colors.white, size: 44),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ============================================================
 // CommentsSheet — used by feed, liked, saved screens
@@ -1496,6 +1435,257 @@ class ShareMomentSheet extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+
+// ============================================================
+// Inline video player
+// ============================================================
+
+/// A simple full-screen video player for the moment media viewer.
+/// The full-screen viewer is always in the foreground when shown, so
+/// no visibility-based pause is needed — just init / dispose.
+class SharedMomentVideoItem extends StatefulWidget {
+  final String url;
+  const SharedMomentVideoItem({super.key, required this.url});
+
+  @override
+  State<SharedMomentVideoItem> createState() => _SharedMomentVideoItemState();
+}
+
+class _SharedMomentVideoItemState extends State<SharedMomentVideoItem> {
+  late final VideoPlayerController _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _ready = true);
+        _controller.play();
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+      );
+    }
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _controller.value.isPlaying ? _controller.pause() : _controller.play();
+        });
+      },
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: _controller.value.aspectRatio,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(_controller),
+              AnimatedOpacity(
+                opacity: _controller.value.isPlaying ? 0 : 1,
+                duration: const Duration(milliseconds: 180),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.45),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.pause_rounded, color: Colors.white, size: 44),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small, self-contained inline video player for a single Moment's
+/// media tile. Behaviour:
+///   * Renders a thumbnail (thumbUrl) immediately so the tile is never
+///     blank while the video initializes.
+///   * Initializes a VideoPlayerController from the video URL.
+///   * Once initialized, auto-plays the video MUTED.
+///   * Pauses when scrolled out of the viewport (via VisibilityDetector).
+///   * Pauses on dispose.
+///   * Shows a sound toggle (speaker / muted-speaker) in the bottom-right
+///     corner. Tapping it unmutes / re-mutes.
+///   * Tapping anywhere else on the video opens the full-screen viewer
+///     (the parent passes onOpenFullscreen for this).
+class _InlineVideoPlayer extends StatefulWidget {
+  final String url;
+  final String thumbUrl;
+  final VoidCallback onOpenFullscreen;
+
+  const _InlineVideoPlayer({
+    required this.url,
+    required this.thumbUrl,
+    required this.onOpenFullscreen,
+  });
+
+  @override
+  State<_InlineVideoPlayer> createState() => _InlineVideoPlayerState();
+}
+
+class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
+  VideoPlayerController? _controller;
+  bool _initialized = false;
+  bool _muted = true;
+  bool _currentlyVisible = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  Future<void> _initController() async {
+    if (widget.url.isEmpty) return;
+    try {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.url),
+      );
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      await controller.setLooping(true);
+      await controller.setVolume(_muted ? 0.0 : 1.0);
+      setState(() {
+        _controller = controller;
+        _initialized = true;
+      });
+      if (_currentlyVisible) {
+        await controller.play();
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _onVisibilityChanged(VisibilityInfo info) {
+    final visible = info.visibleFraction > 0.4;
+    if (visible == _currentlyVisible) return;
+    _currentlyVisible = visible;
+    if (_controller == null || !_initialized) return;
+    if (visible) {
+      _controller!.play();
+    } else {
+      _controller!.pause();
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    if (_controller == null || !_initialized) return;
+    setState(() => _muted = !_muted);
+    await _controller!.setVolume(_muted ? 0.0 : 1.0);
+    if (!_muted && _currentlyVisible) {
+      await _controller!.play();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onOpenFullscreen,
+      behavior: HitTestBehavior.opaque,
+      child: VisibilityDetector(
+        key: ValueKey("inline_video_${widget.url.hashCode}"),
+        onVisibilityChanged: _onVisibilityChanged,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (widget.thumbUrl.isNotEmpty)
+              Image.network(
+                widget.thumbUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: Colors.black.withOpacity(.4),
+                ),
+              )
+            else
+              Container(color: Colors.black.withOpacity(.4)),
+            if (_initialized && _controller != null)
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _controller!.value.size.width,
+                  height: _controller!.value.size.height,
+                  child: VideoPlayer(_controller!),
+                ),
+              ),
+            if (!_initialized && _error == null)
+              const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            if (_error != null)
+              const Center(
+                child: Icon(
+                  Icons.broken_image,
+                  color: Colors.white70,
+                  size: 32,
+                ),
+              ),
+            if (_initialized && _error == null)
+              Positioned(
+                right: 10,
+                bottom: 10,
+                child: GestureDetector(
+                  onTap: _toggleMute,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _muted
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
