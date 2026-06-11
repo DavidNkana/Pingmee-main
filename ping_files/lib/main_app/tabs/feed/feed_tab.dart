@@ -3834,6 +3834,9 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
+              // Action row — Delete when you own the moment, Report otherwise.
+              // Mirrors the design used in MomentDetailScreen's MomentMoreSheet:
+              // flag icon for Report, trash icon in red for Delete.
               if (isOwner)
                 _MomentMoreTile(
                   icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
@@ -3845,10 +3848,12 @@ class _MomentMoreSheet extends StatelessWidget {
                 _MomentMoreTile(
                   icon: PhosphorIcons.flag(PhosphorIconsStyle.regular),
                   title: "Report Moment",
-                  danger: true,
+                  danger: false,
                   onTap: () => Navigator.pop(context, "report"),
                 ),
               const SizedBox(height: 8),
+              // Always-present Cancel row — lets the user dismiss the sheet
+              // even when there is no destructive action to confirm.
               _MomentMoreTile(
                 icon: PhosphorIcons.x(PhosphorIconsStyle.regular),
                 title: "Cancel",
