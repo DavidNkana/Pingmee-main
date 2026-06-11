@@ -695,15 +695,29 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final fallback = screenH * 0.75;
     final aspect = _aspect;
     double itemHeight;
+    // Whether this image is tall enough that, shown at its natural aspect,
+    // it would otherwise dominate the feed. If so, we display the WHOLE
+    // image at a reduced size (BoxFit.contain) instead of cropping it.
+    bool showFullImage = false;
     if (aspect == null) {
       itemHeight = fallback;
     } else if (aspect >= 1.0) {
       // Landscape or square — cap to a comfortable row height.
       itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
     } else {
-      // Portrait — derive from aspect, cap to screen height.
+      // Portrait — derive from the natural aspect ratio.
       final byAspect = widget.itemWidth / aspect;
-      itemHeight = byAspect.clamp(160.0, widget.maxHeight);
+      if (byAspect > screenH * 0.55) {
+        // Very tall portrait: would dominate the feed. Show the WHOLE image
+        // at a reduced, fixed size (≈55% of screen height) so the user
+        // sees the complete image without it pushing everything else off
+        // screen. Tapping still opens the full-resolution viewer.
+        itemHeight = screenH * 0.55;
+        showFullImage = true;
+      } else {
+        // Moderately tall portrait — natural aspect ratio fits comfortably.
+        itemHeight = byAspect.clamp(160.0, screenH * 0.55);
+      }
     }
 
     return SizedBox(
@@ -718,9 +732,11 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
             child: Stack(
               fit: StackFit.expand,
               children: [
+                if (showFullImage)
+                  Container(color: Colors.black),
                 Image.network(
                   _displayUrl,
-                  fit: BoxFit.cover,
+                  fit: showFullImage ? BoxFit.contain : BoxFit.cover,
                   loadingBuilder: (context, child, progress) {
                     if (progress == null) return child;
                     return Container(
