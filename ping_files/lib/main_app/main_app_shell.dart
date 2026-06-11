@@ -43,6 +43,7 @@ class _MainAppShellState extends State<MainAppShell>
   bool _navHiddenByScroll = false;
 
   final GlobalKey<MapTabState> _mapKey = GlobalKey<MapTabState>();
+  final GlobalKey<FeedTabState> _feedKey = GlobalKey<FeedTabState>();
 
   final CreatePingDraft _pingDraft = CreatePingDraft();
   final CreateEventDraft _eventDraft = CreateEventDraft();
@@ -383,7 +384,7 @@ class _MainAppShellState extends State<MainAppShell>
             index: index,
             children: [
               MapTab(key: _mapKey),
-              const FeedTab(),
+              FeedTab(key: _feedKey),
               PingmeeChatTab(
                 onNavVisibilityChanged: _setNavHiddenByScroll,
               ),
@@ -443,7 +444,15 @@ class _MainAppShellState extends State<MainAppShell>
                   plusRotateAnim: _plusRotate,
                   fade: _fade,
                   onMap: () => _setIndex(0),
-                  onFeed: () => _setIndex(1),
+                  onFeed: () {
+                    if (index == 1) {
+                      // Already on the Moments tab — scroll to the top
+                      // instead of rebuilding the tab.
+                      _feedKey.currentState?.scrollToTop();
+                    } else {
+                      _setIndex(1);
+                    }
+                  },
                   onInbox: () => _setIndex(2),
                   onProfile: _openOwnProfileTab,
                   onToggleMenu: _toggleMenu,
