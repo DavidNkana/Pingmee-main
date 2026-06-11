@@ -40,6 +40,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   bool _loadingOriginal = false;
   bool _originalResolved = false;
   bool _originalFetchFailed = false;
+  bool _originalStatsUnavailable = false; // true when function returned ok:false
 
   /// True when this screen is opened for a repost/quote's original moment
   /// AND the original activity's true stats have not yet been loaded.
@@ -83,6 +84,12 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         widget.originalActivityId!,
       );
       if (!mounted) return;
+      // Log what we got so future debugging is trivial.
+      // ignore: avoid_print
+      print("[MomentDetail] loadSingleActivity response: ok=${data["ok"]} "
+          "hasActivity=${data["activity"] != null} "
+          "error=${data["error"] ?? "<none>"}");
+
       if (data["ok"] == true && data["activity"] != null) {
         final orig = Map<String, dynamic>.from(data["activity"]);
         setState(() {
@@ -104,13 +111,22 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
           _originalResolved = true;
         });
       } else {
+        // Cloud function returned a structured "not found" — not a hard error.
+        // Fall back to the wrapper moment's counts (so the user at least sees
+        // SOMETHING) and mark resolved. Mark the moment so we can show a
+        // subtle "couldn't verify" indicator in the UI if needed.
+        if (!mounted) return;
         setState(() {
           _loadingOriginal = false;
-          _originalFetchFailed = true;
+          _originalResolved = true;
+          _originalStatsUnavailable = true;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      // ignore: avoid_print
+      print("[MomentDetail] loadSingleActivity threw: $e");
       if (!mounted) return;
+      // Real network/permission error — only THEN do we show the error state.
       setState(() {
         _loadingOriginal = false;
         _originalFetchFailed = true;
@@ -383,7 +399,10 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
                 onPressed: _loadingOriginal
                     ? null
                     : () {
-                        setState(() => _originalFetchFailed = false);
+                        setState(() {
+                          _originalFetchFailed = false;
+                          _originalStatsUnavailable = false;
+                        });
                         _fetchOriginalStats();
                       },
                 style: FilledButton.styleFrom(
