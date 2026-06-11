@@ -6513,7 +6513,7 @@ class _DiscoverOverlay extends StatelessWidget {
 
                                 _SectionHeader(
                                   eyebrow: "Near You",
-                                  title: "Nearby Pings",
+                                  title: "Your Pings",
                                   darkText: true,
                                   trailingText:
                                       allNearbyCount > 0 ? "View All" : null,
