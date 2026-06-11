@@ -276,7 +276,7 @@ class SharedMomentCard extends StatelessWidget {
                       children: [
                         for (int index = 0; index < visualMedia.length; index++) ...[
                           if (index > 0) const SizedBox(width: 10),
-                          _SharedMediaItem(
+                          SharedMediaItem(
                             item: visualMedia[index],
                             index: index,
                             itemWidth: itemWidth,
@@ -606,7 +606,7 @@ class SharedOriginalCard extends StatelessWidget {
 /// image fills the available card area without distorting or being
 /// cropped. Tapping opens the full-screen media viewer for the original
 /// (un-cropped, full-resolution) view.
-class _SharedMediaItem extends StatefulWidget {
+class SharedMediaItem extends StatefulWidget {
   final Map<String, dynamic> item;
   final int index;
   final double itemWidth;
@@ -616,7 +616,7 @@ class _SharedMediaItem extends StatefulWidget {
   final VoidCallback? onMediaTap;
   final VoidCallback onDefaultTap;
 
-  const _SharedMediaItem({
+  const SharedMediaItem({
     required this.item,
     required this.index,
     required this.itemWidth,
@@ -628,10 +628,10 @@ class _SharedMediaItem extends StatefulWidget {
   });
 
   @override
-  State<_SharedMediaItem> createState() => _SharedMediaItemState();
+  State<SharedMediaItem> createState() => _SharedMediaItemState();
 }
 
-class _SharedMediaItemState extends State<_SharedMediaItem> {
+class _SharedMediaItemState extends State<SharedMediaItem> {
   double? _aspect; // width / height of the image, once known
   ImageStreamListener? _listener;
 
