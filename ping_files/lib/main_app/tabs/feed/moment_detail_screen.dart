@@ -38,6 +38,16 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   bool _liking = false;
   bool _saving = false;
   bool _loadingOriginal = false;
+  bool _originalResolved = false;
+  bool _originalFetchFailed = false;
+
+  /// True when this screen is opened for a repost/quote's original moment
+  /// AND the original activity's true stats have not yet been loaded.
+  /// While true, the screen MUST NOT show action buttons or render the
+  /// wrapper's stats — we don't yet know if the wrapper's counts belong
+  /// to the original or to the repost.
+  bool get _isResolvingOriginal =>
+      widget.originalActivityId != null && !_originalResolved;
 
   String get _activityId {
     final id = (_moment["id"] ?? "").toString().trim();
@@ -57,11 +67,17 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
     _moment = Map<String, dynamic>.from(widget.moment);
     if (widget.originalActivityId != null) {
       _fetchOriginalStats();
+    } else {
+      // No original to resolve — the moment passed in is already canonical.
+      _originalResolved = true;
     }
   }
 
   Future<void> _fetchOriginalStats() async {
-    setState(() => _loadingOriginal = true);
+    setState(() {
+      _loadingOriginal = true;
+      _originalFetchFailed = false;
+    });
     try {
       final data = await widget.feedService.loadSingleActivity(
         widget.originalActivityId!,
@@ -70,28 +86,41 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       if (data["ok"] == true && data["activity"] != null) {
         final orig = Map<String, dynamic>.from(data["activity"]);
         setState(() {
-          // Use the original's true engagement stats
+          // Use the original's true engagement stats — never the repost/quote
+          // wrapper's counts. The wrapper's counts include reactions on the
+          // repost/quote card itself (e.g. 20 likes on the repost), which is
+          // NOT what users expect to see when they open the original.
           _moment["likeCount"] = orig["likeCount"];
           _moment["commentCount"] = orig["commentCount"];
+          _moment["savedCount"] = orig["savedCount"];
           // Keep current user's like/bookmark state from the original activity
           _moment["likedByMe"] = orig["likedByMe"] == true;
           _moment["savedByMe"] = orig["savedByMe"] == true;
           _moment["myLikeReactionId"] = orig["myLikeReactionId"] ?? "";
           _moment["myBookmarkReactionId"] = orig["myBookmarkReactionId"] ?? "";
           _moment["id"] = orig["id"];
+          _moment["foreignId"] = orig["foreignId"] ?? _moment["foreignId"];
           _loadingOriginal = false;
+          _originalResolved = true;
         });
       } else {
-        setState(() => _loadingOriginal = false);
+        setState(() {
+          _loadingOriginal = false;
+          _originalFetchFailed = true;
+        });
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingOriginal = false);
+      setState(() {
+        _loadingOriginal = false;
+        _originalFetchFailed = true;
+      });
     }
   }
 
   Future<void> _toggleLike() async {
     if (_liking) return;
+    if (_isResolvingOriginal) return; // don't act on the wrapper's activity
     _liking = true;
 
     final currentlyLiked = _moment["likedByMe"] == true;
@@ -131,6 +160,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
   }
 
   Future<void> _openComments() async {
+    if (_isResolvingOriginal) return; // don't act on the wrapper's activity
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -142,11 +172,12 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       ),
     );
     // Refresh counts after comments change
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   Future<void> _toggleSave() async {
     if (_saving) return;
+    if (_isResolvingOriginal) return; // don't act on the wrapper's activity
     _saving = true;
 
     final currentlySaved = _moment["savedByMe"] == true;
@@ -308,21 +339,198 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         ),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
-        child: SharedMomentCard(
-          data: _moment,
-          authorVerified: widget.authorVerified,
-          originalAuthorVerified: widget.originalAuthorVerified,
-          onLike: _toggleLike,
-          onComment: _openComments,
-          onSave: _toggleSave,
-          onRepost: _openRepost,
-          onMore: _openMore,
-          onShare: _shareMoment,
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    // 1) Fetch failed — never show the wrapper's wrong numbers; offer retry.
+    if (_originalFetchFailed) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                PhosphorIconsRegular.cloudWarning,
+                size: 56,
+                color: Colors.black54,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "Couldn't load this Moment's stats",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "We need the original Moment's like, comment and save counts before we can show this screen.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 13,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: _loadingOriginal
+                    ? null
+                    : () {
+                        setState(() => _originalFetchFailed = false);
+                        _fetchOriginalStats();
+                      },
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.black87,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: Text(
+                  _loadingOriginal ? "Loading..." : "Try again",
+                  style: const TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      );
+    }
+
+    // 2) Still resolving the original — show a skeleton, NOT the wrapper stats.
+    if (_isResolvingOriginal) {
+      return const _MomentDetailSkeleton();
+    }
+
+    // 3) Resolved (or no original to resolve) — render with the canonical stats.
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+      child: SharedMomentCard(
+        data: _moment,
+        authorVerified: widget.authorVerified,
+        originalAuthorVerified: widget.originalAuthorVerified,
+        onLike: _toggleLike,
+        onComment: _openComments,
+        onSave: _toggleSave,
+        onRepost: _openRepost,
+        onMore: _openMore,
+        onShare: _shareMoment,
       ),
+    );
+  }
+}
+
+/// Lightweight skeleton placeholder shown while we fetch the original moment's
+/// real engagement stats. We deliberately do NOT render the wrapper moment's
+/// counts in this state — those belong to the repost/quote, not the original.
+class _MomentDetailSkeleton extends StatelessWidget {
+  const _MomentDetailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Author row
+          Row(
+            children: [
+              const _SkeletonBox(width: 40, height: 40, radius: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    _SkeletonBox(width: 140, height: 14, radius: 4),
+                    SizedBox(height: 6),
+                    _SkeletonBox(width: 90, height: 12, radius: 4),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Body lines
+          const _SkeletonBox(width: double.infinity, height: 14, radius: 4),
+          const SizedBox(height: 8),
+          const _SkeletonBox(width: double.infinity, height: 14, radius: 4),
+          const SizedBox(height: 8),
+          const _SkeletonBox(width: 220, height: 14, radius: 4),
+          const SizedBox(height: 24),
+          // Action row
+          Row(
+            children: const [
+              _SkeletonBox(width: 60, height: 24, radius: 12),
+              SizedBox(width: 18),
+              _SkeletonBox(width: 60, height: 24, radius: 12),
+              SizedBox(width: 18),
+              _SkeletonBox(width: 60, height: 24, radius: 12),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonBox extends StatefulWidget {
+  final double width;
+  final double height;
+  final double radius;
+  const _SkeletonBox({
+    required this.width,
+    required this.height,
+    required this.radius,
+  });
+
+  @override
+  State<_SkeletonBox> createState() => _SkeletonBoxState();
+}
+
+class _SkeletonBoxState extends State<_SkeletonBox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        final t = _ctrl.value;
+        return Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            color: Color.lerp(
+              const Color(0xFFE6E8EC),
+              const Color(0xFFF2F3F5),
+              t,
+            ),
+            borderRadius: BorderRadius.circular(widget.radius),
+          ),
+        );
+      },
     );
   }
 }
