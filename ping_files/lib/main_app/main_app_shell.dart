@@ -215,6 +215,18 @@ class _MainAppShellState extends State<MainAppShell>
     });
   }
 
+  /// Open the profile tab showing another user's profile (not the
+  /// logged-in user). Called from the feed/liked/saved/moment-detail
+  /// screens when the user taps an avatar or name on a moment card.
+  void _openUserProfileTab(String uid) {
+    if (uid.trim().isEmpty) return;
+    if (menuOpen) _closeMenu();
+    setState(() {
+      _profileUidForTab = uid.trim();
+      index = 3;
+    });
+  }
+
   ({Color solid, Color top, Color bottom}) _eventThemeColors(String themeId) {
     switch (themeId) {
       case "pink_nova":
@@ -384,7 +396,10 @@ class _MainAppShellState extends State<MainAppShell>
             index: index,
             children: [
               MapTab(key: _mapKey),
-              FeedTab(key: _feedKey),
+              FeedTab(
+                key: _feedKey,
+                onOpenUserProfile: _openUserProfileTab,
+              ),
               PingmeeChatTab(
                 onNavVisibilityChanged: _setNavHiddenByScroll,
               ),
