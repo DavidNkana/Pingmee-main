@@ -139,12 +139,19 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
           _originalResolved = true;
         });
       } else {
-        // Cloud function returned a structured "not found" — not a hard error.
-        // Fall back to the wrapper moment's counts (so the user at least sees
-        // SOMETHING) and mark resolved. Mark the moment so we can show a
-        // subtle "couldn't verify" indicator in the UI if needed.
+        // Cloud function returned a structured "not found" — the original
+        // activity isn't accessible (deleted, no permission, or GetStream
+        // rate-limited). We REFUSE to fall back to the wrapper's counts,
+        // because for a repost/quote those counts are the repost's own
+        // engagement (e.g. "20 likes on the repost") — showing them on a
+        // detail screen of the ORIGINAL is the bug we're fixing. Zero
+        // them out so the screen shows a clean "0" instead of misleading
+        // wrapper counts, and mark unavailable so we can show a label.
         if (!mounted) return;
         setState(() {
+          _moment["likeCount"] = 0;
+          _moment["commentCount"] = 0;
+          _moment["savedCount"] = 0;
           _loadingOriginal = false;
           _originalResolved = true;
           _originalStatsUnavailable = true;
@@ -154,7 +161,10 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       // ignore: avoid_print
       print("[MomentDetail] loadSingleActivity threw: $e");
       if (!mounted) return;
-      // Real network/permission error — only THEN do we show the error state.
+      // Real network/permission error — same policy: never show the
+      // wrapper's counts. We mark fetch-failed so the user sees the
+      // error state with a retry button, which is more honest than
+      // silently showing the repost's counts.
       setState(() {
         _loadingOriginal = false;
         _originalFetchFailed = true;
@@ -462,16 +472,47 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
-      child: SharedMomentCard(
-        data: _moment,
-        authorVerified: widget.authorVerified,
-        originalAuthorVerified: widget.originalAuthorVerified,
-        onLike: _toggleLike,
-        onComment: _openComments,
-        onSave: _toggleSave,
-        onRepost: _openRepost,
-        onMore: _openMore,
-        onShare: _shareMoment,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_originalStatsUnavailable)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF4E5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFD8A8)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Color(0xFFB45309)),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Couldn't load this Moment's live counts. Showing 0 — open from your feed for real-time stats.",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 12,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          SharedMomentCard(
+            data: _moment,
+            authorVerified: widget.authorVerified,
+            originalAuthorVerified: widget.originalAuthorVerified,
+            onLike: _toggleLike,
+            onComment: _openComments,
+            onSave: _toggleSave,
+            onRepost: _openRepost,
+            onMore: _openMore,
+            onShare: _shareMoment,
+          ),
+        ],
       ),
     );
   }
