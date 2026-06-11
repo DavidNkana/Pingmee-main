@@ -248,106 +248,55 @@ class SharedMomentCard extends StatelessWidget {
           ],
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 12),
+            // Variable-height media row.
+            //
+            // Each item is sized to the IMAGE'S natural aspect ratio instead of
+            // a fixed 230px box. Width is full card width for a single image,
+            // and 88% of card width for each item when there are multiple
+            // (so the user can tell there is more by the visible edge of the
+            // next item).
+            //
+            // Tall portrait images are capped to MediaQuery height so the card
+            // never exceeds one screen — the full image is still viewable by
+            // tapping, which opens the existing full-screen media viewer.
             LayoutBuilder(
               builder: (context, constraints) {
                 final fullWidth = constraints.maxWidth;
-                final itemWidth = visualMedia.length == 1 ? fullWidth : fullWidth * 0.88;
-                return SizedBox(
-                  height: 230,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: visualMedia.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) {
-                      final item = visualMedia[index];
-                      final mtype = (item["type"] ?? "").toString();
-                      final url = (item["url"] ?? "").toString().trim();
-                      final thumbUrl = (item["thumbUrl"] ?? "").toString().trim();
-                      final displayUrl = mtype == "video" && thumbUrl.isNotEmpty ? thumbUrl : url;
-                      final heroTag = "moment_media_${activityId}_${index}_${url.hashCode}";
-                      return SizedBox(
-                        width: itemWidth,
-                        child: GestureDetector(
-                          onTap: () {
-                            if (onMediaTap != null) {
-                              onMediaTap!(context, visualMedia, index, activityId);
-                            } else {
-                              openSharedMomentMediaViewer(context: context, images: visualMedia, initialIndex: index, activityId: activityId);
-                            }
-                          },
-                          child: Hero(
-                            tag: heroTag,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  Image.network(
-                                    displayUrl,
-                                    fit: BoxFit.cover,
-                                    loadingBuilder: (context, child, progress) {
-                                      if (progress == null) return child;
-                                      return Container(
-                                        color: Colors.black.withOpacity(.045),
-                                        child: const Center(
-                                          child: SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (_, __, ___) {
-                                      return Container(
-                                        color: Colors.black.withOpacity(.055),
-                                        child: Center(
-                                          child: Icon(
-                                            PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
-                                            size: 28,
-                                            color: Colors.black.withOpacity(.38),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  if (mtype == "video")
-                                    const Center(
-                                      child: SizedBox(
-                                        width: 54,
-                                        height: 54,
-                                        child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
-                                      ),
-                                    ),
-                                  if (visualMedia.length > 1)
-                                    Positioned(
-                                      top: 10,
-                                      right: 10,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(.62),
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          "${index + 1}/${visualMedia.length}",
-                                          style: const TextStyle(
-                                            fontFamily: "Nunito",
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w800,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                final screenHeight = MediaQuery.of(context).size.height;
+                final maxRowHeight = screenHeight; // never exceed 1 screen tall
+                final itemWidth = visualMedia.length == 1
+                    ? fullWidth
+                    : fullWidth * 0.88;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (int index = 0; index < visualMedia.length; index++) ...[
+                          if (index > 0) const SizedBox(width: 10),
+                          _SharedMediaItem(
+                            item: visualMedia[index],
+                            index: index,
+                            itemWidth: itemWidth,
+                            maxHeight: maxRowHeight,
+                            totalCount: visualMedia.length,
+                            activityId: activityId,
+                            onMediaTap: onMediaTap == null
+                                ? null
+                                : () => onMediaTap!(
+                                    context, visualMedia, index, activityId),
+                            onDefaultTap: () => openSharedMomentMediaViewer(
+                              context: context,
+                              images: visualMedia,
+                              initialIndex: index,
+                              activityId: activityId,
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        ],
+                      ],
+                    ),
                   ),
                 );
               },
@@ -650,6 +599,191 @@ class SharedOriginalCard extends StatelessWidget {
 // ============================================================
 // Media viewer — used by both feed and liked/saved screens
 // ============================================================
+
+/// A single media tile in the horizontally-scrolling media row on a
+/// Moment card. The tile's height is derived from the image's natural
+/// aspect ratio, capped at the device screen height, so a tall portrait
+/// image fills the available card area without distorting or being
+/// cropped. Tapping opens the full-screen media viewer for the original
+/// (un-cropped, full-resolution) view.
+class _SharedMediaItem extends StatefulWidget {
+  final Map<String, dynamic> item;
+  final int index;
+  final double itemWidth;
+  final double maxHeight;
+  final int totalCount;
+  final String activityId;
+  final VoidCallback? onMediaTap;
+  final VoidCallback onDefaultTap;
+
+  const _SharedMediaItem({
+    required this.item,
+    required this.index,
+    required this.itemWidth,
+    required this.maxHeight,
+    required this.totalCount,
+    required this.activityId,
+    required this.onMediaTap,
+    required this.onDefaultTap,
+  });
+
+  @override
+  State<_SharedMediaItem> createState() => _SharedMediaItemState();
+}
+
+class _SharedMediaItemState extends State<_SharedMediaItem> {
+  double? _aspect; // width / height of the image, once known
+  ImageStreamListener? _listener;
+
+  @override
+  void dispose() {
+    final stream = _imageStream();
+    if (stream != null && _listener != null) {
+      stream.removeListener(_listener!);
+    }
+    super.dispose();
+  }
+
+  String get _displayUrl {
+    final mtype = (widget.item["type"] ?? "").toString();
+    final url = (widget.item["url"] ?? "").toString().trim();
+    final thumbUrl = (widget.item["thumbUrl"] ?? "").toString().trim();
+    return mtype == "video" && thumbUrl.isNotEmpty ? thumbUrl : url;
+  }
+
+  ImageStream? _imageStream() {
+    if (_displayUrl.isEmpty) return null;
+    return NetworkImage(_displayUrl).resolve(const ImageConfiguration());
+  }
+
+  void _attachListener() {
+    final stream = _imageStream();
+    if (stream == null) return;
+    _listener = ImageStreamListener((ImageInfo info, bool _) {
+      final w = info.image.width.toDouble();
+      final h = info.image.height.toDouble();
+      if (w <= 0 || h <= 0) return;
+      if (!mounted) return;
+      setState(() => _aspect = w / h);
+      // Once we have the aspect, we don't need to listen anymore.
+      stream.removeListener(_listener!);
+    }, onError: (Object _, StackTrace? __) {
+      // Leave _aspect null — fallback to a 4:3 frame so the layout
+      // still works and the errorBuilder shows the broken-image icon.
+    });
+    stream.addListener(_listener!);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _attachListener();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mtype = (widget.item["type"] ?? "").toString();
+    final url = (widget.item["url"] ?? "").toString().trim();
+    final heroTag = "moment_media_${widget.activityId}_${widget.index}_${url.hashCode}";
+
+    // Decide the frame height:
+    //  - landscape images: about 60% of screen height
+    //  - square images:    full item width (1:1)
+    //  - portrait images:  derive from aspect ratio, capped at maxHeight
+    //  - unknown aspect:   fall back to 75% of screen height
+    final screenH = MediaQuery.of(context).size.height;
+    final fallback = screenH * 0.75;
+    final aspect = _aspect;
+    double itemHeight;
+    if (aspect == null) {
+      itemHeight = fallback;
+    } else if (aspect >= 1.0) {
+      // Landscape or square — cap to a comfortable row height.
+      itemHeight = (widget.itemWidth / aspect).clamp(120.0, screenH * 0.6);
+    } else {
+      // Portrait — derive from aspect, cap to screen height.
+      final byAspect = widget.itemWidth / aspect;
+      itemHeight = byAspect.clamp(160.0, widget.maxHeight);
+    }
+
+    return SizedBox(
+      width: widget.itemWidth,
+      height: itemHeight,
+      child: GestureDetector(
+        onTap: widget.onMediaTap ?? widget.onDefaultTap,
+        child: Hero(
+          tag: heroTag,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  _displayUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: Colors.black.withOpacity(.045),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (_, __, ___) {
+                    return Container(
+                      color: Colors.black.withOpacity(.055),
+                      child: Center(
+                        child: Icon(
+                          PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
+                          size: 28,
+                          color: Colors.black.withOpacity(.38),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                if (mtype == "video")
+                  const Center(
+                    child: SizedBox(
+                      width: 54,
+                      height: 54,
+                      child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
+                    ),
+                  ),
+                if (widget.totalCount > 1)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(.62),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        "${widget.index + 1}/${widget.totalCount}",
+                        style: const TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 void openSharedMomentMediaViewer({
   required BuildContext context,
