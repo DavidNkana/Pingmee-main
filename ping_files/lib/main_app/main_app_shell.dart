@@ -1,3 +1,4 @@
+// main_app_shell: rebuilt for the author-tap fix on 2026-06-11
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
