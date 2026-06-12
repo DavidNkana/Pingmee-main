@@ -93,6 +93,37 @@ class SharedMomentCard extends StatelessWidget {
     return "${months[local.month - 1]} ${local.day}";
   }
 
+  /// Compact a non-negative integer to a short "k" / "m" form for the
+  /// action-bar labels. Below 1k the number is shown as-is. At or above
+  /// 1k and below 1m we use one decimal place when the truncated value
+  /// has not yet reached the next integer ("9.9k" not "10k"); at 10k and
+  /// above the decimal is dropped. Same shape for the m range.
+  ///
+  /// Examples:
+  ///   999       -> "999"
+  ///   1000      -> "1k"
+  ///   1500      -> "1.5k"
+  ///   9999      -> "9.9k"
+  ///   10000     -> "10k"
+  ///   12345     -> "12k"
+  ///   999999    -> "999k"
+  ///   1000000   -> "1m"
+  ///   1500000   -> "1.5m"
+  ///   12345678  -> "12m"
+  String _compactCount(int value) {
+    if (value < 1000) return value.toString();
+    if (value < 1000000) {
+      final k = value / 1000.0;
+      return k < 10
+          ? "${k.toStringAsFixed(1)}k"
+          : "${k.round()}k";
+    }
+    final m = value / 1000000.0;
+    return m < 10
+        ? "${m.toStringAsFixed(1)}m"
+        : "${m.round()}m";
+  }
+
   @override
   Widget build(BuildContext context) {
     final authorName = _text("authorName").isNotEmpty ? _text("authorName") : "Pingmee user";
@@ -387,7 +418,7 @@ class SharedMomentCard extends StatelessWidget {
             children: [
               SharedMomentAction(
                 icon: likedByMe ? PhosphorIcons.heart(PhosphorIconsStyle.fill) : PhosphorIcons.heart(PhosphorIconsStyle.regular),
-                label: likeCount > 0 ? "$likeCount" : "",
+                label: likeCount > 0 ? _compactCount(likeCount) : "",
                 active: likedByMe,
                 activeColor: const Color(0xFFEF4444),
                 onTap: onLike,
@@ -395,28 +426,28 @@ class SharedMomentCard extends StatelessWidget {
               const SizedBox(width: 24),
               SharedMomentAction(
                 icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.regular),
-                label: commentCount > 0 ? "$commentCount" : "",
+                label: commentCount > 0 ? _compactCount(commentCount) : "",
                 activeColor: AppColors.brandGreen,
                 onTap: onComment,
               ),
               const SizedBox(width: 24),
               SharedMomentAction(
                 icon: PhosphorIcons.repeat(PhosphorIconsStyle.bold),
-                label: repostCount > 0 ? "$repostCount" : "",
+                label: repostCount > 0 ? _compactCount(repostCount) : "",
                 activeColor: AppColors.brandGreen,
                 onTap: onRepost,
               ),
               const SizedBox(width: 24),
               SharedMomentAction(
                 icon: PhosphorIcons.paperPlaneTilt(PhosphorIconsStyle.regular),
-                label: shareCount > 0 ? "$shareCount" : "",
+                label: shareCount > 0 ? _compactCount(shareCount) : "",
                 activeColor: AppColors.brandGreen,
                 onTap: onShare,
               ),
               const SizedBox(width: 24),
               SharedMomentAction(
                 icon: savedByMe ? PhosphorIcons.bookmark(PhosphorIconsStyle.fill) : PhosphorIcons.bookmark(PhosphorIconsStyle.regular),
-                label: savedCount > 0 ? "$savedCount" : "",
+                label: savedCount > 0 ? _compactCount(savedCount) : "",
                 active: savedByMe,
                 activeColor: AppColors.brandGreen,
                 onTap: onSave,
