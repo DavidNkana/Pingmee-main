@@ -2276,11 +2276,12 @@ class _MomentCard extends StatelessWidget {
         : 0;   
 
     final authorPhotoUrl = _text("authorPhotoUrl");
-    // Body text: only the user's own text. For a plain repost this
-    // is empty (no quote was typed), so the body block is skipped
-    // entirely. The original moment's text shows in the mini-card
-    // below. For a quote this shows the quote text the user wrote.
-    final text = _text("text");
+    // Body text: the user own text if any, else (for plain reposts)
+    // the original moment text so the repost card shows the source
+    // content in the main body instead of only inside the mini-card.
+    final ownText = _text("text");
+    final originalAuthorText = _text("originalText");
+    final text = ownText.isNotEmpty ? ownText : originalAuthorText;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
