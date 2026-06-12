@@ -383,15 +383,25 @@ Future<void> _toggleMomentBookmark(int index) async {
     }
 
     final currentlySaved = moment["savedByMe"] == true;
+    final currentCount = moment["savedCount"] is num
+        ? (moment["savedCount"] as num).toInt()
+        : 0;
     final reactionId =
         (moment["myBookmarkReactionId"] ?? "").toString().trim();
 
     _savingMomentIds.add(activityId);
 
+    // Optimistically flip savedByMe and bump savedCount in lockstep so the
+    // bookmark count in the action bar moves up/down the moment the user
+    // taps save. Mirrors the same pattern used by liked/saved/moment-detail
+    // so the feed behaves identically.
     setState(() {
       _timelineMoments[index] = {
         ...moment,
         "savedByMe": !currentlySaved,
+        "savedCount": currentlySaved
+            ? (currentCount - 1).clamp(0, 999999)
+            : currentCount + 1,
       };
     });
 
@@ -407,18 +417,31 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       final updated = Map<String, dynamic>.from(_timelineMoments[index]);
 
+      // If the cloud function returns a fresh savedCount, prefer it over
+      // the optimistic one (the server's number is the source of truth).
+      // Otherwise keep the optimistic value we set above.
+      final serverCount = result["savedCount"];
+      final merged = <String, dynamic>{
+        ...updated,
+        "savedByMe": result["saved"] == true,
+        "myBookmarkReactionId": (result["reactionId"] ?? "").toString(),
+      };
+      if (serverCount is num) {
+        merged["savedCount"] = serverCount.toInt();
+      }
+
       setState(() {
-        _timelineMoments[index] = {
-          ...updated,
-          "savedByMe": result["saved"] == true,
-          "myBookmarkReactionId": (result["reactionId"] ?? "").toString(),
-        };
+        _timelineMoments[index] = merged;
       });
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
-        _timelineMoments[index] = moment;
+        _timelineMoments[index] = {
+          ...moment,
+          "savedByMe": currentlySaved,
+          "savedCount": currentCount,
+        };
       });
 
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
