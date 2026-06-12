@@ -134,6 +134,11 @@ class SharedMomentCard extends StatelessWidget {
     final ownText = _text("text");
     final originalAuthorText = _text("originalText");
     final text = ownText.isNotEmpty ? ownText : originalAuthorText;
+    // Plain repost = the user did not write any quote text, so the body
+    // shows the source moment text via the fallback above. We style it as a
+    // quote (italic + lighter color) so it is clearly the source content,
+    // not text the user wrote themselves.
+    final isPlainRepost = isRepost && ownText.isEmpty && originalAuthorText.isNotEmpty;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
@@ -285,16 +290,32 @@ class SharedMomentCard extends StatelessWidget {
           ),
           if (text.isNotEmpty) ...[
             const SizedBox(height: 14),
-            Text(
-              text,
-              style: TextStyle(
-                fontFamily: "Nunito",
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                height: 1.32,
-                color: Colors.black.withOpacity(.82),
+            // Plain repost: render the source text as a quote so it does not
+            // look like text the user wrote themselves. Regular moments and
+            // quote reposts keep the normal post styling.
+            if (isPlainRepost)
+              Text(
+                '“$text”',  // curly double quotes around the source text
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 14.5,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w400,
+                  height: 1.32,
+                  color: Colors.black.withOpacity(.62),
+                ),
+              )
+            else
+              Text(
+                text,
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  height: 1.32,
+                  color: Colors.black.withOpacity(.82),
+                ),
               ),
-            ),
           ],
           if (hashtags.isNotEmpty) ...[
             const SizedBox(height: 3),
@@ -390,17 +411,16 @@ class SharedMomentCard extends StatelessWidget {
           // Show original content for reposts (text and/or media)
           if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             const SizedBox(height: 12),
-            // Repost indicator above original content
-            if (text.isEmpty) ...[
-              Row(
-                children: [
-                  Icon(PhosphorIcons.repeat(PhosphorIconsStyle.bold), size: 15, color: Colors.black.withOpacity(.45)),
-                  const SizedBox(width: 6),
-                  Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w300, color: Colors.black.withOpacity(.48))),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
+            // Repost indicator above original content (shown on every repost,
+            // not just plain reposts, so quote reposts also signal the source)
+            Row(
+              children: [
+                Icon(PhosphorIcons.repeat(PhosphorIconsStyle.bold), size: 15, color: Colors.black.withOpacity(.45)),
+                const SizedBox(width: 6),
+                Text("Reposted", style: TextStyle(fontFamily: "Nunito", fontSize: 12.5, fontWeight: FontWeight.w300, color: Colors.black.withOpacity(.48))),
+              ],
+            ),
+            const SizedBox(height: 8),
             GestureDetector(
               onTap: onOriginalTap,
               child: SharedOriginalCard(
