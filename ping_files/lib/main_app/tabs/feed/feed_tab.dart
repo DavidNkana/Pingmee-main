@@ -2393,9 +2393,13 @@ class _MomentCard extends StatelessWidget {
 
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 12),
-            // Variable-height media row — each tile is sized to the image's
-            // natural aspect ratio (capped at one screen height for very tall
-            // portraits). Tapping opens the full-screen media viewer.
+            // Media row. For a single tile we keep the natural-aspect
+            // behaviour (the image's real shape, with a 45% cap on tall
+            // portraits so they do not take over the feed). For a multi-
+            // image carousel every tile shares one uniform height (about
+            // 55% of the screen) and is cropped edge-to-edge so the row
+            // looks like a tidy grid, not a stair-step of different shapes.
+            // Tapping any tile opens the full-screen media viewer.
             LayoutBuilder(
               builder: (context, constraints) {
                 final fullWidth = constraints.maxWidth;
@@ -2403,6 +2407,11 @@ class _MomentCard extends StatelessWidget {
                 final itemWidth = visualMedia.length == 1
                     ? fullWidth
                     : fullWidth * 0.88;
+                // Uniform row height for multi-image carousels; null for
+                // single tiles so they keep their per-image aspect logic.
+                final double? forcedHeight = visualMedia.length > 1
+                    ? (screenHeight * 0.55).clamp(200.0, screenHeight)
+                    : null;
                 return SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -2419,6 +2428,8 @@ class _MomentCard extends StatelessWidget {
                             maxHeight: screenHeight,
                             totalCount: visualMedia.length,
                             activityId: activityId,
+                            forcedHeight: forcedHeight,
+                            cornerRadius: 20,
                             onMediaTap: null,
                             onDefaultTap: () => _openMomentMediaViewer(
                               context: context,
