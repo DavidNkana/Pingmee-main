@@ -42,12 +42,7 @@ enum _FeedMode {
 }
 
 class FeedTab extends StatefulWidget {
-  /// Called when the user taps an avatar or display name on a moment
-  /// card in the feed. The shell uses this to switch to the Profile
-  /// tab showing the tapped user's profile.
-  final void Function(String authorUid)? onOpenUserProfile;
-
-  const FeedTab({super.key, this.onOpenUserProfile});
+  const FeedTab({super.key});
 
   @override
   State<FeedTab> createState() => _FeedTabState();
@@ -59,12 +54,6 @@ typedef FeedTabState = _FeedTabState;
 
 class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   final PingmeeFeedService _feedService = PingmeeFeedService();
-
-  /// Convenience getter for the parent-supplied onOpenUserProfile
-  /// callback. Used by the feed's moment cards to navigate to a
-  /// tapped user's profile.
-  void Function(String authorUid)? get _onOpenUserProfile =>
-      widget.onOpenUserProfile;
 
   StreamSubscription<User?>? _authSub;
   _FeedMode _feedMode = _FeedMode.following;
@@ -2291,26 +2280,26 @@ class _MomentCard extends StatelessWidget {
                           Flexible(
                             child: Text(
                               authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: "Nunito",
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: "Nunito",
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
                             ),
                           ),
-                        ),
-                        if (authorVerified) ...[
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.verified_rounded,
-                            size: 14,
-                            color: Color(0xFF1D9BF0),
-                          ),
+                          if (authorVerified) ...[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.verified_rounded,
+                              size: 14,
+                              color: Color(0xFF1D9BF0),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         [
@@ -2329,7 +2318,6 @@ class _MomentCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                ),
                 ),
               ),
               InkWell(
