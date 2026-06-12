@@ -11,6 +11,7 @@ import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'package:ping_files/main_app/tabs/feed/liked_moments_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/saved_moments_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/moment_detail_screen.dart';
+import 'package:ping_files/main_app/tabs/feed/shared_moment_widgets.dart' show SharedMediaItem;
 import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
@@ -2392,131 +2393,43 @@ class _MomentCard extends StatelessWidget {
 
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 12),
+            // Variable-height media row — each tile is sized to the image's
+            // natural aspect ratio (capped at one screen height for very tall
+            // portraits). Tapping opens the full-screen media viewer.
             LayoutBuilder(
               builder: (context, constraints) {
                 final fullWidth = constraints.maxWidth;
+                final screenHeight = MediaQuery.of(context).size.height;
                 final itemWidth = visualMedia.length == 1
                     ? fullWidth
                     : fullWidth * 0.88;
-
-                return SizedBox(
-                  height: 230,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: visualMedia.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) {
-                      final item = visualMedia[index];
-
-                      final type = (item["type"] ?? "").toString();
-                      final url = (item["url"] ?? "").toString().trim();
-                      final thumbUrl = (item["thumbUrl"] ?? "").toString().trim();
-                      final displayUrl = type == "video" && thumbUrl.isNotEmpty ? thumbUrl : url;
-
-                      final heroTag = "moment_media_${activityId}_${index}_${url.hashCode}";
-
-                      return SizedBox(
-                        width: itemWidth,
-                        child: GestureDetector(
-                          onTap: () {
-                            _openMomentMediaViewer(
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (int index = 0; index < visualMedia.length; index++) ...[
+                          if (index > 0) const SizedBox(width: 10),
+                          SharedMediaItem(
+                            item: visualMedia[index],
+                            index: index,
+                            itemWidth: itemWidth,
+                            maxHeight: screenHeight,
+                            totalCount: visualMedia.length,
+                            activityId: activityId,
+                            onMediaTap: null,
+                            onDefaultTap: () => _openMomentMediaViewer(
                               context: context,
                               images: visualMedia,
                               initialIndex: index,
                               activityId: activityId,
-                            );
-                          },
-                          child: Hero(
-                            tag: heroTag,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  Image.network(
-                                    displayUrl,
-                                    fit: BoxFit.cover,
-                                    loadingBuilder: (context, child, progress) {
-                                      if (progress == null) return child;
-
-                                      return Container(
-                                        color: Colors.black.withOpacity(.045),
-                                        child: const Center(
-                                          child: SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (_, __, ___) {
-                                      return Container(
-                                        color: Colors.black.withOpacity(.055),
-                                        child: Center(
-                                          child: Icon(
-                                            PhosphorIcons.imageBroken(
-                                              PhosphorIconsStyle.bold,
-                                            ),
-                                            size: 28,
-                                            color: Colors.black.withOpacity(.38),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-
-                                  if (type == "video")
-                                    Center(
-                                      child: Container(
-                                        width: 54,
-                                        height: 54,
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(.52),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.play_arrow_rounded,
-                                          color: Colors.white,
-                                          size: 36,
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (visualMedia.length > 1)
-                                    Positioned(
-                                      top: 10,
-                                      right: 10,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 9,
-                                          vertical: 5,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(.62),
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          "${index + 1}/${visualMedia.length}",
-                                          style: const TextStyle(
-                                            fontFamily: "Nunito",
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w800,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        ],
+                      ],
+                    ),
                   ),
                 );
               },
