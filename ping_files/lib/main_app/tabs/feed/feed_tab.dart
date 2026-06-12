@@ -1,4 +1,3 @@
-// feed_tab: rebuilt for the author-tap fix on 2026-06-11
 import 'dart:async';
 import 'dart:ui';
 import 'dart:io';
@@ -2117,6 +2116,10 @@ class _MomentCard extends StatelessWidget {
   final bool authorVerified;
   final Map<String, bool> verifiedCache;
   final PingmeeFeedService feedService;
+  /// Called when the user taps the avatar or display name. Receives
+  /// the author's UID so the caller can navigate to that user's
+  /// profile.
+  final void Function(String authorUid)? onAuthorTap;
 
   const _MomentCard({
     required this.data,
@@ -2129,6 +2132,7 @@ class _MomentCard extends StatelessWidget {
     required this.authorVerified,
     required this.verifiedCache,
     required this.feedService,
+    this.onAuthorTap,
   });
 
   String _text(String key) => (data[key] ?? "").toString().trim();
@@ -2264,19 +2268,29 @@ class _MomentCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _MomentAvatar(photoUrl: authorPhotoUrl),
+              _AuthorTapTarget(
+                authorUid: _text("authorUid"),
+                onAuthorTap: onAuthorTap,
+                child: _MomentAvatar(photoUrl: authorPhotoUrl),
+              ),
               const SizedBox(width: 11),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            authorName,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onAuthorTap == null || _text("authorUid").isEmpty
+                      ? null
+                      : () => onAuthorTap!(_text("authorUid")),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              authorName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -2297,23 +2311,25 @@ class _MomentCard extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      [
-                        repostLabel,
-                        if (locationLine.isNotEmpty) locationLine,
-                        if (time.isNotEmpty) time,
-                      ].join(" · "),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: "Nunito",
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black.withOpacity(.45),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          repostLabel,
+                          if (locationLine.isNotEmpty) locationLine,
+                          if (time.isNotEmpty) time,
+                        ].join(" · "),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(.45),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
                 ),
               ),
               InkWell(
@@ -3666,6 +3682,30 @@ class _MomentCommentTile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Wraps the avatar in a tap target that fires [onAuthorTap] with
+/// the moment author's UID. If [onAuthorTap] is null or [authorUid]
+/// is empty, the wrapper is a pass-through.
+class _AuthorTapTarget extends StatelessWidget {
+  final String authorUid;
+  final void Function(String authorUid)? onAuthorTap;
+  final Widget child;
+  const _AuthorTapTarget({
+    required this.authorUid,
+    required this.onAuthorTap,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (onAuthorTap == null || authorUid.isEmpty) return child;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onAuthorTap!(authorUid),
+      child: child,
     );
   }
 }
