@@ -135,8 +135,6 @@ class SharedMomentCard extends StatelessWidget {
     // not text the user wrote themselves. Quote reposts get the italic
     // quote style for the same reason.
     final ownText = _text("text");
-    final originalText = _text("originalText");
-    final text = ownText.isNotEmpty ? ownText : originalText;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
@@ -185,6 +183,13 @@ class SharedMomentCard extends StatelessWidget {
     final isRepost = type == "repost" || type == "quote";
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
+    // Body text: the user own text if any, else (for plain reposts
+    // where the user did not type a quote) the original moment text.
+    // The body block further down styles plain-repost text in mini-card
+    // style (smaller, lighter) so it is clearly the source content and
+    // not text the user wrote themselves. Quote reposts get the italic
+    // quote style for the same reason.
+    final text = ownText.isNotEmpty ? ownText : originalText;
     final originalAuthorPhotoUrl = _text("originalAuthorPhotoUrl");
     // Try originalMedia first, then fall back to media (GetStream may store original media here)
     final rawOriginalMedia = data["originalMedia"] is List
