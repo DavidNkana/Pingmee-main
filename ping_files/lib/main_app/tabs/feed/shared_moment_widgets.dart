@@ -128,12 +128,14 @@ class SharedMomentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final authorName = _text("authorName").isNotEmpty ? _text("authorName") : "Pingmee user";
     final authorPhotoUrl = _text("authorPhotoUrl");
-    // Body text: the user own text if any, else (for plain reposts)
-    // the original moment text so the repost card shows the source
-    // content in the main body instead of only inside the mini-card.
-    final ownText = _text("text");
-    final originalAuthorText = _text("originalText");
-    final text = ownText.isNotEmpty ? ownText : originalAuthorText;
+    // Body text: ONLY the user own text. For a plain repost (no quote
+    // typed) this is empty and the body block is skipped; the source
+    // moment is shown only in the mini-card below. For a quote repost
+    // this is the quote text the user wrote (rendered as a quote — see
+    // the body block further down). We never fall back to the source's
+    // text here, because that would make the body show the source's
+    // content as if the user wrote it.
+    final text = _text("text");
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
@@ -180,11 +182,6 @@ class SharedMomentCard extends StatelessWidget {
 
     final type = _text("type");
     final isRepost = type == "repost" || type == "quote";
-    // Plain repost = the user did not write any quote text, so the body
-    // shows the source moment text via the fallback above. We style it as a
-    // quote (italic + lighter color) so it is clearly the source content,
-    // not text the user wrote themselves.
-    final isPlainRepost = isRepost && ownText.isEmpty && originalAuthorText.isNotEmpty;
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
     final originalAuthorPhotoUrl = _text("originalAuthorPhotoUrl");
@@ -290,12 +287,14 @@ class SharedMomentCard extends StatelessWidget {
           ),
           if (text.isNotEmpty) ...[
             const SizedBox(height: 14),
-            // Plain repost: render the source text as a quote so it does not
-            // look like text the user wrote themselves. Regular moments and
-            // quote reposts keep the normal post styling.
-            if (isPlainRepost)
+            // Quote repost: the user is commenting on the source, so the
+            // body is rendered as a quote (italic + lighter + curly quotes)
+            // to set it apart from a regular post. Plain reposts are skipped
+            // entirely (text is empty for them) and show only the mini-card.
+            // Regular moments keep the normal post styling.
+            if (isRepost)
               Text(
-                '“$text”',  // curly double quotes around the source text
+                '“$text”',
                 style: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 14.5,
