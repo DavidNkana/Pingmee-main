@@ -1244,6 +1244,12 @@ exports.loadMyTimelineMoments = onCall(
 
             likeCount: Number(reactionCounts.like || 0),
             commentCount: Number(reactionCounts.comment || 0),
+            // Aggregate bookmark count across ALL users — mirrors how
+            // likeCount is extracted from GetStream's reaction_counts.
+            // Without this the bookmark number in the feed only ever
+            // showed the current user's own save (the optimistic local
+            // count), never the true total.
+            savedCount: Number(reactionCounts.bookmark || 0),
 
             originalActivityId: cleanString(activity.originalActivityId),
             originalAuthorUid: cleanString(activity.originalAuthorUid),
@@ -1393,6 +1399,10 @@ exports.loadSingleActivity = onCall(
             reactionCounts,
             likeCount: Number(reactionCounts.like || 0),
             commentCount: Number(reactionCounts.comment || 0),
+            // Aggregate bookmark count across ALL users — same as the
+            // timeline response so the bookmark number in moment-detail
+            // shows the true total, not just the current user's save.
+            savedCount: Number(reactionCounts.bookmark || 0),
             originalActivityId: cleanString(activity.originalActivityId),
             originalAuthorUid: cleanString(activity.originalAuthorUid),
             originalAuthorName: cleanString(activity.originalAuthorName),
