@@ -57,15 +57,38 @@ class SharedMomentCard extends StatelessWidget {
   String _prettyMomentTime(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return "";
-    final parsed = DateTime.tryParse(value);
+    // Parse defensively. GetStream usually returns ISO 8601 with a Z or
+    // +HH:MM offset, but we also accept Unix timestamps (s or ms) as a
+    // fallback. We always compare against the current UTC time so the
+    // "X hours ago" label does not get stuck at the user local
+    // timezone offset (the previous version compared a toLocal() value
+    // against a local now(), which produced a constant delta on devices
+    // whose local timezone differed from the cloud function UTC).
+    DateTime? parsed;
+    final asInt = int.tryParse(value);
+    if (asInt != null && asInt > 0) {
+      if (asInt >= 1000000000000) {
+        parsed = DateTime.fromMillisecondsSinceEpoch(asInt, isUtc: true);
+      } else {
+        parsed = DateTime.fromMillisecondsSinceEpoch(asInt * 1000, isUtc: true);
+      }
+    } else {
+      parsed = DateTime.tryParse(value);
+    }
     if (parsed == null) return value;
-    final local = parsed.toLocal();
-    final now = DateTime.now();
-    final diff = now.difference(local);
+    // Coerce a local-parsed string to UTC (the cloud function is the
+    // source of truth and emits UTC).
+    final instant = parsed.isUtc
+        ? parsed
+        : DateTime.utc(parsed.year, parsed.month, parsed.day,
+            parsed.hour, parsed.minute, parsed.second);
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(instant);
     if (diff.inSeconds < 60) return "now";
     if (diff.inMinutes < 60) return "${diff.inMinutes}m";
     if (diff.inHours < 24) return "${diff.inHours}h";
     if (diff.inDays < 7) return "${diff.inDays}d";
+    final local = instant.toLocal();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     return "${months[local.month - 1]} ${local.day}";
   }
@@ -74,7 +97,12 @@ class SharedMomentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final authorName = _text("authorName").isNotEmpty ? _text("authorName") : "Pingmee user";
     final authorPhotoUrl = _text("authorPhotoUrl");
-    final text = _text("text");
+    // Body text: the user own text if any, else (for plain reposts)
+    // the original moment text so the repost card shows the source
+    // content in the main body instead of only inside the mini-card.
+    final ownText = _text("text");
+    final originalAuthorText = _text("originalText");
+    final text = ownText.isNotEmpty ? ownText : originalAuthorText;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
