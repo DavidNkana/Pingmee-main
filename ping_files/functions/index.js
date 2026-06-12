@@ -1183,6 +1183,42 @@ exports.loadMyTimelineMoments = onCall(
           }
         }
 
+        // Fetch repost counts from Firestore (one batched getAll). GetStream
+        // does not track reposts as a reaction — repostCount is maintained
+        // by createMomentRepost on the moments/{id} Firestore document —
+        // so we read it from there and merge it into each activity below.
+        const repostCountByFirestoreId = {};
+        try {
+          const firestoreIds = [];
+          const seen = new Set();
+          for (const item of results) {
+            const foreignId = cleanString(item && item.foreign_id);
+            if (foreignId.startsWith("moment:")) {
+              const id = foreignId.substring(7);
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                firestoreIds.push(id);
+              }
+            }
+          }
+          if (firestoreIds.length > 0) {
+            const db = admin.firestore();
+            const refs = firestoreIds.map((id) =>
+              db.collection("moments").doc(id));
+            const snaps = await db.getAll(...refs);
+            for (const snap of snaps) {
+              const data = snap.exists ? snap.data() : null;
+              const count = data && typeof data.repostCount === "number" ?
+                data.repostCount :
+                0;
+              repostCountByFirestoreId[snap.id] = count;
+            }
+          }
+        } catch (err) {
+          console.warn("loadMyTimelineMoments: failed to fetch repost counts:",
+              err && err.message);
+        }
+
         const activities = results.map((item) => {
           const activity = item || {};
 
@@ -1250,6 +1286,13 @@ exports.loadMyTimelineMoments = onCall(
             // showed the current user's own save (the optimistic local
             // count), never the true total.
             savedCount: Number(reactionCounts.bookmark || 0),
+            // Repost count comes from Firestore (moments/{id}.repostCount)
+            // because GetStream does not track reposts as a reaction. We
+            // batch-fetched the moment docs above and looked up by ID.
+            repostCount: repostCountByFirestoreId[(() => {
+              const f = cleanString(activity.foreign_id);
+              return f.startsWith("moment:") ? f.substring(7) : "";
+            })()] || 0,
 
             originalActivityId: cleanString(activity.originalActivityId),
             originalAuthorUid: cleanString(activity.originalAuthorUid),
@@ -1369,6 +1412,28 @@ exports.loadSingleActivity = onCall(
         const activityLat = Number.isFinite(parsedLat) ? parsedLat : null;
         const activityLng = Number.isFinite(parsedLng) ? parsedLng : null;
 
+        // Look up the Firestore moment doc for the repost count. We do
+        // this here (not in the response builder) so the IIFE-style
+        // foreign_id extraction is a clean local expression.
+        let singleRepostCount = 0;
+        try {
+          const f = cleanString(activity.foreign_id);
+          if (f.startsWith("moment:")) {
+            const mid = f.substring(7);
+            if (mid) {
+              const snap = await admin.firestore()
+                  .collection("moments").doc(mid).get();
+              if (snap.exists) {
+                const v = snap.get("repostCount");
+                if (typeof v === "number") singleRepostCount = v;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("loadSingleActivity: failed to fetch repost count:",
+              err && err.message);
+        }
+
         return {
           ok: true,
           activity: {
@@ -1403,6 +1468,9 @@ exports.loadSingleActivity = onCall(
             // timeline response so the bookmark number in moment-detail
             // shows the true total, not just the current user's save.
             savedCount: Number(reactionCounts.bookmark || 0),
+            // Repost count from Firestore (GetStream does not track
+            // reposts as a reaction). Fetched above from moments/{id}.
+            repostCount: singleRepostCount,
             originalActivityId: cleanString(activity.originalActivityId),
             originalAuthorUid: cleanString(activity.originalAuthorUid),
             originalAuthorName: cleanString(activity.originalAuthorName),
