@@ -1,3 +1,4 @@
+// shared_moment_widgets: rebuilt for the author-tap fix on 2026-06-11
 import 'dart:ui';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
