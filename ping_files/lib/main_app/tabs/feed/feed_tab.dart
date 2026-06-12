@@ -2164,18 +2164,57 @@ class _MomentCard extends StatelessWidget {
     final value = raw.trim();
     if (value.isEmpty) return "";
 
-    final parsed = DateTime.tryParse(value);
+    // Parse the time string into a DateTime, being defensive about
+    // the format we receive. GetStream usually returns an ISO 8601
+    // string with a Z or +HH:MM offset, but we also accept Unix
+    // timestamps (in seconds or milliseconds) as a fallback, and we
+    // ALWAYS compare the result against the current UTC time so the
+    // "X hours ago" label does not get stuck at the user's timezone
+    // offset (the previous version converted to local first, which
+    // produced a constant 2h delta on devices whose local timezone
+    // differed from the cloud function's UTC).
+    DateTime? parsed;
+    final asInt = int.tryParse(value);
+    if (asInt != null && asInt > 0) {
+      // Unix timestamp. Decide seconds vs milliseconds by magnitude.
+      if (asInt >= 1000000000000) {
+        parsed = DateTime.fromMillisecondsSinceEpoch(asInt, isUtc: true);
+      } else {
+        parsed = DateTime.fromMillisecondsSinceEpoch(asInt * 1000,
+            isUtc: true);
+      }
+    } else {
+      parsed = DateTime.tryParse(value);
+    }
     if (parsed == null) return value;
 
-    final local = parsed.toLocal();
-    final now = DateTime.now();
-    final diff = now.difference(local);
+    // Force the parsed DateTime into UTC for the diff. If the incoming
+    // string had a Z or +HH:MM offset, DateTime.parse already gave us
+    // an isUtc=true DateTime in absolute UTC. If the string was a bare
+    // datetime with no offset (e.g. "2026-06-12T11:00:00"), Dart
+    // treats it as local — that ambiguity is the root of the "always
+    // 2h" bug. The cloud function is the source of truth, and the
+    // function emits UTC, so we coerce local-parsed strings to UTC.
+    final instant = parsed.isUtc
+        ? parsed
+        : DateTime.utc(
+            parsed.year,
+            parsed.month,
+            parsed.day,
+            parsed.hour,
+            parsed.minute,
+            parsed.second,
+          );
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(instant);
 
     if (diff.inSeconds < 60) return "now";
     if (diff.inMinutes < 60) return "${diff.inMinutes}m";
     if (diff.inHours < 24) return "${diff.inHours}h";
     if (diff.inDays < 7) return "${diff.inDays}d";
 
+    // For older posts, show the local date so it reads naturally.
+    final local = instant.toLocal();
     const months = [
       "Jan",
       "Feb",
@@ -2205,7 +2244,12 @@ class _MomentCard extends StatelessWidget {
         : 0;   
 
     final authorPhotoUrl = _text("authorPhotoUrl");
-    final text = _text("text");
+    // Body text: the user's own text if any, else (for plain reposts)
+    // the original moment's text so the repost card shows the source
+    // content in the main body instead of only inside the mini-card.
+    final ownText = _text("text");
+    final originalAuthorText = _text("originalText");
+    final text = ownText.isNotEmpty ? ownText : originalAuthorText;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
