@@ -134,11 +134,6 @@ class SharedMomentCard extends StatelessWidget {
     final ownText = _text("text");
     final originalAuthorText = _text("originalText");
     final text = ownText.isNotEmpty ? ownText : originalAuthorText;
-    // Plain repost = the user did not write any quote text, so the body
-    // shows the source moment text via the fallback above. We style it as a
-    // quote (italic + lighter color) so it is clearly the source content,
-    // not text the user wrote themselves.
-    final isPlainRepost = isRepost && ownText.isEmpty && originalAuthorText.isNotEmpty;
     final time = _prettyMomentTime(_text("time"));
     final activityId = _text("id").isNotEmpty
         ? _text("id")
@@ -185,6 +180,11 @@ class SharedMomentCard extends StatelessWidget {
 
     final type = _text("type");
     final isRepost = type == "repost" || type == "quote";
+    // Plain repost = the user did not write any quote text, so the body
+    // shows the source moment text via the fallback above. We style it as a
+    // quote (italic + lighter color) so it is clearly the source content,
+    // not text the user wrote themselves.
+    final isPlainRepost = isRepost && ownText.isEmpty && originalAuthorText.isNotEmpty;
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
     final originalAuthorPhotoUrl = _text("originalAuthorPhotoUrl");
