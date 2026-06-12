@@ -284,6 +284,13 @@ class SharedMomentCard extends StatelessWidget {
                 final itemWidth = visualMedia.length == 1
                     ? fullWidth
                     : fullWidth * 0.88;
+                // Multi-image carousels share a uniform height so the row
+                // looks like a tidy grid. Single tiles keep the per-image
+                // aspect logic (with the 45% shrinked preview for tall
+                // portraits).
+                final double? forcedHeight = visualMedia.length > 1
+                    ? (screenHeight * 0.55).clamp(200.0, screenHeight)
+                    : null;
                 return SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -300,6 +307,8 @@ class SharedMomentCard extends StatelessWidget {
                             maxHeight: maxRowHeight,
                             totalCount: visualMedia.length,
                             activityId: activityId,
+                            forcedHeight: forcedHeight,
+                            cornerRadius: 20,
                             onMediaTap: onMediaTap == null
                                 ? null
                                 : () => onMediaTap!(
@@ -659,6 +668,17 @@ class SharedMediaItem extends StatefulWidget {
   final VoidCallback? onMediaTap;
   final VoidCallback onDefaultTap;
 
+  /// If non-null, the tile is forced to this exact height (overriding the
+  /// per-image aspect-ratio logic). Used by the parent row to make every
+  /// tile in a multi-image carousel share a uniform height so the row
+  /// looks like a tidy grid instead of a stair-step of different shapes.
+  final double? forcedHeight;
+
+  /// Corner radius for the tile's rounded border. The default of 20 gives
+  /// the standard "full moment" feel; pass a smaller value (e.g. 14) for
+  /// a subtle preview look on shrinked single-image tiles.
+  final double cornerRadius;
+
   const SharedMediaItem({
     required this.item,
     required this.index,
@@ -668,6 +688,8 @@ class SharedMediaItem extends StatefulWidget {
     required this.activityId,
     required this.onMediaTap,
     required this.onDefaultTap,
+    this.forcedHeight,
+    this.cornerRadius = 20,
   });
 
   @override
@@ -738,7 +760,11 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
     final fallback = screenH * 0.75;
     final aspect = _aspect;
     double itemHeight;
-    if (aspect == null) {
+    if (widget.forcedHeight != null) {
+      // The parent row has decided on a uniform height for every tile in
+      // a multi-image carousel. Use it exactly so the row looks tidy.
+      itemHeight = widget.forcedHeight!;
+    } else if (aspect == null) {
       // Still loading or errored — fall back to a comfortable preview size.
       itemHeight = fallback;
     } else if (aspect >= 1.0) {
@@ -749,8 +775,7 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
       // Portrait — natural aspect, capped at one screen height so a very
       // tall image still fits in the card. A single tall portrait is
       // rendered as a smaller "shrinked" preview so it does not take over
-      // the whole feed on its own; multi-image carousels use the full
-      // natural aspect.
+      // the whole feed on its own.
       final byAspect = widget.itemWidth / aspect;
       if (widget.totalCount == 1) {
         // Single tall portrait — shrinked preview (~45% of screen) keeps
@@ -763,6 +788,12 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
       }
     }
 
+    // For multi-image carousels (forcedHeight) the parent has set a
+    // uniform box height for the whole row, so we crop each tile to
+    // fill the box (BoxFit.cover, StackFit.expand). For a single-image
+    // tile, we keep the natural-aspect, no-letterbox behaviour.
+    final bool uniformFill = widget.forcedHeight != null;
+
     return GestureDetector(
       onTap: widget.onMediaTap ?? widget.onDefaultTap,
       child: Hero(
@@ -770,21 +801,52 @@ class _SharedMediaItemState extends State<SharedMediaItem> {
         // The ClipRRect's rounded border is the ONLY border the user sees
         // around media — no other chrome, no letterbox, no backdrop.
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(widget.cornerRadius),
           child: SizedBox(
             width: widget.itemWidth,
             height: itemHeight,
             child: Stack(
-              // Pass loose (not StackFit.expand) so the image lays out at
-              // its natural size within a box that already matches its
-              // aspect — no letterbox, no crop, no extra edges.
-              fit: StackFit.loose,
+              fit: uniformFill ? StackFit.expand : StackFit.loose,
               children: [
                 if (mtype == "video")
                   _InlineVideoPlayer(
                     url: widget.item["url"]?.toString() ?? "",
                     thumbUrl: _displayUrl,
                     onOpenFullscreen: widget.onMediaTap ?? widget.onDefaultTap,
+                  )
+                else if (uniformFill)
+                  Positioned.fill(
+                    child: Image.network(
+                      _displayUrl,
+                      // Fill the uniform box edge-to-edge by cropping
+                      // (no letterbox on a multi-image row).
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: Colors.black.withOpacity(.045),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) {
+                        return Container(
+                          color: Colors.black.withOpacity(.055),
+                          child: Center(
+                            child: Icon(
+                              PhosphorIcons.imageBroken(PhosphorIconsStyle.bold),
+                              size: 28,
+                              color: Colors.black.withOpacity(.38),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   )
                 else
                   Positioned.fill(
