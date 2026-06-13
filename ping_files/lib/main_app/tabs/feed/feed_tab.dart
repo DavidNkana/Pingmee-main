@@ -1094,12 +1094,16 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       final service = SearchService(
         FirebaseFirestore.instance,
+        // PingVisibilityContext only carries viewerUid,
+        // viewerVerified, viewerFriendIds. The interests and
+        // skills we already collected above drive the
+        // SearchService query directly via the tokens
+        // parameter, so they don't need to live on the
+        // visibility context.
         visibilityContext: PingVisibilityContext(
           viewerUid: myUid,
           viewerVerified: verified,
           viewerFriendIds: friendIds.toList(),
-          viewerInterests: interests,
-          viewerSkills: skills,
         ),
       );
 
