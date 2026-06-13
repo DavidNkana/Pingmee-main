@@ -399,7 +399,7 @@ class _MainAppShellState extends State<MainAppShell>
     final hardHideBottomNav = !menuOpen && keyboardOpen;
 
     // Scroll hide means: keep the nav built, but slide it down smoothly.
-    final slideBottomNav = !menuOpen && index == 2 && _navHiddenByScroll;
+    final slideBottomNav = !menuOpen && (index == 1 || index == 2) && _navHiddenByScroll;
     return PopScope(
       // While we're not on the Map (Discovery) tab, intercept the
       // Android system back button and route the user to the Map tab.
