@@ -1187,45 +1187,32 @@ Future<void> _toggleMomentBookmark(int index) async {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Row(
-              children: [
-                Icon(
-                  PhosphorIcons.usersThree(PhosphorIconsStyle.fill),
-                  size: 16,
-                  color: muted,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  "People who match your skills and interests",
-                  style: TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 14.2,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Text(
-              "Connect with people whose interests and skills overlap with yours.",
+              // Short label per the v45 design pass: "Suggestions"
+              // + no icon, so the section header reads as a quiet
+              // label rather than a banner. The carousel itself
+              // communicates the "people who match" content.
+              "Suggestions",
               style: TextStyle(
                 fontFamily: "Nunito",
-                fontSize: 12.2,
-                fontWeight: FontWeight.w400,
-                color: muted,
-                height: 1.3,
+                fontSize: 14.2,
+                fontWeight: FontWeight.w700,
+                color: textColor,
               ),
             ),
           ),
+          // No subtitle. The carousel below carries the
+          // content; a verbose description would be redundant
+          // with the card-level content.
+          const SizedBox(height: 8),
           SizedBox(
-            // Same height as the search-screen carousel:
-            // 232 px (outer 6/6/6/10 + content 217 + 4 px
-            // margin for the rounded card edge).
-            height: 232,
+            // 244 px = outer 6/6/6/18 + content 217 + 9 px
+            // margin for the rounded card edge. The 12-px
+            // increase over v43 (was 232) gives the new
+            // bottom padding (18+8 = 26 px) the room it
+            // needs without clipping the connect button or
+            // the rounded card edge.
+            height: 244,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
