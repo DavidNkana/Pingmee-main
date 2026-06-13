@@ -10804,6 +10804,32 @@ class _SearchSheetState extends State<_SearchSheet>
 
   List<SearchResult> _suggestedPeople = [];
   bool _peopleSuggestionsLoading = false;
+  // Uids the user has dismissed from the people-suggestions carousel
+  // via the small x button. The card is hidden (not removed) so the
+  // rest of the row keeps its layout — dismissed items render as a
+  // SizedBox.shrink so the separator widths stay consistent.
+  final Set<String> _dismissedSuggestions = <String>{};
+  // One FriendStateManager per suggested uid, mirroring how the
+  // profile screen owns a manager per viewed profile. Lazily created
+  // on first Connect tap.
+  final Map<String, FriendStateManager> _connectManagers = {};
+
+  FriendStateManager _getOrCreateConnectManager(String targetUid) {
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    if (myUid == null || myUid.isEmpty) {
+      return FriendStateManager(
+        myUid: "",
+        targetUid: targetUid,
+      );
+    }
+    return _connectManagers.putIfAbsent(
+      targetUid,
+      () => FriendStateManager(
+        myUid: myUid,
+        targetUid: targetUid,
+      ),
+    );
+  }
 
   List<String> _profileInterests = [];
   List<String> _profileSkills = [];
@@ -11458,7 +11484,9 @@ class _SearchSheetState extends State<_SearchSheet>
         if (_myFriendIds.contains(uid)) return false;
 
         return true;
-      }).take(5).toList();
+        // Cap at 10 so the horizontal carousel stays scannable. The
+        // score from SearchService already orders by relevance.
+      }).take(10).toList();
 
       if (!mounted) return;
 
@@ -11894,7 +11922,7 @@ class _SearchSheetState extends State<_SearchSheet>
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "People who match your interests and skills.",
+                      "People who match your interests and skills. Swipe to see more.",
                       style: TextStyle(
                         fontFamily: "Nunito",
                         fontSize: 12.5,
@@ -11903,24 +11931,60 @@ class _SearchSheetState extends State<_SearchSheet>
                       ),
                     ),
                     const SizedBox(height: 14),
-                    ..._suggestedPeople.take(5).map(
-                      (r) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _SearchRow(
-                          r: r,
-                          onTapPing: (pingId) async {
-                            Navigator.pop(context);
-                            await widget.onOpenPingId(pingId);
-                          },
-                          onTapUser: (uid) {
-                            Navigator.pop(context);
-                            Navigator.of(widget.parentContext).push(
-                              MaterialPageRoute(
-                                builder: (_) => ProfileTab(profileUid: uid),
-                              ),
-                            );
-                          },
-                        ),
+                    // Horizontal carousel of Threads-style vertical
+                    // connect cards. Each card opens the profile on
+                    // tap and has a green "Connect" button that uses
+                    // the SAME FriendStateManager.sendFriendRequest
+                    // path as the profile screen so the wire format
+                    // is identical (friend_requests_in / out docs +
+                    // type:connection_request notification). Capped
+                    // at 10 (already capped at the data layer; the
+                    // .take is defensive).
+                    SizedBox(
+                      height: 282,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        padding: EdgeInsets.zero,
+                        itemCount:
+                            _suggestedPeople.take(10).length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          final r =
+                              _suggestedPeople.take(10).elementAt(index);
+                          final isDismissed =
+                              _dismissedSuggestions.contains(r.id);
+                          if (isDismissed) {
+                            // Hidden but still in the list so the
+                            // rest of the row keeps its layout. The
+                            // separator width (10 px) still applies
+                            // because we render a SizedBox.shrink
+                            // of width 0, but the dismiss x is
+                            // captured here for clarity.
+                            return const SizedBox.shrink();
+                          }
+                          return _SearchConnectCard(
+                            result: r,
+                            onOpenProfile: (uid) {
+                              Navigator.pop(context);
+                              Navigator.of(widget.parentContext).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProfileTab(profileUid: uid),
+                                ),
+                              );
+                            },
+                            onDismiss: () {
+                              setState(() {
+                                _dismissedSuggestions.add(r.id);
+                              });
+                            },
+                            isFriend: _myFriendIds.contains(r.id),
+                            manager:
+                                _getOrCreateConnectManager(r.id),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -11980,7 +12044,15 @@ class _SearchSheetState extends State<_SearchSheet>
                       title: "Suggestions will show up here",
                       subtitle: "Add interests or skills to get better ping and people suggestions.",
                     )
-                  else if (_results.isEmpty)
+                  else if (!showSuggestionsHome && _results.isEmpty)
+                    // Only show the "No results" empty state when the
+                    // user is actually searching (i.e. the search
+                    // bar has text). On the suggestions home we
+                    // either show the suggestions above or the
+                    // "Suggestions will show up here" hint — never
+                    // the "No results found" message, which was
+                    // confusingly rendered in the same scroll view
+                    // as the suggestion sections.
                     _SearchEmptyState(
                       icon: PhosphorIcons.magnifyingGlass(
                         PhosphorIconsStyle.light,
@@ -12493,13 +12565,380 @@ class _SearchProfileChip extends StatelessWidget {
               style: TextStyle(
                 fontFamily: "Nunito",
                 fontSize: 12.2,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                // Lighter weight so the skills/interests chips read as
+                // a soft tag list rather than a banner of labels. Was
+                // w800/w700; now w500/w400. Visual hierarchy is still
+                // preserved by the selection state (selected chips
+                // also tint the icon + text with the kind accent).
+                fontWeight:
+                    selected ? FontWeight.w500 : FontWeight.w400,
                 color: selected
                     ? accent
                     : (isDark ? Colors.white70 : const Color(0xFF374151)),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// _SearchConnectCard
+// ============================================================================
+//
+// Vertical "follow / connect" card inspired by Threads' follow
+// suggestions in the search sheet:
+//
+//   - No border, no rounded box. Just padding around the content so
+//     the card reads as a flat suggestion tile, the way Threads does
+//     it. The carousel lets the screen background show between cards.
+//   - Big circular avatar (84x84) centred horizontally.
+//   - Tiny x dismiss button in the top-right corner. Tapping it
+//     removes the card from the carousel (kept invisible so the
+//     rest of the row doesn't shift).
+//   - Verified badge (Icons.verified_rounded, 18pt inside a 26x26
+//     white circle for a halo, Twitter blue 0xFF1D9BF0) attached
+//     to the bottom-left of the avatar circle, overlapping the
+//     circle edge. Same color/weight as the verified badge used
+//     elsewhere in the app.
+//   - Full name below the avatar (Nunito, 14.2pt, w800). The name
+//     and the card-tap behaviour both open the user's profile.
+//   - Username below that in smaller grey (11.8pt, w500, 0xFF6B7280).
+//   - "Connect" button in a green outlined pill (no fill) that
+//     turns into "Request sent" with a muted style after a tap.
+//     The connect flow uses the SAME FriendStateManager that the
+//     profile screen uses — no new wire format, no new code path.
+//     FriendStateManager.sendFriendRequest does the transaction
+//     (friend_requests_in / out docs + type:connection_request
+//     notification) and the optimistic UI override.
+
+class _SearchConnectCard extends StatelessWidget {
+  final SearchResult result;
+  final void Function(String uid) onOpenProfile;
+  final VoidCallback onDismiss;
+  final bool isFriend;
+  final FriendStateManager manager;
+
+  const _SearchConnectCard({
+    required this.result,
+    required this.onOpenProfile,
+    required this.onDismiss,
+    required this.isFriend,
+    required this.manager,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final d = result.data;
+    final fullName =
+        (d["fullName"] ?? "Pingmee user").toString().trim();
+    final username = (d["username"] ?? "").toString().trim();
+    final photoUrl = (d["photoUrl"] ?? "").toString().trim();
+    final verification =
+        Map<String, dynamic>.from(d["verification"] ?? const {});
+    final isVerified = verification["status"] == "verified";
+
+    // Connect button state. The FriendStateManager owns the
+    // optimistic override; we also pre-hide the button if the
+    // viewer is already friends with this person.
+    final btnState =
+        isFriend ? FriendButtonState.friends : manager.currentState;
+    final showAsSent = btnState == FriendButtonState.outgoing ||
+        btnState == FriendButtonState.incoming;
+
+    return SizedBox(
+      width: 168,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Top row: x dismiss (top-right).
+            SizedBox(
+              height: 22,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: InkResponse(
+                  onTap: onDismiss,
+                  radius: 14,
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 14,
+                      color: Color(0xFF9CA3AF),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Avatar with verified badge anchored to the bottom-left
+            // of the circle. Stack(clipBehavior: Clip.none) lets
+            // the badge sit half outside the circle without being
+            // clipped.
+            GestureDetector(
+              onTap: () => onOpenProfile(result.id),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 84,
+                    height: 84,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFFE5E7EB),
+                    ),
+                    child: ClipOval(
+                      child: photoUrl.isEmpty
+                          ? Center(
+                              child: Text(
+                                fullName.isNotEmpty
+                                    ? fullName[0].toUpperCase()
+                                    : "?",
+                                style: const TextStyle(
+                                  fontFamily: "Nunito",
+                                  fontSize: 30,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF374151),
+                                ),
+                              ),
+                            )
+                          : Image.network(
+                              photoUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Center(
+                                child: Text(
+                                  fullName.isNotEmpty
+                                      ? fullName[0].toUpperCase()
+                                      : "?",
+                                  style: const TextStyle(
+                                    fontFamily: "Nunito",
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF374151),
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                  if (isVerified)
+                    Positioned(
+                      left: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.verified_rounded,
+                          size: 18,
+                          color: Color(0xFF1D9BF0),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Name — bold, single-line ellipsis.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                fullName.isNotEmpty ? fullName : "Pingmee user",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 14.2,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            // Username — smaller, grey, single-line ellipsis.
+            if (username.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  "@$username",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 11.8,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            // Connect / Request sent / Already-friends button. The
+            // button is disabled while the manager is busy with a
+            // network call (optimistic override is in flight).
+            SizedBox(
+              height: 30,
+              width: double.infinity,
+              child: btnState == FriendButtonState.friends
+                  ? _connectButtonShell(
+                      label: "Connected",
+                      icon: Icons.check_rounded,
+                      filled: false,
+                      isBusy: false,
+                      onTap: null,
+                    )
+                  : btnState == FriendButtonState.incoming
+                      ? _connectButtonShell(
+                          label: "Respond",
+                          icon: Icons.person_add_alt_1_rounded,
+                          filled: false,
+                          isBusy: false,
+                          onTap: () => onOpenProfile(result.id),
+                        )
+                      : showAsSent
+                          ? _connectButtonShell(
+                              label: manager.isBusy
+                                  ? "Sending…"
+                                  : "Request sent",
+                              icon: Icons.check_rounded,
+                              filled: false,
+                              isBusy: manager.isBusy,
+                              onTap: null,
+                            )
+                          : _connectButtonShell(
+                              label: "Connect",
+                              icon: Icons.person_add_alt_rounded,
+                              filled: true,
+                              isBusy: manager.isBusy,
+                              onTap: manager.isBusy
+                                  ? null
+                                  : () async {
+                                      // Resolve the viewer's
+                                      // display name + username
+                                      // so the notification body
+                                      // matches what the profile
+                                      // screen sends.
+                                      final me =
+                                          FirebaseAuth.instance.currentUser;
+                                      if (me == null) return;
+                                      final meSnap =
+                                          await FirebaseFirestore.instance
+                                              .collection("users")
+                                              .doc(me.uid)
+                                              .get();
+                                      final meData = meSnap.data() ??
+                                          const <String, dynamic>{};
+                                      final meName = (meData["fullName"] ??
+                                              me.displayName ??
+                                              me.email ??
+                                              "Someone")
+                                          .toString()
+                                          .trim();
+                                      final meUsername =
+                                          (meData["username"] ?? "")
+                                              .toString()
+                                              .trim();
+                                      final ok =
+                                          await manager.sendFriendRequest(
+                                        meName,
+                                        meUsername,
+                                      );
+                                      if (ok) {
+                                        // Mirror the optimistic
+                                        // success: the manager has
+                                        // already flipped the state,
+                                        // but we trigger a setState
+                                        // on the parent (the search
+                                        // sheet) so the button label
+                                        // updates without waiting
+                                        // for the next rebuild.
+                                        if (context.mounted) {
+                                          (context
+                                                  .findAncestorStateOfType<
+                                                      _SearchSheetState>())
+                                              ?.setState(() {});
+                                        }
+                                      }
+                                    },
+                            ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper: a small outlined/filled pill that matches the Threads
+  // "Follow" button style. filled=true is the active green outline
+  // pill; filled=false is the muted "sent/connected" state.
+  Widget _connectButtonShell({
+    required String label,
+    required IconData icon,
+    required bool filled,
+    required bool isBusy,
+    required VoidCallback? onTap,
+  }) {
+    final accent = AppColors.brandGreen;
+    final Color border = filled ? accent : const Color(0xFFD1D5DB);
+    final Color text = filled ? accent : const Color(0xFF6B7280);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          decoration: BoxDecoration(
+            color: filled
+                ? Colors.transparent
+                : const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: border, width: 1.2),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isBusy) ...[
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.6,
+                    valueColor: AlwaysStoppedAnimation<Color>(text),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ] else ...[
+                Icon(icon, size: 13, color: text),
+                const SizedBox(width: 4),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 12.4,
+                    fontWeight:
+                        filled ? FontWeight.w700 : FontWeight.w600,
+                    color: text,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
