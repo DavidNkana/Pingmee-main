@@ -489,6 +489,10 @@ class _ProfileTabState extends State<ProfileTab>
   final bool _presenceReady = false;
   bool _didLoadCityOnce = false;
   bool _refreshingProfile = false;
+  /// Increments on every pull-to-refresh. Pass to tab children as a
+  /// ValueKey so they rebuild and re-fetch their data. Also used to
+  /// re-key the visibility/mutuals FutureBuilder so the future re-runs.
+  int _profileRefreshTick = 0;
 
   final Map<String, Future<MutualFriendsData>> _mutualFriendsFutureCache = {};
 
@@ -865,18 +869,45 @@ class _ProfileTabState extends State<ProfileTab>
     }
   }
 
+  /// Pull-to-refresh handler. The old implementation only reloaded
+  /// the city from geo, so the on-screen profile data, pings, events,
+  /// tasks, moments, friend count, mutual friends, and visibility context
+  /// were never actually re-fetched. Now we:
+  ///   1. Bump the refresh tick so child tabs and the visibility
+  ///      FutureBuilder rebuild with a new Key (forces them to re-fetch).
+  ///   2. Null out the cached Firestore streams so the next build
+  ///      re-subscribes to the user doc and friends collection
+  ///      (a fresh subscription gets the latest data, instead of
+  ///      trusting the long-lived stream that may have gone stale
+  ///      while the screen was backgrounded).
+  ///   3. Re-load the city from geo.
   Future<void> _refreshProfileTab() async {
     if (_refreshingProfile) return;
 
     _refreshingProfile = true;
 
     try {
+      // Invalidate the cached streams so the next build of the
+      // StreamBuilder re-subscribes. The new subscription will fetch
+      // the current document/collection state from Firestore.
+      _profileStream = null;
+      _profileStreamKey = null;
+      _friendsStreamCache.clear();
+
+      setState(() {
+        _profileRefreshTick++;
+      });
+
       await _loadCityFromGeoOnce(force: true);
 
       // Small delay keeps the pull gesture feeling deliberate.
       await Future<void>.delayed(const Duration(milliseconds: 250));
     } finally {
-      _refreshingProfile = false;
+      if (mounted) {
+        setState(() {
+          _refreshingProfile = false;
+        });
+      }
     }
   }
 
@@ -2733,20 +2764,14 @@ class _ProfileTabState extends State<ProfileTab>
                         return RefreshIndicator(
                           onRefresh: _refreshProfileTab,
 
-                          // Only trigger when pulling from the very top.
-                          // Normal scrolling inside tabs should NOT trigger refresh.
-                          notificationPredicate: (notification) {
-                            if (notification.metrics.axis != Axis.vertical) return false;
-
-                            final atTop = notification.metrics.extentBefore == 0;
-
-                            if (!atTop) return false;
-
-                            // Let the refresh indicator listen only to real drag/overscroll movement.
-                            return notification is ScrollStartNotification ||
-                                notification is ScrollUpdateNotification ||
-                                notification is OverscrollNotification;
-                          },
+                          // Let Flutter's default RefreshIndicator behavior handle
+                          // the gesture detection. It only fires on overscroll
+                          // at the top of the scrollable, not on every scroll.
+                          // (The previous custom predicate was over-eager and
+                          // triggered on any ScrollUpdateNotification while at
+                          // the top, which made the spinner show during
+                          // normal scroll-up gestures inside the inner tab
+                          // content.)
 
                           color: AppColors.brandGreen,
                           displacement: 34,
@@ -3179,6 +3204,7 @@ class _ProfileTabState extends State<ProfileTab>
                               ),
                             ],
                             body: FutureBuilder<Map<String, dynamic>>(
+                              key: ValueKey('bundle-$profileUid-$_profileRefreshTick'),
                               future: () async {
                                 final visibility =
                                     await _buildViewerVisibilityContext(viewerUid: myUid);
@@ -3207,18 +3233,22 @@ class _ProfileTabState extends State<ProfileTab>
                                   physics: const BouncingScrollPhysics(),
                                   children: [
                                     _PingsTab(
+                                      key: ValueKey('pings-$profileUid-${_profileRefreshTick}_$_refreshingProfile'),
                                       uid: profileUid,
                                       visibilityContext: visibilityContext,
                                     ),
                                     _EventsTab(
+                                      key: ValueKey('events-$profileUid-${_profileRefreshTick}_$_refreshingProfile'),
                                       uid: profileUid,
                                       bottomPad: ProfileTab.navBarHeight + 18,
                                     ),
                                     _TasksTab(
+                                      key: ValueKey('tasks-$profileUid-${_profileRefreshTick}_$_refreshingProfile'),
                                       uid: profileUid,
                                       bottomPad: ProfileTab.navBarHeight + 18,
                                     ),
                                     _MomentsTab(
+                                      key: ValueKey('moments-$profileUid-${_profileRefreshTick}_$_refreshingProfile'),
                                       uid: profileUid,
                                       bottomPad: ProfileTab.navBarHeight + 18,
                                     ),
