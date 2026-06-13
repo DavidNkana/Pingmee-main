@@ -425,6 +425,7 @@ class _MainAppShellState extends State<MainAppShell>
               FeedTab(
                 key: _feedKey,
                 onOpenUserProfile: _openUserProfileTab,
+                onNavVisibilityChanged: _setNavHiddenByScroll,
               ),
               PingmeeChatTab(
                 onNavVisibilityChanged: _setNavHiddenByScroll,
