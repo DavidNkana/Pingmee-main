@@ -2515,6 +2515,11 @@ class _MomentCard extends StatelessWidget {
 
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
+    // Live cache needs the original author's uid, so a profile-pic change on
+    // whoever was reposted shows up in the mini-card too (not just on the
+    // outer author). Declared in the build method so we can resolve it from
+    // photoCache inside the children list below.
+    final originalAuthorUid = _text("originalAuthorUid");
     // Body text: ONLY the user own text. For a plain repost (no quote
     // typed) this is empty and the body block is skipped; the source
     // moment is shown only in the mini-card below. For a quote repost
@@ -2750,10 +2755,6 @@ class _MomentCard extends StatelessWidget {
             ),
           ],
 
-          // Live cache first (falls back to the original moment snapshot)
-          // so a profile-pic change for the original author shows up here
-          // too, not just on the outer author.
-          final originalAuthorUid = _text("originalAuthorUid");
           if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             // Repost indicator above original content (shown on every repost,
             // not just plain reposts, so quote reposts also signal the source)
