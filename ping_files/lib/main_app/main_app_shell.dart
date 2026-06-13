@@ -400,7 +400,20 @@ class _MainAppShellState extends State<MainAppShell>
 
     // Scroll hide means: keep the nav built, but slide it down smoothly.
     final slideBottomNav = !menuOpen && index == 2 && _navHiddenByScroll;
-    return Scaffold(
+    return PopScope(
+      // While we're not on the Map (Discovery) tab, intercept the
+      // Android system back button and route the user to the Map tab.
+      // Once the user is already on the Map tab, allow the back press
+      // to propagate (canPop = true) so the OS closes the app as
+      // expected. This matches the standard "back goes home" pattern.
+      canPop: index == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (index != 0) {
+          _setIndex(0);
+        }
+      },
+      child: Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: const Color(0xFFEFF2F7),
       body: Stack(
@@ -495,6 +508,7 @@ class _MainAppShellState extends State<MainAppShell>
               ),
             ),
         ],
+      ),
       ),
     );
   }
