@@ -2338,13 +2338,14 @@ class _MomentCard extends StatelessWidget {
 
     final originalAuthorName = _text("originalAuthorName");
     final originalText = _text("originalText");
-    // Body text: the user own text if any, else (for plain reposts
-    // where the user did not type a quote) the original moment text.
-    // The body block further down styles plain-repost text in mini-card
-    // style (smaller, lighter) so it is clearly the source content and
-    // not text the user wrote themselves. Quote reposts get the italic
-    // quote style for the same reason.
-    final text = ownText.isNotEmpty ? ownText : originalText;
+    // Body text: ONLY the user own text. For a plain repost (no quote
+    // typed) this is empty and the body block is skipped; the source
+    // moment is shown only in the mini-card below. For a quote repost
+    // this is the quote text the user wrote (rendered as a quote — see
+    // the body block further down). We never fall back to the source's
+    // text here, because that would make the body show the source's
+    // content as if the user wrote it.
+    final text = _text("text");
     final originalMedia = data["originalMedia"] is List
         ? List.from(data["originalMedia"])
         : data["media"] is List
@@ -2454,18 +2455,14 @@ class _MomentCard extends StatelessWidget {
           ),
           if (text.isNotEmpty) ...[
             const SizedBox(height: 14),
-            // 3-way body styling:
-    //   - Quote repost (user wrote text): quote style (italic + curly
-    //     quotes + lighter). Signals the body is the user's commentary
-    //     on the source.
-    //   - Plain repost (no quote, user wrote nothing): mini-card style
-    //     (smaller, lighter, no curly quotes). The body shows the
-    //     source's text in the same style as the mini-card below, so it
-    //     is clearly NOT user-written.
-    //   - Regular moment: normal post style.
-            if (isRepost && ownText.isNotEmpty)
+            // Quote repost: the user is commenting on the source, so the
+    // body is rendered as a quote (italic + lighter + curly quotes) to set
+    // it apart from a regular post. Plain reposts are skipped entirely
+    // (text is empty for them) and show only the mini-card. Regular
+    // moments keep the normal post styling.
+            if (isRepost)
               Text(
-                '“$text”',  // quote repost: curly quotes around user quote
+                '“$text”',
                 style: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 14.5,
@@ -2475,23 +2472,9 @@ class _MomentCard extends StatelessWidget {
                   color: Colors.black.withOpacity(.62),
                 ),
               )
-            else if (isRepost)
-              // Plain repost: same style as the mini-card text below.
-              Text(
-                text,  // source's text via the fallback above
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: "Nunito",
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                  height: 1.32,
-                  color: Colors.black.withOpacity(.70),
-                ),
-              )
             else
               Text(
-                text,  // regular moment: normal post styling
+                text,
                 style: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 15,
