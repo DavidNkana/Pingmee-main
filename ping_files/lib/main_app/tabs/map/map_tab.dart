@@ -1452,16 +1452,19 @@ class MapTabState extends State<MapTab> {
     }
   }
 
-  /// Renders the notifications bell next to the location-refresh button
-  /// in the map tab's top-right corner. Hidden when the user has hidden
-  /// all map UI (the same gate as the refresh button itself). Returns an
-  /// empty SizedBox if the user is signed out so the layout still
-  /// reserves the slot but the bell is invisible.
-  Widget _MapNotificationsBell({String? uid}) {
-    if (uid == null || uid.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return NotificationsBell(uid: uid);
+  /// Opens the notifications bottom sheet. Wired to the bell that lives
+  /// between the map and search icons in the discover overlay's header.
+  /// Falls back to a no-op if the user is signed out.
+  void _openNotificationsSheet() {
+    final uid = _myUid;
+    if (uid == null || uid.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => NotificationsSheet(uid: uid),
+    );
   }
 
   Widget _buildRefreshLocationButton() {
@@ -4919,19 +4922,6 @@ class MapTabState extends State<MapTab> {
             if (!_discoverVisible && !_mapUiHidden)
               Positioned(
                 top: 0,
-                right: 64, // 46 button + 14 outer pad + 4 visual gap
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: _MapNotificationsBell(uid: _myUid),
-                  ),
-                ),
-              ),
-
-            if (!_discoverVisible && !_mapUiHidden)
-              Positioned(
-                top: 0,
                 right: 0,
                 child: _buildRefreshLocationButton(),
               ),  
@@ -4993,6 +4983,8 @@ class MapTabState extends State<MapTab> {
                   onTapSearch: () => _openSearch(),
                   onTapMap: _showMapOnly,
                   onTapEnableLocation: recheckLocation,
+                  onTapNotifications: () => _openNotificationsSheet(),
+                  notificationsUid: _myUid,
                   onTapViewAll: _openAllNearbyPings,
                   selectedCategory: _selectedDiscoverCategory,
                   selectedTags: _selectedDiscoverTags,
@@ -6366,6 +6358,8 @@ class _DiscoverOverlay extends StatelessWidget {
   final VoidCallback onTapSearch;
   final VoidCallback onTapMap;
   final VoidCallback onTapEnableLocation;
+  final VoidCallback onTapNotifications;
+  final String? notificationsUid;
   final VoidCallback onTapViewAll;
   final VoidCallback onClearFilters;
   final String? selectedCategory;
@@ -6387,6 +6381,8 @@ class _DiscoverOverlay extends StatelessWidget {
     required this.onTapSearch,
     required this.onTapMap,
     required this.onTapEnableLocation,
+    required this.onTapNotifications,
+    required this.notificationsUid,
     required this.onTapViewAll,
     required this.onClearFilters,
     required this.selectedCategory,
@@ -6437,6 +6433,10 @@ class _DiscoverOverlay extends StatelessWidget {
                       onTap: onTapMap,
                     ),
                     const SizedBox(width: 10),
+                    if (notificationsUid != null && notificationsUid!.isNotEmpty)
+                      NotificationsBell(uid: notificationsUid!),
+                    if (notificationsUid != null && notificationsUid!.isNotEmpty)
+                      const SizedBox(width: 10),
                     _DiscoverHeaderIconButton(
                       icon: PhosphorIcons.magnifyingGlass(
                         PhosphorIconsStyle.bold,
