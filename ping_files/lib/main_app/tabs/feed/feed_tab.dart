@@ -191,15 +191,6 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     }
   }
 
-  @override
-  void dispose() {
-    for (final sub in _userDocSubs.values) {
-      sub.cancel();
-    }
-    _userDocSubs.clear();
-    super.dispose();
-  }
-
   bool _printedBuildLog = false;
 
   String? _feedBootError;
@@ -346,6 +337,14 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    // Cancel per-author Firestore subscriptions so the live photoUrl
+    // cache stays in sync (see _refreshPhotoCacheFor). Without this,
+    // every Firestore snapshot for visible authors would leak.
+    for (final sub in _userDocSubs.values) {
+      sub.cancel();
+    }
+    _userDocSubs.clear();
+
     _feedScrollController.removeListener(_onFeedScroll);
     _feedScrollController.dispose();
     _authSub?.cancel();
@@ -2751,6 +2750,10 @@ class _MomentCard extends StatelessWidget {
             ),
           ],
 
+          // Live cache first (falls back to the original moment snapshot)
+          // so a profile-pic change for the original author shows up here
+          // too, not just on the outer author.
+          final originalAuthorUid = _text("originalAuthorUid");
           if (isRepost && (originalText.isNotEmpty || originalMedia.isNotEmpty)) ...[
             // Repost indicator above original content (shown on every repost,
             // not just plain reposts, so quote reposts also signal the source)
@@ -2775,7 +2778,6 @@ class _MomentCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            final originalAuthorUid = _text("originalAuthorUid");
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
                   ? originalAuthorName
