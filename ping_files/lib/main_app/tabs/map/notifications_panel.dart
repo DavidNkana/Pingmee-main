@@ -3,9 +3,11 @@
 //
 // The bell, the bottom sheet, the tile, the avatar, the loading skeletons,
 // the section grouping and the unread-dot colour are all identical to the
-// previous feed version; only the bell's *visual style* was changed to
-// match the map tab's top-right "refresh location" button (46x46, dark
-// fill, rounded 16, white icon) so the icon family stays consistent.
+// previous feed version. The bell is rendered between the map and search
+// icons in the discover overlay's header, styled to match the existing
+// `_DiscoverHeaderIconButton` family (50x50, 0xFF111827 fill at .92, rounded
+// 18, 1px white-14 border, white 21-pt bold icon, no shadow) so it reads
+// as a sibling of the map and search icons.
 import 'dart:ui' show ImageFilter;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -39,9 +41,12 @@ class NotificationsBell extends StatelessWidget {
       builder: (context, snap) {
         final hasUnread = (snap.data?.docs.isNotEmpty ?? false);
 
-        // Styled to match the map tab's top-right "refresh location" button
-        // (46x46, dark fill, rounded 16, white icon) so the bell feels native
-        // to the map UI rather than a feed-style glass pill.
+        // Styled to match the discover-overlay header icon button
+        // (`_DiscoverHeaderIconButton` in map_tab.dart): 50x50, dark
+        // 0xFF111827 fill at .92, rounded 18, 1px white-14 border, white
+        // 21-pt bold icon, no shadow. The red unread dot sits at the top-
+        // right corner, popping through the corner radius thanks to
+        // Stack(clipBehavior: Clip.none).
         return Material(
           color: Colors.transparent,
           child: InkWell(
@@ -54,32 +59,35 @@ class NotificationsBell extends StatelessWidget {
                 builder: (_) => NotificationsSheet(uid: uid),
               );
             },
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             child: Container(
-              width: 46,
-              height: 46,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(.84),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(.08)),
+                color: const Color(0xFF111827).withOpacity(.92),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Colors.white.withOpacity(.14),
+                  width: 1,
+                ),
               ),
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
                   Center(
                     child: Icon(
-                      PhosphorIcons.bell(PhosphorIconsStyle.regular),
+                      PhosphorIcons.bell(PhosphorIconsStyle.bold),
                       color: Colors.white,
-                      size: 20,
+                      size: 21,
                     ),
                   ),
                   if (hasUnread)
                     Positioned(
-                      right: 9,
-                      top: 9,
+                      right: 8,
+                      top: 8,
                       child: Container(
-                        width: 10,
-                        height: 10,
+                        width: 11,
+                        height: 11,
                         decoration: BoxDecoration(
                           color: Colors.redAccent,
                           shape: BoxShape.circle,
