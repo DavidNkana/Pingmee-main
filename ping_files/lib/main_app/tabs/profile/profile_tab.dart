@@ -3203,7 +3203,12 @@ class _ProfileTabState extends State<ProfileTab>
                                 ),
                               ),
                             ],
-                            body: FutureBuilder<Map<String, dynamic>>(
+                            body: RefreshIndicator(
+                              onRefresh: _refreshProfileTab,
+                              color: AppColors.brandGreen,
+                              displacement: 34,
+                              edgeOffset: 0,
+                              child: FutureBuilder<Map<String, dynamic>>(
                               key: ValueKey('bundle-$profileUid-$_profileRefreshTick'),
                               future: () async {
                                 final visibility =
@@ -3255,6 +3260,7 @@ class _ProfileTabState extends State<ProfileTab>
                                   ],
                                 );
                               },
+                            ),
                             ),
                           ),
                         );
