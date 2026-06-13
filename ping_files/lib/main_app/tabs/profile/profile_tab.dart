@@ -2873,6 +2873,7 @@ class _ProfileTabState extends State<ProfileTab>
                                             currentNote: note,
                                             userRef: userRef,
                                           ),
+                                          onBack: widget.onBack,
                                         )
                                       : StreamBuilder<Map<String, dynamic>>(
                                         stream: relationshipStream,
@@ -3122,6 +3123,7 @@ class _ProfileTabState extends State<ProfileTab>
                                                   );
                                                 },
                                                 onShareNote: () {},
+                                                onBack: widget.onBack,
                                               );
                                             },
                                           );
@@ -3303,6 +3305,11 @@ class _ProfileHeaderCard extends StatelessWidget {
   final VoidCallback onCreatePing;
   final VoidCallback onOpenCamera;
   final VoidCallback onShareNote;
+  /// Forwarded from the parent so the back arrow on the cover image
+  /// can clear the foreign-user uid and switch back to the feed tab
+  /// (in MainAppShell) rather than calling Navigator.maybePop() which
+  /// does nothing inside an IndexedStack.
+  final VoidCallback? onBack;
 
   final List<String> interests;
   final List<String> skills;
@@ -3384,6 +3391,7 @@ class _ProfileHeaderCard extends StatelessWidget {
     required this.onVerifiedBadgeTap,
     required this.communitiesCount,
     required this.onOpenCommunitiesTap,
+    this.onBack,
   });
 
   String _headerMetaLine() {
@@ -3485,7 +3493,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                             children: [
                               if (!isOwner)
                                 GestureDetector(
-                                  onTap: () => widget.onBack?.call() ?? Navigator.of(context).maybePop(),
+                                  onTap: () => onBack?.call() ?? Navigator.of(context).maybePop(),
                                   child: Container(
                                     width: 40,
                                     height: 40,
