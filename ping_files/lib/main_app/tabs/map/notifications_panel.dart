@@ -6,6 +6,8 @@
 // previous feed version; only the bell's *visual style* was changed to
 // match the map tab's top-right "refresh location" button (46x46, dark
 // fill, rounded 16, white icon) so the icon family stays consistent.
+import 'dart:ui' show ImageFilter;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -14,6 +16,9 @@ import 'package:ping_files/features/pings/manage_ping_screen.dart';
 import 'package:ping_files/features/pings/ping_details_sheet.dart';
 import 'package:ping_files/features/pings/ping_join_notifications.dart';
 import 'package:ping_files/features/pings/ping_join_request_actions.dart';
+import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
+import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
+import 'package:ping_files/theme/colors2.dart';
 
 class NotificationsBell extends StatelessWidget {
   final String uid;
@@ -1818,5 +1823,41 @@ class _NotificationBadgeStyle {
           background: const Color(0xFF6B7280),
         );
     }
+  }
+}
+
+// ============================================================
+// Local copy of the glass-bottom-sheet shell (the feed tab keeps
+// its own private copy for `_MomentMoreSheet`). Same shape, same
+// blur, same border — duplicating 30 lines is cheaper than making
+// the feed's class public and threading it across files.
+// ============================================================
+class _GlassBottomSheet extends StatelessWidget {
+  final Widget child;
+  const _GlassBottomSheet({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(.92),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: Colors.white.withOpacity(.65)),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 24,
+                offset: const Offset(0, -8),
+                color: Colors.black.withOpacity(.10),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 }
