@@ -95,20 +95,22 @@ class SearchConnectCard extends StatelessWidget {
     return SizedBox(
       width: 168,
       child: Padding(
-        // 10 px on the bottom (was 6) so the empty band below the
-        // connect button matches the visual weight of the gap
-        // above the dismiss row. 4 px more than v41 per the
-        // design pass.
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
+        // 18 px on the bottom (was 10) so the connect button has
+        // noticeably more breathing room from the card's bottom
+        // edge. Combined with the 8-px inner padding (below) the
+        // total bottom is 26 px — the button reads as sitting on
+        // a soft shelf rather than hugging the card edge.
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
         child: Container(
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(14),
           ),
-          // 4 px on the bottom (was 8) so the connect button sits
-          // closer to the card's bottom edge — tighter vertical
-          // rhythm, more like a native iOS list cell.
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+          // 8 px on the bottom (was 4) so the connect button has
+          // visible breathing room from the card's bottom edge.
+          // Combined with the 18-px outer padding the connect
+          // button sits on a soft shelf.
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
