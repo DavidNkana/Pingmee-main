@@ -3219,3 +3219,67 @@ exports.reactivatePingChat = onCall(
       };
     },
 );
+
+
+// ============================================================================
+// Prune stale "online" presence
+// ============================================================================
+//
+// Reads every `users/{uid}` doc that still claims to be online, and
+// flips it to offline if the most recent heartbeat is older than the
+// 2-minute staleness window used by the client-side helper
+// `pingmeeIsUserOnlineFromUserData` (see profile_tab.dart).
+//
+// This is the server-side safety net for clients that crash, lose
+// network, or are force-killed before `didChangeAppLifecycleState`
+// can fire. Without it, a user who force-quits the app stays
+// "online" forever (because nothing in the client ever writes
+// `isOnline = false` for them). With this, the worst-case lag is
+// the function's run cadence (default 1 minute).
+//
+// Reads are page-limited (500 per run) to keep memory bounded; if
+// there are more than 500 stale online users, the next run picks up
+// the rest. In practice the cardinality is well under this.
+exports.pruneStaleOnlineUsers = onSchedule(
+    {
+      region: REGION,
+      schedule: "every 1 minutes",
+      timeZone: "Africa/Lusaka",
+    },
+    async () => {
+      const db = admin.firestore();
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - 2 * 60 * 1000); // 2 min
+      const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
+
+      const snap = await db
+          .collection("users")
+          .where("isOnline", "==", true)
+          .where("lastSeen", "<=", cutoffTs)
+          .limit(500)
+          .get();
+
+      if (snap.empty) {
+        console.log("pruneStaleOnlineUsers: no stale online users");
+        return {flipped: 0};
+      }
+
+      const batch = db.batch();
+      let flipped = 0;
+      snap.forEach((docSnap) => {
+        batch.update(docSnap.ref, {
+          isOnline: false,
+          // Keep the existing lastSeen — it is the actual last
+          // activity timestamp and is useful for displaying "last
+          // seen 3 minutes ago" etc. The "isOnline" flag is the
+          // derivative; only that needs to be flipped.
+        });
+        flipped += 1;
+      });
+
+      await batch.commit();
+
+      console.log("pruneStaleOnlineUsers: flipped", flipped, "users");
+      return {flipped};
+    },
+);
