@@ -1284,38 +1284,40 @@ Future<void> _toggleMomentBookmark(int index) async {
               builder: (context, _) => Transform.translate(
               offset: Offset(drawerOffset.value, 0),
               child: SafeArea(
-                child: Column(
+                child: Stack(
                   children: [
-                    // Centre-top banner — small (200 wide, 1.5:1) image card.
-                    // Sized for phone widths of 360-420 logical px; the
-                    // 60% width cap with 140-px min keeps it from looking
-                    // cramped on small phones and from dominating on large
-                    // ones. Soft shadow + 16-px corner radius so it feels
-                    // like a real "card" rather than a sticker.
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                    // Centre-top banner, positioned BEHIND the column.
+                    // Sits at top: 0 of the stack (just below the safe-
+                    // area) and is centred horizontally. The Column on
+                    // top of it (the hamburger row + body) paints over
+                    // the banner, so:
+                    //   - the top of the banner is hidden behind the
+                    //     hamburger row (which has a transparent bg);
+                    //   - the share card's translucent white fill
+                    //     (.88) shows the banner faintly through it;
+                    //   - the banner peeks out on the left/right of
+                    //     the hamburger button and above the share
+                    //     card.
+                    // The banner is in a Positioned so it does NOT push
+                    // the share card (or anything else) down.
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
                       child: LayoutBuilder(
                         builder: (context, c) {
-                          // Cap at 60% of the available row width, but
-                          // never go below 140 px (looks too small) or
-                          // above 240 px (starts dominating the header).
+                          // 60% of the available row width, clamped so
+                          // the banner stays small on every screen
+                          // (140 px min, 240 px max) and remains
+                          // narrower than the share card so its
+                          // edges are visible around the card.
                           final double w = c.maxWidth;
                           final double bannerW =
                               (w * 0.6).clamp(140.0, 240.0);
                           return Center(
-                            child: Container(
+                            child: SizedBox(
                               width: bannerW,
                               height: bannerW / 1.5, // 1.5:1 aspect
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 6),
-                                    color: Colors.black.withOpacity(.08),
-                                  ),
-                                ],
-                              ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
                                 child: Image.asset(
@@ -1328,7 +1330,8 @@ Future<void> _toggleMomentBookmark(int index) async {
                         },
                       ),
                     ),
-
+                    Column(
+                  children: [
                     // Threads-style header — just the hamburger; the notifications bell
                     // lives in the discover overlay's header on the map tab.
                     Padding(
@@ -1370,6 +1373,8 @@ Future<void> _toggleMomentBookmark(int index) async {
                     ),
                     Expanded(
                       child: _buildMomentsBody(),
+                    ),
+                  ],
                     ),
                   ],
                 ),
