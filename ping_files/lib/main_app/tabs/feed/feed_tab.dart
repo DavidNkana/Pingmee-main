@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:ping_files/main_app/shared/search_connect_card.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'package:ping_files/main_app/tabs/feed/liked_moments_screen.dart';
 import 'package:ping_files/main_app/tabs/feed/saved_moments_screen.dart';
@@ -15,7 +16,9 @@ import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
 import 'package:ping_files/features/pings/ping_details_sheet.dart';
+import 'package:ping_files/features/pings/ping_visibility.dart' show PingVisibilityContext;
 import 'package:ping_files/features/events/event_details_screen.dart';
+import 'package:ping_files/features/search/search_service.dart' show SearchService, SearchResult, SearchKind;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
@@ -202,6 +205,26 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   /// immediately reflects the new image (even for OLD moments that
   /// were created with the previous photoUrl snapshot).
   Map<String, String> _photoCache = {};
+  // Inline people-suggestion carousel state. Inserted at
+  // itemIndex 11 in the feed's ListView.separated (i.e. after
+  // the 10th moment), so the user sees it after scrolling past
+  // 10 feed posts. State mirrors the search sheet's: a list of
+  // SearchResult (only user-kind), a dismissed set keyed by
+  // uid, and a per-uid FriendStateManager cache so each card
+  // owns its optimistic override.
+  List<SearchResult> _inlinePeopleSuggestions = const [];
+  bool _inlinePeopleLoaded = false;
+  bool _inlinePeopleLoading = false;
+  final Set<String> _inlinePeopleDismissed = <String>{};
+  final Map<String, FriendStateManager> _inlinePeopleManagers = {};
+  /// 1-based index in the feed's ListView.separated at which
+  /// the inline carousel is rendered. Layout:
+  ///   itemIndex 0 -> _CreateMomentPreviewCard (share card)
+  ///   itemIndex 1..N -> moment[0..N-1]
+  ///   itemIndex N+1 -> optional footer (loading spinner)
+  /// So the carousel-after-10th-moment goes at itemIndex 11
+  /// (1 share + 10 moments = 11, then carousel at 11).
+  static const int _inlinePeopleItemIndex = 11;
   /// Active subscriptions on `users/{uid}` documents. Keyed by uid.
   /// We cancel these on dispose and rebuild the set whenever the
   /// visible author set changes (new load, new pagination page).
@@ -248,6 +271,11 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       debugPrint("🟢 FeedTab post-frame bootstrap check");
       _bootstrapFeed(reason: "post-frame");
+      // Kick off the inline people-suggestion loader in
+      // the same post-frame tick so it doesn't block the
+      // feed bootstrap. By the time the user scrolls past
+      // 10 moments, the loader has had time to query.
+      _loadInlinePeopleSuggestions();
     });
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -983,6 +1011,256 @@ Future<void> _toggleMomentBookmark(int index) async {
     }
   }
 
+  /// Loads up to 20 people who share interests or skills with
+  /// the viewer, excluding self and existing friends. Uses the
+  /// SAME `SearchService.searchPeopleOnly` path the search sheet
+  /// uses so the wire format (interests/skills arrayContainsAny
+  /// query) is identical.
+  ///
+  /// Reads the viewer's profile and friends on demand (no
+  /// local cache) so this works for first-launch users who
+  /// haven't hit the profile flow yet. Cost: 2 Firestore
+  /// reads per call. Runs in the background; doesn't block
+  /// the feed bootstrap.
+  Future<void> _loadInlinePeopleSuggestions() async {
+    if (_inlinePeopleLoading) return;
+    _inlinePeopleLoading = true;
+
+    try {
+      final myUid = FirebaseAuth.instance.currentUser?.uid;
+      if (myUid == null) {
+        if (mounted) {
+          setState(() {
+            _inlinePeopleSuggestions = const [];
+            _inlinePeopleLoaded = true;
+            _inlinePeopleLoading = false;
+          });
+        }
+        return;
+      }
+
+      // Fetch the viewer's profile + friends list in parallel.
+      final meRef =
+          FirebaseFirestore.instance.collection("users").doc(myUid);
+      final results = await Future.wait([
+        meRef.get(),
+        meRef.collection("friends").limit(200).get(),
+      ]);
+      final meSnap = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+      final friendsSnap =
+          results[1] as QuerySnapshot<Map<String, dynamic>>;
+
+      final meData = meSnap.data() ?? const <String, dynamic>{};
+      final interests = List<String>.from(meData["interests"] ?? const []);
+      final skills = List<String>.from(meData["skills"] ?? const []);
+      final verified = meData["verification"]?["status"] == "verified";
+
+      // FriendIds come from the friends subcollection
+      // (canonical source).
+      final friendIds = <String>{
+        for (final d in friendsSnap.docs)
+          if ((d.data()["friendId"] ?? "").toString().isNotEmpty)
+            (d.data()["friendId"] ?? "").toString(),
+      };
+
+      if (interests.isEmpty && skills.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _inlinePeopleSuggestions = const [];
+            _inlinePeopleLoaded = true;
+            _inlinePeopleLoading = false;
+          });
+        }
+        return;
+      }
+
+      // Build a deduped lowercase token list. SearchService
+      // handles the arrayContainsAny query.
+      final tokens = <String>{
+        ...interests.map((e) => e.trim().toLowerCase()).where((e) => e.isNotEmpty),
+        ...skills.map((s) => s.trim().toLowerCase()).where((s) => s.isNotEmpty),
+      }.take(6).toList();
+
+      if (tokens.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _inlinePeopleSuggestions = const [];
+            _inlinePeopleLoaded = true;
+            _inlinePeopleLoading = false;
+          });
+        }
+        return;
+      }
+
+      final service = SearchService(
+        FirebaseFirestore.instance,
+        visibilityContext: PingVisibilityContext(
+          viewerUid: myUid,
+          viewerVerified: verified,
+          viewerFriendIds: friendIds.toList(),
+          viewerInterests: interests,
+          viewerSkills: skills,
+        ),
+      );
+
+      // Fetch candidates, then filter non-self / non-friend and
+      // cap at 20 (per the v43 design).
+      final out = await service.searchPeopleOnly(tokens.join(' '));
+      final filtered = out.where((r) {
+        if (r.kind != SearchKind.user) return false;
+        final uid = r.id.trim();
+        if (uid.isEmpty || uid == myUid) return false;
+        if (friendIds.contains(uid)) return false;
+        return true;
+      }).take(20).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _inlinePeopleSuggestions = filtered;
+        _inlinePeopleLoaded = true;
+        _inlinePeopleLoading = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _inlinePeopleSuggestions = const [];
+          _inlinePeopleLoaded = true;
+          _inlinePeopleLoading = false;
+        });
+      }
+    }
+  }
+
+  /// Lazy-creates a FriendStateManager for the given suggested
+  /// uid, mirroring how the search sheet owns one manager per
+  /// suggested uid. Returns a no-op manager (myUid="") if the
+  /// viewer is signed out, so callers don't crash before auth
+  /// is ready.
+  FriendStateManager _getOrCreateInlineManager(String targetUid) {
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    if (myUid == null || myUid.isEmpty) {
+      return FriendStateManager(myUid: "", targetUid: targetUid);
+    }
+    return _inlinePeopleManagers.putIfAbsent(
+      targetUid,
+      () => FriendStateManager(myUid: myUid, targetUid: targetUid),
+    );
+  }
+
+  /// Renders the "People who match your skills and interests"
+  /// section in the feed's main scroll. Same visual language
+  /// as the search screen's people-suggestion carousel: a
+  /// header with a soft subtitle, then a horizontally-
+  /// scrolling list of SearchConnectCard tiles, each 168 px
+  /// wide. Max 20 people (already capped at the data layer).
+  Widget _buildInlinePeopleCarousel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111111);
+    final muted = isDark
+        ? Colors.white.withOpacity(.62)
+        : const Color(0xFF6B7280);
+
+    final visible = _inlinePeopleSuggestions
+        .where((r) => !_inlinePeopleDismissed.contains(r.id))
+        .toList();
+
+    if (visible.isEmpty) {
+      // Defensive: the itemBuilder only calls this when the
+      // list is non-empty, but if the user dismissed every
+      // card between the gate check and the build call, we
+      // still need to return something.
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Row(
+              children: [
+                Icon(
+                  PhosphorIcons.usersThree(PhosphorIconsStyle.fill),
+                  size: 16,
+                  color: muted,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "People who match your skills and interests",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 14.2,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Text(
+              "Connect with people whose interests and skills overlap with yours.",
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 12.2,
+                fontWeight: FontWeight.w400,
+                color: muted,
+                height: 1.3,
+              ),
+            ),
+          ),
+          SizedBox(
+            // Same height as the search-screen carousel:
+            // 232 px (outer 6/6/6/10 + content 217 + 4 px
+            // margin for the rounded card edge).
+            height: 232,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              itemCount: visible.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final r = visible[index];
+                return SearchConnectCard(
+                  result: r,
+                  onOpenProfile: (uid) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfileTab(profileUid: uid),
+                      ),
+                    );
+                  },
+                  onDismiss: () {
+                    setState(() {
+                      _inlinePeopleDismissed.add(r.id);
+                    });
+                  },
+                  isFriend: _inlinePeopleDismissed.contains(r.id),
+                  manager: _getOrCreateInlineManager(r.id),
+                  // The shared widget lives in a shared file
+                  // and can't reach our private State class.
+                  // We wire the callback through so each
+                  // connect tap re-renders the feed's
+                  // carousel with the new button state.
+                  onConnectSent: () {
+                    if (mounted) setState(() {});
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMomentsBody() {
     if (_feedMode == _FeedMode.aroundMe) {
       return const _FeedComingSoonState(
@@ -1080,7 +1358,13 @@ Future<void> _toggleMomentBookmark(int index) async {
           parent: BouncingScrollPhysics(),
         ),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
-        itemCount: _timelineMoments.length + 1 + footerCount,
+        // +2 accounts for the share card at itemIndex 0 AND
+        // the inline people-suggestion carousel slot at
+        // itemIndex 11. The carousel renders only when the
+        // gates pass (see itemBuilder); otherwise it's a
+        // zero-height SizedBox so itemCount stays consistent
+        // and ListView.separated doesn't double-count.
+        itemCount: _timelineMoments.length + 2 + footerCount,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           if (index == 0) {
@@ -1090,7 +1374,27 @@ Future<void> _toggleMomentBookmark(int index) async {
             );
           }
 
-          final momentIndex = index - 1;
+          // Inline people-suggestion carousel at itemIndex
+          // 11, but only if we have at least 10 moments to
+          // anchor it against (so the user has actually
+          // scrolled past the 10th post) AND the loader has
+          // produced results. If either gate fails, skip the
+          // carousel and shift the moment index down by 1.
+          if (index == _inlinePeopleItemIndex &&
+              _inlinePeopleLoaded &&
+              _inlinePeopleSuggestions.isNotEmpty &&
+              _timelineMoments.length >= 10) {
+            return _buildInlinePeopleCarousel();
+          }
+
+          // Compute the moment index, accounting for the
+          // carousel slot if it would have appeared at this
+          // position but was skipped (e.g. fewer than 10
+          // moments, or loader still running).
+          final momentIndex = (index > _inlinePeopleItemIndex)
+              ? index - 2
+              : index - 1;
+
           if (momentIndex >= _timelineMoments.length) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
