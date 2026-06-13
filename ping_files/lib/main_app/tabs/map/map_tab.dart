@@ -11941,13 +11941,11 @@ class _SearchSheetState extends State<_SearchSheet>
                     // at 10 (already capped at the data layer; the
                     // .take is defensive).
                     // Carousel height sized to the actual card content
-                    // (~220 px including outer + inner padding) so the
-                    // card sits flush inside the carousel with even
-                    // top and bottom margins. We add a small breathing
-                    // room so the rounded card edge has clearance
-                    // from the carousel's top/bottom edges.
+                    // plus 4 px of breathing room (added per the
+                    // design pass) so the rounded card edge has
+                    // clearance from the carousel's top/bottom edges.
                     SizedBox(
-                      height: 228,
+                      height: 232,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
@@ -12668,9 +12666,11 @@ class _SearchConnectCard extends StatelessWidget {
     return SizedBox(
       width: 168,
       child: Padding(
-        // Bottom matches the top (6/6) so the card reads as
-        // vertically symmetric inside the carousel.
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+        // 10 px on the bottom (was 6) so the empty band below the
+        // connect button matches the visual weight of the gap
+        // above the dismiss row. 4 px more than v41 per the
+        // design pass.
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
         child: Container(
           decoration: BoxDecoration(
             color: cardColor,
