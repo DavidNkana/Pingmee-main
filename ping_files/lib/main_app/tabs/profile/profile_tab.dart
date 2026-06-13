@@ -455,8 +455,14 @@ class FriendStateManager {
 enum HapticStrength { light, medium, heavy }
 
 class ProfileTab extends StatefulWidget {
-  const ProfileTab({super.key, this.profileUid});
+  const ProfileTab({super.key, this.profileUid, this.onBack});
   final String? profileUid;
+  /// Called when the back arrow in the cover image is tapped. The parent
+  /// (typically MainAppShell) decides what to do — usually clear the
+  /// foreign uid and switch to the feed tab. If null, the widget falls
+  /// back to Navigator.maybePop() (which only works when the profile
+  /// was opened as a route, not as a tab inside an IndexedStack).
+  final VoidCallback? onBack;
 
   static const double navBarHeight = 78; // matches frosted bar
 
@@ -3479,7 +3485,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                             children: [
                               if (!isOwner)
                                 GestureDetector(
-                                  onTap: () => Navigator.of(context).maybePop(),
+                                  onTap: () => widget.onBack?.call() ?? Navigator.of(context).maybePop(),
                                   child: Container(
                                     width: 40,
                                     height: 40,
