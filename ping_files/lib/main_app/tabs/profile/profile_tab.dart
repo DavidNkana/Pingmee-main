@@ -1302,63 +1302,6 @@ class _ProfileTabState extends State<ProfileTab>
   }
 
 
-/// Returns true if the user is currently online, treating the read
-/// side as the source of truth. The read is "online" only when the
-/// stored `isOnline` flag is true AND the stored `lastSeen` is
-/// within the last [window] minutes (default 2). The 2-minute window
-/// matches the chat-side presence helper
-/// (`pingmeeIsOnlineFromUserData` in `chat_display_helpers.dart`)
-/// and the cloud-side `pruneStaleOnlineUsers` scheduled function.
-///
-/// The staleness check is the safety net for:
-///
-///   - The client side `_setOnline(false)` lifecycle observer not
-///     firing reliably on every platform (e.g. Android force-stop).
-///   - A foreign ProfileTab route popping and accidentally flipping
-///     the viewer offline (a previous bug).
-///   - The heartbeat (Timer.periodic) being killed because the
-///     widget was disposed before the timer could fire.
-///
-/// The check is intentionally cheap (one Timestamp comparison) and
-/// runs on every read of the `users/{uid}` doc. Firestore streams
-/// push the latest doc on every write, so this function always sees
-/// the freshest `isOnline` / `lastSeen` pair.
-bool pingmeeIsUserOnlineFromUserData(
-  Map<String, dynamic>? data, {
-  Duration window = const Duration(minutes: 2),
-}) {
-  if (data == null) return false;
-  if (data['isOnline'] != true) return false;
-
-  // Tolerate older docs that may have used a different field name.
-  final raw = data['lastSeen'] ??
-      data['lastSeenAt'] ??
-      data['lastActiveAt'] ??
-      data['lastOnlineAt'];
-  if (raw == null) {
-    // No timestamp yet: don't trust a stale "online" flag. Without
-    // a heartbeat, the next read will be honest.
-    return false;
-  }
-
-  DateTime? dt;
-  if (raw is DateTime) {
-    dt = raw;
-  } else if (raw is Timestamp) {
-    dt = raw.toDate();
-  } else {
-    dt = DateTime.tryParse(raw.toString());
-  }
-  if (dt == null) return false;
-
-  final diff = DateTime.now().difference(dt.toLocal());
-
-  // Future-dated timestamp (clock skew): treat as online.
-  if (diff.isNegative) return true;
-
-  return diff < window;
-}
-
   Stream<Map<String, dynamic>> _friendEdgeStateStream({
     required String myUid,
     required String profileUid,
@@ -3401,6 +3344,76 @@ bool pingmeeIsUserOnlineFromUserData(
 }
 
 
+
+
+// ============================================================================
+// Top-level presence helper (callable from any class in this file)
+// ============================================================================
+//
+// Returns true if the user is currently online, treating the read
+// side as the source of truth. The read is "online" only when the
+// stored `isOnline` flag is true AND the stored `lastSeen` is
+// within the last [window] minutes (default 2). The 2-minute window
+// matches the chat-side presence helper
+// (`pingmeeIsOnlineFromUserData` in `chat_display_helpers.dart`)
+// and the cloud-side `pruneStaleOnlineUsers` scheduled function.
+//
+// The staleness check is the safety net for:
+//
+//   - The client-side `_setOnline(false)` lifecycle observer not
+//     firing reliably on every platform (e.g. Android force-stop).
+//   - A foreign ProfileTab route popping and accidentally flipping
+//     the viewer offline (a previous bug).
+//   - The heartbeat (Timer.periodic) being killed because the
+//     widget was disposed before the timer could fire.
+//
+// The check is intentionally cheap (one Timestamp comparison) and
+// runs on every read of the `users/{uid}` doc. Firestore streams
+// push the latest doc on every write, so this function always sees
+// the freshest `isOnline` / `lastSeen` pair.
+//
+// IMPORTANT: this function MUST live at the top level of the file
+// (not inside `_ProfileTabState` or any other class) because the
+// three read sites that use it — the profile header, the friends
+// list view, and the profile friends screen — are themselves in
+// different classes that don't have access to instance methods on
+// each other.
+
+bool pingmeeIsUserOnlineFromUserData(
+  Map<String, dynamic>? data, {
+  Duration window = const Duration(minutes: 2),
+}) {
+  if (data == null) return false;
+  if (data['isOnline'] != true) return false;
+
+  // Tolerate older docs that may have used a different field name.
+  final raw = data['lastSeen'] ??
+      data['lastSeenAt'] ??
+      data['lastActiveAt'] ??
+      data['lastOnlineAt'];
+  if (raw == null) {
+    // No timestamp yet: don't trust a stale "online" flag. Without
+    // a heartbeat, the next read will be honest.
+    return false;
+  }
+
+  DateTime? dt;
+  if (raw is DateTime) {
+    dt = raw;
+  } else if (raw is Timestamp) {
+    dt = raw.toDate();
+  } else {
+    dt = DateTime.tryParse(raw.toString());
+  }
+  if (dt == null) return false;
+
+  final diff = DateTime.now().difference(dt.toLocal());
+
+  // Future-dated timestamp (clock skew): treat as online.
+  if (diff.isNegative) return true;
+
+  return diff < window;
+}
 class MutualFriendsData {
   final Set<String> myFriendIds;
   final Set<String> profileFriendIds;
