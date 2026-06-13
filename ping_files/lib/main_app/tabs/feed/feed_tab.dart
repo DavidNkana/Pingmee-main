@@ -1188,10 +1188,6 @@ Future<void> _toggleMomentBookmark(int index) async {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              // Short label per the v45 design pass: "Suggestions"
-              // + no icon, so the section header reads as a quiet
-              // label rather than a banner. The carousel itself
-              // communicates the "people who match" content.
               "Suggestions",
               style: TextStyle(
                 fontFamily: "Nunito",
@@ -1201,18 +1197,30 @@ Future<void> _toggleMomentBookmark(int index) async {
               ),
             ),
           ),
-          // No subtitle. The carousel below carries the
-          // content; a verbose description would be redundant
-          // with the card-level content.
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Text(
+              "People matching your interests and skills.",
+              style: TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 12.2,
+                fontWeight: FontWeight.w400,
+                color: muted,
+                height: 1.3,
+              ),
+            ),
+          ),
           SizedBox(
-            // 244 px = outer 6/6/6/18 + content 217 + 9 px
-            // margin for the rounded card edge. The 12-px
-            // increase over v43 (was 232) gives the new
-            // bottom padding (18+8 = 26 px) the room it
-            // needs without clipping the connect button or
-            // the rounded card edge.
-            height: 244,
+            // 231 px = outer 6/6/6/0 + content 215 (incl.
+            // inner 4/4/4/4 padding and the new 18-px
+            // gap between username and button) + 4 px
+            // margin for the rounded card edge. The
+            // card's bottom is now 0 so the connect
+            // button hugs the carousel's bottom edge;
+            // the breath lives between the username and
+            // the button.
+            height: 231,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
