@@ -228,6 +228,18 @@ class _MainAppShellState extends State<MainAppShell>
     });
   }
 
+  /// Called from ProfileTab when the user taps the back arrow in the
+  /// cover image. Clears the foreign-user uid and switches the tab
+  /// back to the feed so the next visit to the profile tab shows the
+  /// logged-in user's own profile.
+  void _closeUserProfile() {
+    if (_profileUidForTab == null) return;
+    setState(() {
+      _profileUidForTab = null;
+      index = 0; // back to the feed
+    });
+  }
+
   ({Color solid, Color top, Color bottom}) _eventThemeColors(String themeId) {
     switch (themeId) {
       case "pink_nova":
@@ -407,6 +419,7 @@ class _MainAppShellState extends State<MainAppShell>
               ProfileTab(
                 key: ValueKey("profile-${_profileUidForTab ?? 'me'}"),
                 profileUid: _profileUidForTab,
+                onBack: _closeUserProfile,
               ),
             ],
           ),
