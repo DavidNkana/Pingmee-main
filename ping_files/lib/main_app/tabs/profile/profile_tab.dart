@@ -2764,14 +2764,22 @@ class _ProfileTabState extends State<ProfileTab>
                         return RefreshIndicator(
                           onRefresh: _refreshProfileTab,
 
-                          // Let Flutter's default RefreshIndicator behavior handle
-                          // the gesture detection. It only fires on overscroll
-                          // at the top of the scrollable, not on every scroll.
-                          // (The previous custom predicate was over-eager and
-                          // triggered on any ScrollUpdateNotification while at
-                          // the top, which made the spinner show during
-                          // normal scroll-up gestures inside the inner tab
-                          // content.)
+                          // Custom predicate so the spinner responds to any
+                          // scroll-up gesture at the top of the scrollable,
+                          // matching the natural feel of pull-to-refresh on
+                          // the main feed. Fires on ScrollStart/Update/
+                          // Overscroll while the user is at the top.
+                          notificationPredicate: (notification) {
+                            if (notification.metrics.axis != Axis.vertical) return false;
+
+                            final atTop = notification.metrics.extentBefore == 0;
+
+                            if (!atTop) return false;
+
+                            return notification is ScrollStartNotification ||
+                                notification is ScrollUpdateNotification ||
+                                notification is OverscrollNotification;
+                          },
 
                           color: AppColors.brandGreen,
                           displacement: 34,
