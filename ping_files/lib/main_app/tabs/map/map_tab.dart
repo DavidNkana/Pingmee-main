@@ -11941,15 +11941,13 @@ class _SearchSheetState extends State<_SearchSheet>
                     // at 10 (already capped at the data layer; the
                     // .take is defensive).
                     // Carousel height sized to the actual card content
-                    // (~216 px including outer + inner padding) so the
-                    // card sits flush inside the carousel. Was 282 px,
-                    // which left a ~70-px empty band BELOW the
-                    // connect button that read as "padding on the
-                    // bottom inside the card" — the user spotted it
-                    // on the first pull. We add 4 px of breathing
-                    // room for the rounded card edge.
+                    // (~220 px including outer + inner padding) so the
+                    // card sits flush inside the carousel with even
+                    // top and bottom margins. We add a small breathing
+                    // room so the rounded card edge has clearance
+                    // from the carousel's top/bottom edges.
                     SizedBox(
-                      height: 220,
+                      height: 228,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
@@ -12670,11 +12668,9 @@ class _SearchConnectCard extends StatelessWidget {
     return SizedBox(
       width: 168,
       child: Padding(
-        // 4 px on the bottom (was 10) so adjacent cards in the
-        // carousel sit closer to each other — the card-to-card gap
-        // now matches the 10-px separator that ListView.separated
-        // adds between items, so spacing reads as uniform.
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
+        // Bottom matches the top (6/6) so the card reads as
+        // vertically symmetric inside the carousel.
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
         child: Container(
           decoration: BoxDecoration(
             color: cardColor,
