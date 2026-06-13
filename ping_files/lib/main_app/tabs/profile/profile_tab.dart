@@ -3493,7 +3493,13 @@ class _ProfileHeaderCard extends StatelessWidget {
                             children: [
                               if (!isOwner)
                                 GestureDetector(
-                                  onTap: () => onBack?.call() ?? Navigator.of(context).maybePop(),
+                                  onTap: () {
+                                    if (onBack != null) {
+                                      onBack!();
+                                    } else {
+                                      Navigator.of(context).maybePop();
+                                    }
+                                  },
                                   child: Container(
                                     width: 40,
                                     height: 40,
