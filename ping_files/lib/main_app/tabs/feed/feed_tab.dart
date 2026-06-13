@@ -123,6 +123,83 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     return false;
   }
 
+  /// Build (or refresh) the photo cache + per-author Firestore stream
+  /// subscriptions for the given set of uids. The cache lets the
+  /// _MomentCard show the user's CURRENT profile picture instead of
+  /// the stale snapshot stored on each moment. The subscriptions
+  /// keep the cache live: when the user changes their photo, every
+  /// moment card on screen reflects the new image.
+  ///
+  /// Safe to call repeatedly with the same uids — duplicates are
+  /// de-duplicated. Stale uids (no longer in the visible moments)
+  /// should be passed via [dropUids] so we can cancel their
+  /// subscriptions and free the listener slots.
+  Future<void> _refreshPhotoCacheFor(
+    Set<String> uids, {
+    Set<String> dropUids = const {},
+  }) async {
+    // Cancel subscriptions for uids that are no longer visible.
+    for (final uid in dropUids) {
+      final sub = _userDocSubs.remove(uid);
+      if (sub != null) {
+        await sub.cancel();
+      }
+      _photoCache.remove(uid);
+    }
+
+    final fresh = uids.where((u) => u.isNotEmpty).toSet();
+    if (fresh.isEmpty) return;
+
+    for (final uid in fresh) {
+      // Skip if we already have a live subscription for this uid.
+      if (_userDocSubs.containsKey(uid)) continue;
+
+      // Subscribe to the user doc so the photo cache stays live.
+      _userDocSubs[uid] = FirebaseFirestore.instance
+          .collection("users")
+          .doc(uid)
+          .snapshots()
+          .listen((snap) {
+        if (!mounted) return;
+        final data = snap.data();
+        if (data == null) return;
+        final live = (data["photoUrl"] ?? "").toString().trim();
+        if (_photoCache[uid] == live) return;
+        setState(() {
+          _photoCache[uid] = live;
+        });
+      });
+
+      // One-shot initial fetch (in case the live stream is slow or
+      // the cache entry doesn't exist yet).
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(uid)
+            .get();
+        if (!mounted) return;
+        final data = snap.data();
+        if (data == null) continue;
+        final live = (data["photoUrl"] ?? "").toString().trim();
+        if (_photoCache[uid] == live) continue;
+        setState(() {
+          _photoCache[uid] = live;
+        });
+      } catch (_) {
+        // Ignore — the snapshot subscription will retry on next change.
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final sub in _userDocSubs.values) {
+      sub.cancel();
+    }
+    _userDocSubs.clear();
+    super.dispose();
+  }
+
   bool _printedBuildLog = false;
 
   String? _feedBootError;
@@ -130,6 +207,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   List<Map<String, dynamic>> _timelineMoments = [];
   Map<String, bool> _verifiedCache = {};
+  /// Live photoUrl for each unique author uid. Built from a one-shot
+  /// fetch on load/load-more, then kept up-to-date by per-author
+  /// Firestore snapshot subscriptions so that when a user changes their
+  /// profile picture, every moment card showing their avatar
+  /// immediately reflects the new image (even for OLD moments that
+  /// were created with the previous photoUrl snapshot).
+  Map<String, String> _photoCache = {};
+  /// Active subscriptions on `users/{uid}` documents. Keyed by uid.
+  /// We cancel these on dispose and rebuild the set whenever the
+  /// visible author set changes (new load, new pagination page).
+  final Map<String, StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>> _userDocSubs = {};
 
   bool _loadingMoments = false;
   bool _loadingMore = false;
@@ -668,6 +756,18 @@ Future<void> _toggleMomentBookmark(int index) async {
         _hasMore = result.hasMore;
         _loadingMoments = false;
       });
+
+      // Kick off per-author user-doc subscriptions so the live photoUrl
+      // cache is built and stays in sync. The set of uids here covers
+      // both direct authors and original authors of reposts.
+      final photoUids = <String>{};
+      for (final m in result.moments) {
+        final a = (m["authorUid"] ?? "").toString().trim();
+        if (a.isNotEmpty) photoUids.add(a);
+        final o = (m["originalAuthorUid"] ?? "").toString().trim();
+        if (o.isNotEmpty) photoUids.add(o);
+      }
+      unawaited(_refreshPhotoCacheFor(photoUids));
     } catch (e, st) {
       debugPrint("❌ Timeline Moments UI load failed: $e");
       debugPrintStack(stackTrace: st);
@@ -727,6 +827,17 @@ Future<void> _toggleMomentBookmark(int index) async {
           final id = (m["id"] ?? "").toString();
           return id.isNotEmpty && !existingIds.contains(id);
         }).toList();
+
+        // Also pick up any new author uids from the freshly-loaded
+        // page so the photo cache subscribes to them too.
+        final photoUids = <String>{};
+        for (final m in newMoments) {
+          final a = (m["authorUid"] ?? "").toString().trim();
+          if (a.isNotEmpty) photoUids.add(a);
+          final o = (m["originalAuthorUid"] ?? "").toString().trim();
+          if (o.isNotEmpty) photoUids.add(o);
+        }
+        unawaited(_refreshPhotoCacheFor(photoUids));
 
         _timelineMoments = [..._timelineMoments, ...newMoments];
         _nextOffset = result.nextOffset;
@@ -995,6 +1106,7 @@ Future<void> _toggleMomentBookmark(int index) async {
 
           final moment = _timelineMoments[momentIndex];
 
+          final authorUid = (moment["authorUid"] ?? "").toString().trim();
           return _MomentCard(
             data: moment,
             onLike: () => _toggleMomentLike(momentIndex),
@@ -1003,8 +1115,9 @@ Future<void> _toggleMomentBookmark(int index) async {
             onRepost: () => _openRepostSheet(moment),
             onMore: () => _openMomentMoreSheet(moment, momentIndex),
             onShare: () => _shareMoment(moment),
-            authorVerified: _verifiedCache[(moment["authorUid"] ?? "").toString().trim()] ?? false,
+            authorVerified: _verifiedCache[authorUid] ?? false,
             verifiedCache: _verifiedCache,
+            photoCache: _photoCache,
             feedService: _feedService,
             onAuthorTap: _onOpenUserProfile,
           );
@@ -2193,6 +2306,11 @@ class _MomentCard extends StatelessWidget {
   final VoidCallback onShare;
   final bool authorVerified;
   final Map<String, bool> verifiedCache;
+  /// Live photoUrl cache. Keyed by author uid. Used to render the
+  /// user's CURRENT profile picture instead of the stale snapshot
+  /// stored on the moment at creation time. Updated by per-author
+  /// Firestore snapshot subscriptions on the feed tab.
+  final Map<String, String> photoCache;
   final PingmeeFeedService feedService;
   /// Called when the user taps the avatar or display name. Receives
   /// the author's UID so the caller can navigate to that user's
@@ -2209,6 +2327,7 @@ class _MomentCard extends StatelessWidget {
     required this.onShare,
     required this.authorVerified,
     required this.verifiedCache,
+    required this.photoCache,
     required this.feedService,
     this.onAuthorTap,
   });
@@ -2330,7 +2449,11 @@ class _MomentCard extends StatelessWidget {
         ? (data["commentCount"] as num).toInt()
         : 0;   
 
-    final authorPhotoUrl = _text("authorPhotoUrl");
+    final authorUid = _text("authorUid");
+    // Use the LIVE photoUrl from the cache (kept fresh by per-author
+    // Firestore subscriptions) and fall back to the moment's snapshot
+    // if the user doc hasn't been fetched yet.
+    final authorPhotoUrl = photoCache[authorUid] ?? _text("authorPhotoUrl");
     // Body text: the user own text if any, else (for plain reposts
     // where the user did not type a quote) the original moment text.
     // The body block further down styles plain-repost text in mini-card
@@ -2652,13 +2775,16 @@ class _MomentCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            final originalAuthorUid = _text("originalAuthorUid");
             _OriginalMomentMiniCard(
               authorName: originalAuthorName.isNotEmpty
                   ? originalAuthorName
                   : "Pingmee user",
               text: originalText,
-              authorPhotoUrl: _text("originalAuthorPhotoUrl"),
-              authorVerified: verifiedCache[_text("originalAuthorUid")] ?? false,
+              // Live cache first (falls back to snapshot) so a profile-pic
+              // change shows up here too, not just on the outer author.
+              authorPhotoUrl: photoCache[originalAuthorUid] ?? _text("originalAuthorPhotoUrl"),
+              authorVerified: verifiedCache[originalAuthorUid] ?? false,
               originalMedia: originalMedia,
               onOriginalTap: () {
                 // Build the original moment's data as if it were a standalone post
