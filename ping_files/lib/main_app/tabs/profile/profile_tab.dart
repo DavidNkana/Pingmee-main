@@ -505,6 +505,16 @@ class _ProfileTabState extends State<ProfileTab>
   );
   
 
+  // Heartbeat: refreshes `isOnline = true` + `lastSeen = now` every
+  // 60 s while the widget is mounted and the app is in the
+  // foreground. Without this, a user who opens the app, marks
+  // themselves online, and then sits on the feed for 3 minutes would
+  // appear offline (because `lastSeen` is now 3 min old and the read
+  // side enforces a 2-min staleness window). The heartbeat is paused
+  // when the app is backgrounded and cancelled in dispose.
+  Timer? _presenceHeartbeat;
+  bool _appResumed = true;
+
   @override
   void initState() {
     super.initState();
@@ -514,16 +524,37 @@ class _ProfileTabState extends State<ProfileTab>
     unawaited(_loadCityFromGeoOnce());
 
     _setOnline(true);
+
+    _presenceHeartbeat = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) {
+        // Only refresh while the app is in the foreground. The
+        // lifecycle observer (resumed/paused) keeps `_appResumed`
+        // up to date.
+        if (_appResumed) {
+          unawaited(_setOnline(true));
+        }
+      },
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _setOnline(false);
+    // NB: we deliberately do NOT call _setOnline(false) here.
+    // `_setOnline(false)` was being called when a foreign ProfileTab
+    // (pushed as a route to view someone else's profile) was popped,
+    // which would mark the *current* user offline even though they
+    // were still in the app, on a different tab. App-level
+    // backgrounding is handled by didChangeAppLifecycleState(paused)
+    // and the heartbeat staleness window in
+    // `pingmeeIsUserOnlineFromUserData` (the read-side filter).
     _tabs.dispose();
     _scrollController.dispose();
     _createPingDraft.dispose();
     _buttonAnimController.dispose();
+    _presenceHeartbeat?.cancel();
+    _presenceHeartbeat = null;
     super.dispose();
   }
 
@@ -531,10 +562,20 @@ class _ProfileTabState extends State<ProfileTab>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (uid == null) return;
     if (state == AppLifecycleState.resumed) {
-      _setOnline(true);
+      _appResumed = true;
+      // Refresh the timestamp immediately on resume so the read
+      // side does not show a stale offline state for up to 2
+      // minutes after the user comes back.
+      unawaited(_setOnline(true));
     } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _setOnline(false);
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _appResumed = false;
+      // Mark offline on background so other users see us as
+      // offline promptly. (The 2-min staleness filter on the read
+      // side is the safety net for missed cases.)
+      unawaited(_setOnline(false));
     }
   }
 
@@ -1259,6 +1300,64 @@ class _ProfileTabState extends State<ProfileTab>
       }, SetOptions(merge: true));
     } catch (_) {}
   }
+
+
+/// Returns true if the user is currently online, treating the read
+/// side as the source of truth. The read is "online" only when the
+/// stored `isOnline` flag is true AND the stored `lastSeen` is
+/// within the last [window] minutes (default 2). The 2-minute window
+/// matches the chat-side presence helper
+/// (`pingmeeIsOnlineFromUserData` in `chat_display_helpers.dart`)
+/// and the cloud-side `pruneStaleOnlineUsers` scheduled function.
+///
+/// The staleness check is the safety net for:
+///
+///   - The client side `_setOnline(false)` lifecycle observer not
+///     firing reliably on every platform (e.g. Android force-stop).
+///   - A foreign ProfileTab route popping and accidentally flipping
+///     the viewer offline (a previous bug).
+///   - The heartbeat (Timer.periodic) being killed because the
+///     widget was disposed before the timer could fire.
+///
+/// The check is intentionally cheap (one Timestamp comparison) and
+/// runs on every read of the `users/{uid}` doc. Firestore streams
+/// push the latest doc on every write, so this function always sees
+/// the freshest `isOnline` / `lastSeen` pair.
+bool pingmeeIsUserOnlineFromUserData(
+  Map<String, dynamic>? data, {
+  Duration window = const Duration(minutes: 2),
+}) {
+  if (data == null) return false;
+  if (data['isOnline'] != true) return false;
+
+  // Tolerate older docs that may have used a different field name.
+  final raw = data['lastSeen'] ??
+      data['lastSeenAt'] ??
+      data['lastActiveAt'] ??
+      data['lastOnlineAt'];
+  if (raw == null) {
+    // No timestamp yet: don't trust a stale "online" flag. Without
+    // a heartbeat, the next read will be honest.
+    return false;
+  }
+
+  DateTime? dt;
+  if (raw is DateTime) {
+    dt = raw;
+  } else if (raw is Timestamp) {
+    dt = raw.toDate();
+  } else {
+    dt = DateTime.tryParse(raw.toString());
+  }
+  if (dt == null) return false;
+
+  final diff = DateTime.now().difference(dt.toLocal());
+
+  // Future-dated timestamp (clock skew): treat as online.
+  if (diff.isNegative) return true;
+
+  return diff < window;
+}
 
   Stream<Map<String, dynamic>> _friendEdgeStateStream({
     required String myUid,
@@ -2731,7 +2830,7 @@ class _ProfileTabState extends State<ProfileTab>
             final distanceLabel =
                 (distanceMiles is num) ? "${distanceMiles.round()} mi" : "—";
 
-            final isOnline = data["isOnline"] == true;
+            final isOnline = pingmeeIsUserOnlineFromUserData(data);
             final serverRawNote = (data["note"] ?? "").toString();
             final noteUpdatedAt = data["noteUpdatedAt"];
 
@@ -5150,7 +5249,7 @@ class _FriendsListView extends StatelessWidget {
             final name = (d["fullName"] ?? "Connection").toString();
             final user = (d["username"] ?? "").toString();
             final pic = (d["photoUrl"] ?? "").toString();
-            final online = d["isOnline"] == true;
+            final online = pingmeeIsUserOnlineFromUserData(d);
 
             final haystack = "$name $user".toLowerCase().trim();
 
@@ -9400,7 +9499,7 @@ class _ProfileFriendsScreenState extends State<_ProfileFriendsScreen>
             final name = (d["fullName"] ?? "Connection").toString();
             final username = (d["username"] ?? "").toString();
             final pic = (d["photoUrl"] ?? "").toString();
-            final online = d["isOnline"] == true;
+            final online = pingmeeIsUserOnlineFromUserData(d);
 
             final verification =
                 Map<String, dynamic>.from(d["verification"] ?? {});
