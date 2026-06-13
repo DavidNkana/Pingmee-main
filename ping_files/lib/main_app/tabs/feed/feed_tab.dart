@@ -1103,7 +1103,10 @@ Future<void> _toggleMomentBookmark(int index) async {
         visibilityContext: PingVisibilityContext(
           viewerUid: myUid,
           viewerVerified: verified,
-          viewerFriendIds: friendIds.toList(),
+          // friendIds is already a Set<String> from the friends
+          // subcollection scan; PingVisibilityContext expects a
+          // Set<String>, not a List<String>.
+          viewerFriendIds: friendIds,
         ),
       );
 
