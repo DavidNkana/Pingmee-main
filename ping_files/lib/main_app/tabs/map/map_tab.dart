@@ -12662,13 +12662,20 @@ class _SearchConnectCard extends StatelessWidget {
     return SizedBox(
       width: 168,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
+        // 4 px on the bottom (was 10) so adjacent cards in the
+        // carousel sit closer to each other — the card-to-card gap
+        // now matches the 10-px separator that ListView.separated
+        // adds between items, so spacing reads as uniform.
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
         child: Container(
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(14),
           ),
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+          // 4 px on the bottom (was 8) so the connect button sits
+          // closer to the card's bottom edge — tighter vertical
+          // rhythm, more like a native iOS list cell.
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
