@@ -12648,14 +12648,31 @@ class _SearchConnectCard extends StatelessWidget {
     final showAsSent = btnState == FriendButtonState.outgoing ||
         btnState == FriendButtonState.incoming;
 
+    // Match the chip's "surface" color so the card reads as part of
+    // the same surface family as the skills/interests pills above
+    // it: pure white in light mode, 0xFF161B22 in dark mode. The
+    // parent screen's bg is 0xFFF4F6F8 in light, so a pure-white
+    // card pops out cleanly. Subtle 14-px corner radius so the card
+    // feels like a soft tile, not a chip.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark
+        ? const Color(0xFF161B22)
+        : Colors.white;
+
     return SizedBox(
       width: 168,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: Container(
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
             // Top row: x dismiss (top-right).
             SizedBox(
               height: 22,
@@ -12749,7 +12766,9 @@ class _SearchConnectCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            // Name — bold, single-line ellipsis.
+            // Name — bold, single-line ellipsis. Lighter weight so it
+            // doesn't compete with the avatar for visual focus; the
+            // avatar is the primary element on the card.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(
@@ -12759,14 +12778,14 @@ class _SearchConnectCard extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: "Nunito",
-                  fontSize: 14.2,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 13.8,
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFF111827),
                 ),
               ),
             ),
             const SizedBox(height: 2),
-            // Username — smaller, grey, single-line ellipsis.
+            // Username — even lighter (regular), still smaller grey.
             if (username.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -12777,8 +12796,8 @@ class _SearchConnectCard extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: "Nunito",
-                    fontSize: 11.8,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 11.6,
+                    fontWeight: FontWeight.w400,
                     color: Color(0xFF6B7280),
                   ),
                 ),
@@ -12788,7 +12807,7 @@ class _SearchConnectCard extends StatelessWidget {
             // button is disabled while the manager is busy with a
             // network call (optimistic override is in flight).
             SizedBox(
-              height: 30,
+              height: 36,
               width: double.infinity,
               child: btnState == FriendButtonState.friends
                   ? _connectButtonShell(
@@ -12874,66 +12893,64 @@ class _SearchConnectCard extends StatelessWidget {
                             ),
             ),
           ],
+          ),
         ),
       ),
     );
   }
 
-  // Helper: a small outlined/filled pill that matches the Threads
-  // "Follow" button style. filled=true is the active green outline
-  // pill; filled=false is the muted "sent/connected" state.
+  // Helper: a small solid black pill with white text, no border,
+  // no leading icon. Same look for every state (Connect, Sending…,
+  // Request sent, Respond, Connected) — only the label and the tap
+  // handler change, so the eye reads the action as one button
+  // family, not five. Radius 10 px (down from a pill) so it sits
+  // more like a label button than a tag. Vertical padding 6/6
+  // (was 0/0 inside a 30-px SizedBox) for a slightly taller, more
+  // tappable pill.
   Widget _connectButtonShell({
     required String label,
-    required IconData icon,
-    required bool filled,
+    required IconData icon, // kept for API parity; not rendered.
+    required bool filled,  // kept for API parity; not used (all black).
     required bool isBusy,
     required VoidCallback? onTap,
   }) {
-    final accent = AppColors.brandGreen;
-    final Color border = filled ? accent : const Color(0xFFD1D5DB);
-    final Color text = filled ? accent : const Color(0xFF6B7280);
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
           decoration: BoxDecoration(
-            color: filled
-                ? Colors.transparent
-                : const Color(0xFFF3F4F6),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: border, width: 1.2),
+            color: const Color(0xFF111827),
+            borderRadius: BorderRadius.circular(10),
           ),
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isBusy) ...[
-                SizedBox(
+                const SizedBox(
                   width: 12,
                   height: 12,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.6,
-                    valueColor: AlwaysStoppedAnimation<Color>(text),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 ),
                 const SizedBox(width: 6),
-              ] else ...[
-                Icon(icon, size: 13, color: text),
-                const SizedBox(width: 4),
               ],
               Flexible(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontFamily: "Nunito",
-                    fontSize: 12.4,
-                    fontWeight:
-                        filled ? FontWeight.w700 : FontWeight.w600,
-                    color: text,
+                    fontSize: 12.2,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
               ),
