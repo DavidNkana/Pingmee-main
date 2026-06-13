@@ -11941,13 +11941,16 @@ class _SearchSheetState extends State<_SearchSheet>
                     // type:connection_request notification). Capped
                     // at 10 (already capped at the data layer; the
                     // .take is defensive).
-                    // 244 px = outer 6/6/6/18 + content 217 +
-                    // 9 px margin for the rounded card edge.
-                    // Bumped from 232 in v45 so the new bottom
-                    // padding (18+8 = 26 px) doesn't clip the
-                    // connect button or the rounded edge.
+                    // 231 px = outer 6/6/6/0 + content 215
+                    // (incl. inner 4/4/4/4 padding and
+                    // the new 18-px gap between username
+                    // and button) + 4 px margin for the
+                    // rounded card edge. The card's
+                    // bottom is now 0 so the connect
+                    // button hugs the carousel's bottom
+                    // edge.
                     SizedBox(
-                      height: 244,
+                      height: 231,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
