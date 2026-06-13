@@ -177,6 +177,8 @@ flutter:
     - assets/images/create_a_ping.png
     - assets/images/note.png
     - assets/images/create.png
+    - assets/images/create.png
+    - assets/images/feed-center.png
     - assets/images/mainappload.json
     - assets/images/join.png
     - assets/images/splash.png
