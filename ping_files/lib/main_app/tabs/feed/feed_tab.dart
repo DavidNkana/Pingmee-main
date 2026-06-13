@@ -47,7 +47,16 @@ class FeedTab extends StatefulWidget {
   /// tab showing the tapped user's profile.
   final void Function(String authorUid)? onOpenUserProfile;
 
-  const FeedTab({super.key, this.onOpenUserProfile});
+  /// Called by the feed when the user scrolls. The shell uses this
+  /// to hide/show the bottom navigation. Mirrors the pattern used by
+  /// the chat tab (see PingmeeChatTab.onNavVisibilityChanged).
+  final ValueChanged<bool>? onNavVisibilityChanged;
+
+  const FeedTab({
+    super.key,
+    this.onOpenUserProfile,
+    this.onNavVisibilityChanged,
+  });
 
   @override
   State<FeedTab> createState() => _FeedTabState();
@@ -71,6 +80,49 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
   bool _feedBooted = false;
   bool _bootingFeed = false;
+
+  /// Bottom-nav visibility is hidden when the user is scrolling down
+  /// the feed and shown when scrolling back up. Mirrors the chat tab's
+  /// pattern. See [_handleFeedScrollNotification].
+  bool _navHidden = false;
+  DateTime _lastNavSignalAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _setShellNavHidden(bool hidden) {
+    if (_navHidden == hidden) return;
+    _navHidden = hidden;
+    widget.onNavVisibilityChanged?.call(hidden);
+  }
+
+  bool _handleFeedScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+
+    if (notification is! ScrollUpdateNotification) return false;
+
+    final delta = notification.scrollDelta;
+    if (delta == null) return false;
+
+    final now = DateTime.now();
+    if (now.difference(_lastNavSignalAt).inMilliseconds < 70) {
+      return false;
+    }
+
+    if (delta.abs() < 3) return false;
+
+    _lastNavSignalAt = now;
+
+    // Content moving up / user scrolling down page => hide nav.
+    if (delta > 0 && notification.metrics.pixels > 12) {
+      _setShellNavHidden(true);
+    }
+
+    // Content moving down / user scrolling back toward top => show nav.
+    if (delta < 0) {
+      _setShellNavHidden(false);
+    }
+
+    return false;
+  }
+
   bool _printedBuildLog = false;
 
   String? _feedBootError;
@@ -913,8 +965,10 @@ Future<void> _toggleMomentBookmark(int index) async {
     return RefreshIndicator(
       onRefresh: () => _loadTimelineMoments(reason: "pull refresh"),
       color: AppColors.brandGreen,
-      child: ListView.separated(
-        controller: _feedScrollController,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleFeedScrollNotification,
+        child: ListView.separated(
+          controller: _feedScrollController,
         physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics(),
         ),
@@ -955,6 +1009,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             onAuthorTap: _onOpenUserProfile,
           );
         },
+      ),
       ),
     );
   }
