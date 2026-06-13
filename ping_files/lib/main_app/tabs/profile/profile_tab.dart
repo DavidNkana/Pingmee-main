@@ -4216,6 +4216,7 @@ class _EventsTab extends StatelessWidget {
   final double bottomPad;
 
   const _EventsTab({
+    super.key,
     required this.uid,
     required this.bottomPad,
   });
@@ -4238,6 +4239,7 @@ class _TasksTab extends StatelessWidget {
   final double bottomPad;
 
   const _TasksTab({
+    super.key,
     required this.uid,
     required this.bottomPad,
   });
@@ -4260,6 +4262,7 @@ class _MomentsTab extends StatelessWidget {
   final double bottomPad;
 
   const _MomentsTab({
+    super.key,
     required this.uid,
     required this.bottomPad,
   });
@@ -4285,6 +4288,7 @@ class _PingsTab extends StatefulWidget {
   final PingVisibilityContext visibilityContext;
 
   const _PingsTab({
+    super.key,
     required this.uid,
     required this.visibilityContext,
   });
