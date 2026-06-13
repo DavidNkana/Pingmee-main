@@ -11941,12 +11941,13 @@ class _SearchSheetState extends State<_SearchSheet>
                     // type:connection_request notification). Capped
                     // at 10 (already capped at the data layer; the
                     // .take is defensive).
-                    // Carousel height sized to the actual card content
-                    // plus 4 px of breathing room (added per the
-                    // design pass) so the rounded card edge has
-                    // clearance from the carousel's top/bottom edges.
+                    // 244 px = outer 6/6/6/18 + content 217 +
+                    // 9 px margin for the rounded card edge.
+                    // Bumped from 232 in v45 so the new bottom
+                    // padding (18+8 = 26 px) doesn't clip the
+                    // connect button or the rounded edge.
                     SizedBox(
-                      height: 232,
+                      height: 244,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
