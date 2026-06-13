@@ -17,6 +17,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/features/events/event_details_screen.dart';
+import 'package:ping_files/main_app/tabs/map/notifications_panel.dart';
 import 'package:ping_files/features/pings/create_ping_draft.dart';
 import 'package:ping_files/features/pings/create_ping_sheet.dart';
 import 'package:ping_files/features/pings/ping_details_sheet.dart';
@@ -1449,6 +1450,18 @@ class MapTabState extends State<MapTab> {
         setState(() => _isRefreshingMyLocation = false);
       }
     }
+  }
+
+  /// Renders the notifications bell next to the location-refresh button
+  /// in the map tab's top-right corner. Hidden when the user has hidden
+  /// all map UI (the same gate as the refresh button itself). Returns an
+  /// empty SizedBox if the user is signed out so the layout still
+  /// reserves the slot but the bell is invisible.
+  Widget _MapNotificationsBell({String? uid}) {
+    if (uid == null || uid.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return NotificationsBell(uid: uid);
   }
 
   Widget _buildRefreshLocationButton() {
@@ -4901,6 +4914,19 @@ class MapTabState extends State<MapTab> {
                 left: 0,
                 right: 0,
                 child: _buildMarkerFilterBar(),
+              ),
+
+            if (!_discoverVisible && !_mapUiHidden)
+              Positioned(
+                top: 0,
+                right: 64, // 46 button + 14 outer pad + 4 visual gap
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: _MapNotificationsBell(uid: _myUid),
+                  ),
+                ),
               ),
 
             if (!_discoverVisible && !_mapUiHidden)
