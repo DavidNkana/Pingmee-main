@@ -95,22 +95,25 @@ class SearchConnectCard extends StatelessWidget {
     return SizedBox(
       width: 168,
       child: Padding(
-        // 18 px on the bottom (was 10) so the connect button has
-        // noticeably more breathing room from the card's bottom
-        // edge. Combined with the 8-px inner padding (below) the
-        // total bottom is 26 px — the button reads as sitting on
-        // a soft shelf rather than hugging the card edge.
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
+        // 0 px on the bottom — the connect button hugs the
+        // card's bottom edge. The card's "much padding"
+        // (per the v47 design pass) lives BETWEEN the
+        // username and the button (18-px SizedBox below),
+        // not below the button. This way the carousel
+        // SizedBox can be sized to the card's exact content
+        // height and the button sits flush with the
+        // carousel's bottom edge.
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
         child: Container(
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(14),
           ),
-          // 8 px on the bottom (was 4) so the connect button has
-          // visible breathing room from the card's bottom edge.
-          // Combined with the 18-px outer padding the connect
-          // button sits on a soft shelf.
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+          // 0 px on the bottom — the connect button hugs the
+          // card's bottom edge. The card's real padding is
+          // the 18-px SizedBox between the username and the
+          // button (below).
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
@@ -244,7 +247,13 @@ class SearchConnectCard extends StatelessWidget {
                   ),
                 ),
               ),
-            const SizedBox(height: 10),
+            // 18 px between the username and the connect
+            // button — the card's "much padding" (per the
+            // v47 design pass). The bottom of the card has
+            // 0 padding so the button hugs the card edge;
+            // the breath lives here, between the username
+            // and the button.
+            const SizedBox(height: 18),
             // Connect / Request sent / Already-friends button. The
             // button is disabled while the manager is busy with a
             // network call (optimistic override is in flight).
