@@ -8603,7 +8603,7 @@ class _ProfileHeaderSkeleton extends StatelessWidget {
                 child: Column(
                   children: [
                     const _SkeletonBox(
-                      height: 170,
+                      height: 200,
                       borderRadius: BorderRadius.vertical(
                         top: Radius.circular(30),
                       ),
@@ -8671,9 +8671,13 @@ class _ProfileHeaderSkeleton extends StatelessWidget {
               ),
             ),
 
+            // Match the loaded profile header: avatar is at the boundary
+            // between the cover and the body. Loaded state uses
+            // `left: 16, top: coverH - overlap` where coverH=200 and
+            // overlap=44, so the avatar sits at top: 156 from the Stack.
             const Positioned(
-              left: 18,
-              bottom: 118,
+              left: 16,
+              top: 156,
               child: _SkeletonCircle(size: 92),
             ),
 
