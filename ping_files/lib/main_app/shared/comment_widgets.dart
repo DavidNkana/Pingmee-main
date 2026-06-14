@@ -549,8 +549,9 @@ class CommentService {
   /// Return up to [limit] connections of [myUid] (capped at 10 by the
   /// comment composer), optionally filtered by [query] (case-insensitive
   /// substring against fullName or username). Reads
-  /// `users/{myUid}.friendIds` then resolves each friend's public fields
-  /// via a single `whereIn` lookup.
+  /// `users/{myUid}/friends` SUBCOLLECTION (each doc has a `friendId`
+  /// field) then resolves each friend's public fields via a single
+  /// `whereIn` lookup. The doc-level `friendIds` field is NOT used.
   Future<List<UserRef>> searchConnections(
     String myUid, {
     String? query,
@@ -565,19 +566,19 @@ class CommentService {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 1. Read the user's friendIds. We pull all of them and filter
-      // client-side so a small friends list (<= 200) resolves in one
-      // whereIn batch. Cloud Functions doesn't have a "users by id" RPC
-      // we can lean on; the Firestore whereIn has a 30-id cap per call,
-      // so we chunk if the friend list ever gets very large.
-      final myDoc = await db.collection("users").doc(me).get();
-      final data = myDoc.data();
-      final raw = (data?["friendIds"] is List)
-          ? (data!["friendIds"] as List)
-              .map((e) => e.toString())
-              .where((s) => s.isNotEmpty)
-              .toList()
-          : <String>[];
+      // 1. Read the user's friends list. In the Pingmee data model, the
+      // canonical source is the `users/{myUid}/friends/{friendDocId}`
+      // subcollection (each doc has a `friendId` field). The legacy
+      // `friendIds` field on the user doc is NOT used.
+      final myRef = db.collection("users").doc(me);
+      final friendsSnap =
+          await myRef.collection("friends").limit(200).get();
+      final raw = <String>{
+        for (final d in friendsSnap.docs)
+          if (d.data()["friendId"] is String &&
+              (d.data()["friendId"] as String).trim().isNotEmpty)
+            (d.data()["friendId"] as String).trim(),
+      }.toList();
       if (raw.isEmpty) return <UserRef>[];
 
       // 2. Resolve each friend via chunked whereIn (30 per batch).
