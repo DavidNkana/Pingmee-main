@@ -2429,6 +2429,13 @@ exports.loadMomentComments = onCall(
       const rootCommentId = cleanString(
           request.data && request.data.rootCommentId,
       );
+      // v73: optional cursor. When set, returns only comments with
+      // id < beforeId. Combined with `limit` and the post-filter
+      // branch below, this gives the client a stable cursor to
+      // scroll the comments list infinitely without offset drift.
+      const beforeId = cleanString(
+          request.data && request.data.beforeId,
+      );
 
       if (!activityId) {
         throw new HttpsError(
@@ -2441,14 +2448,26 @@ exports.loadMomentComments = onCall(
       const db = admin.firestore();
 
       try {
-        // Fetch a wider window than `limit` so we can post-filter by
-        // parent/root without truncating. 200 is plenty for any one moment.
-        const windowLimit = 200;
-        const response = await client.reactions.filter({
+        // v73: windowLimit depends on whether we're paginating. The
+        // first call (no beforeId) can fetch a generous window so a
+        // moment with 200+ comments still loads on the first try. A
+        // paginated call (beforeId set) only needs `limit + 20` of
+        // padding for the post-filter by parent/root.
+        const windowLimit = beforeId ?
+          (limit + 20) :
+          200;
+        const filterParams = {
           activity_id: activityId,
           kind: "comment",
           limit: windowLimit,
-        });
+        };
+        if (beforeId) {
+          // Stream reactions API supports `id_lt` for cursor-based
+          // pagination. Using this (not offset) means the page is
+          // stable even if new comments get posted mid-scroll.
+          filterParams.id_lt = beforeId;
+        }
+        const response = await client.reactions.filter(filterParams);
 
         const results = Array.isArray(response.results) ?
           response.results :
@@ -2475,6 +2494,20 @@ exports.loadMomentComments = onCall(
         });
 
         const trimmed = filtered.slice(0, limit);
+
+        // v73: cursor metadata for the client. hasMore is true when
+        // Stream returned the full window (meaning there might be
+        // more comments past the page). nextCursor is the id of the
+        // LAST comment in the page (oldest visible) — the client
+        // passes that as beforeId on the next call. We use the LAST
+        // item, not the trimmed-but-not-included one, because some
+        // results may have been post-filtered out.
+        const hasMore = results.length === windowLimit &&
+          trimmed.length > 0;
+        const nextCursor = trimmed.length > 0 ?
+          cleanString(trimmed[trimmed.length - 1] &&
+            trimmed[trimmed.length - 1].id) :
+          null;
 
         // Aggregate like/save/reply counts + per-comment "did I like/save
         // this?" by reading the user's own reaction filter for each
@@ -2642,6 +2675,8 @@ exports.loadMomentComments = onCall(
           ok: true,
           count: comments.length,
           comments,
+          hasMore,
+          nextCursor,
         };
       } catch (error) {
         console.error("loadMomentComments failed", {
