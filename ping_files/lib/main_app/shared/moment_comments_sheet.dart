@@ -783,7 +783,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
               : null,
           onMore: () => _openMoreSheet(c),
           mentionedUsersCache: _mentionedUsersCache,
-          onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
+          onMentionTap: (uid) => widget.onAuthorTap?.call(uid),          onTapImage: (url) => showCommentImageViewer(context, url),
+
         ),
         if (visibleReplies.isNotEmpty)
           _CommentBranch(
@@ -808,7 +809,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                           widget.onAuthorTap?.call(r.authorUid),
                       onMore: () => _openMoreSheet(r),
                       mentionedUsersCache: _mentionedUsersCache,
-                      onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
+                      onMentionTap: (uid) => widget.onAuthorTap?.call(uid),                      onTapImage: (url) => showCommentImageViewer(context, url),
+
                     ),
                   ),
                 ],
@@ -1652,7 +1654,8 @@ class _MomentCommentRepliesScreenState
               onAuthorTap: () =>
                   widget.onAuthorTap?.call(widget.rootComment.authorUid),
               mentionedUsersCache: _mentionedUsersCache,
-              onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
+              onMentionTap: (uid) => widget.onAuthorTap?.call(uid),              onTapImage: (url) => showCommentImageViewer(context, url),
+
             ),
           ),
           Divider(height: 1, color: Colors.black.withOpacity(.06)),
@@ -1706,7 +1709,8 @@ class _MomentCommentRepliesScreenState
                                 onMore: () => _openRepliesMoreSheet(r),
                                 mentionedUsersCache: _mentionedUsersCache,
                                 onMentionTap: (uid) =>
-                                    widget.onAuthorTap?.call(uid),
+                                    widget.onAuthorTap?.call(uid),                                onTapImage: (url) => showCommentImageViewer(context, url),
+
                               );
                             },
                           ),
