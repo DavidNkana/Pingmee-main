@@ -1209,6 +1209,11 @@ class MomentCommentRepliesScreen extends StatefulWidget {
 
 class _MomentCommentRepliesScreenState
     extends State<MomentCommentRepliesScreen> {
+  /// Per-screen verified-author cache. Mirrors the same field on
+  /// _MomentCommentsSheetState. Duplicated here (instead of a mixin)
+  /// to keep the patch minimal; refactor to a shared mixin later.
+  final Map<String, bool> _verifiedCache = {};
+
   final TextEditingController _controller = TextEditingController();
   final FocusNode _composerFocus = FocusNode();
 
@@ -1255,6 +1260,11 @@ class _MomentCommentRepliesScreenState
         _replies = all.where((c) => c.id != widget.rootComment.id).toList();
         _loading = false;
       });
+
+      // Same as the main sheet: one-time batched Firestore lookup
+      // for the verified flag of any reply / root author we don't
+      // know about.
+      await _refreshVerifiedCache();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -1488,6 +1498,100 @@ class _MomentCommentRepliesScreenState
   // ------------------------------------------------------------------
   // Build
   // ------------------------------------------------------------------
+
+  /// Resolves whether the comment's author is verified. Same logic
+  /// as _MomentCommentsSheetState._isAuthorVerified. Kept in sync
+  /// (todo: extract to a shared mixin).
+  bool _isAuthorVerified(Comment c) {
+    final uid = c.authorUid.trim();
+    if (uid.isEmpty) return false;
+    if (widget.authorIsVerified != null) {
+      if (widget.authorIsVerified!(c)) return true;
+    }
+    return _verifiedCache[uid] ?? false;
+  }
+
+  /// Same logic as _MomentCommentsSheetState._refreshVerifiedCache.
+  Future<void> _refreshVerifiedCache() async {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me != null && me.isNotEmpty &&
+        widget.authorIsVerified == null &&
+        !_verifiedCache.containsKey(me)) {
+      try {
+        final myDoc = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(me)
+            .get();
+        if (myDoc.exists && mounted) {
+          final v = myDoc.data()?["verification"];
+          bool isVerified = false;
+          if (v is bool) {
+            isVerified = v;
+          } else if (v is Map) {
+            isVerified = v["status"] == "verified";
+          }
+          setState(() {
+            _verifiedCache[me] = isVerified;
+          });
+        }
+      } catch (_) {
+        // Non-fatal.
+      }
+    }
+
+    final unknown = <String>{};
+    for (final c in _replies) {
+      final uid = c.authorUid.trim();
+      if (uid.isEmpty) continue;
+      if (widget.authorIsVerified == null) {
+        if (!_verifiedCache.containsKey(uid)) unknown.add(uid);
+      } else {
+        if (widget.authorIsVerified!(c)) continue;
+        if (!_verifiedCache.containsKey(uid)) unknown.add(uid);
+      }
+    }
+    // Also include the root comment author — the root tile uses this
+    // helper too.
+    final rootUid = widget.rootComment.authorUid.trim();
+    if (rootUid.isNotEmpty &&
+        !_verifiedCache.containsKey(rootUid) &&
+        (widget.authorIsVerified == null ||
+            !widget.authorIsVerified!(widget.rootComment))) {
+      unknown.add(rootUid);
+    }
+    if (unknown.isEmpty) return;
+
+    for (var i = 0; i < unknown.length; i += 10) {
+      final chunk = unknown
+          .skip(i)
+          .take(10)
+          .toList();
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection("users")
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        if (!mounted) return;
+        final next = <String, bool>{};
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final v = d["verification"];
+          bool isVerified = false;
+          if (v is bool) {
+            isVerified = v;
+          } else if (v is Map) {
+            isVerified = v["status"] == "verified";
+          }
+          next[doc.id] = isVerified;
+        }
+        setState(() {
+          _verifiedCache.addAll(next);
+        });
+      } catch (_) {
+        // Non-fatal.
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
