@@ -398,9 +398,10 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
   }
 
   /// v65: send a comment with optional mentions and attachments.
-  /// Called by the new [CommentComposer].
-  Future<void> _sendComment({
-    required String text,
+  /// Called by the new [CommentComposer]. `text` is positional to match
+  /// the [CommentComposerSend] typedef declared at the bottom of this file.
+  Future<void> _sendComment(
+    String text, {
     List<String> mentions = const <String>[],
     List<CommentAttachment> attachments = const <CommentAttachment>[],
   }) async {
@@ -1274,8 +1275,9 @@ class _MomentCommentRepliesScreenState
   }
 
   /// v65: send a reply with optional mentions and attachments.
-  Future<void> _sendReply({
-    required String text,
+  /// `text` is positional to match the [CommentComposerSend] typedef.
+  Future<void> _sendReply(
+    String text, {
     List<String> mentions = const <String>[],
     List<CommentAttachment> attachments = const <CommentAttachment>[],
   }) async {
