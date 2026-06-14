@@ -33,7 +33,7 @@ import 'package:ping_files/theme/colors2.dart';
 class MomentCommentsSheet extends StatefulWidget {
   final String activityId;
   final CommentService commentService;
-  final String Function(Comment comment)? authorIsVerified;
+  final bool Function(Comment comment)? authorIsVerified;
 
   /// Called when the user taps the avatar / name on any comment. The parent
   /// typically navigates to the user's profile tab.
@@ -649,7 +649,7 @@ class MomentCommentRepliesScreen extends StatefulWidget {
   final Comment rootComment;
   final String activityId;
   final CommentService commentService;
-  final String Function(Comment comment)? authorIsVerified;
+  final bool Function(Comment comment)? authorIsVerified;
   final void Function(String authorUid)? onAuthorTap;
   final Future<void> Function(Comment comment)? onShareToConnection;
 
