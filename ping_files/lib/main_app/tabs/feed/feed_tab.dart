@@ -1462,9 +1462,14 @@ Future<void> _toggleMomentBookmark(int index) async {
         },
         onOpenReplies: (parent) {
           // Pop the sheet, then push the replies sub-page.
-          Navigator.of(sheetContext).pop();
-          Navigator.of(context).push(
+          // Push ABOVE the sheet so the back button returns to
+
+          // comments (not the feed).
+
+          Navigator.of(sheetContext, rootNavigator: true).push(
+
             MaterialPageRoute<void>(
+
               builder: (_) => MomentCommentRepliesScreen(
                 rootComment: parent,
                 activityId: activityId,
