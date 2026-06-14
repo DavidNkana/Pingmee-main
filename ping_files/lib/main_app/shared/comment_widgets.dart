@@ -1099,6 +1099,7 @@ class MomentCommentTile extends StatelessWidget {
                         comment: comment,
                         mentionedUsersCache: mentionedUsersCache,
                         onMentionTap: onMentionTap,
+                        onTapImage: onTapImage,
                       ),
                     ],
                   ),
@@ -1167,10 +1168,17 @@ class _CommentBody extends StatelessWidget {
   final Map<String, UserRef> mentionedUsersCache;
   final ValueChanged<String> onMentionTap;
 
+  // v72: optional image-tap callback. When non-null AND the
+  // attachment is an image, the thumbnail is wrapped in a
+  // GestureDetector that calls onTapImage(attachment.url). The
+  // parent (MomentCommentTile) plumbs this from its own onTapImage.
+  final ValueChanged<String>? onTapImage;
+
   const _CommentBody({
     required this.comment,
     required this.mentionedUsersCache,
     required this.onMentionTap,
+    this.onTapImage,
   });
 
   // Pattern: @-token not at a word boundary. We require a non-word
