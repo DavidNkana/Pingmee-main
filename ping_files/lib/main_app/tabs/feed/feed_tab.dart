@@ -6,6 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:ping_files/main_app/shared/comment_widgets.dart';
+import 'package:ping_files/main_app/shared/connection_picker_sheet.dart';
+import 'package:ping_files/main_app/shared/moment_comments_sheet.dart';
 import 'package:ping_files/main_app/shared/search_connect_card.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
 import 'package:ping_files/main_app/tabs/feed/liked_moments_screen.dart';
@@ -15,6 +18,8 @@ import 'package:ping_files/main_app/tabs/feed/shared_moment_widgets.dart' show S
 import 'package:ping_files/main_app/tabs/profile/profile_tab.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_engagement_screen.dart';
+import 'package:ping_files/features/chat/message_request_router.dart';
+import 'package:ping_files/features/chat/pingmee_chat_routes.dart';
 import 'package:ping_files/features/pings/ping_details_sheet.dart';
 import 'package:ping_files/features/pings/ping_visibility.dart' show PingVisibilityContext;
 import 'package:ping_files/features/events/event_details_screen.dart';
@@ -68,6 +73,10 @@ typedef FeedTabState = _FeedTabState;
 
 class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   final PingmeeFeedService _feedService = PingmeeFeedService();
+
+  /// Service for the new threaded comments (v50+). Used by the
+  /// MomentCommentsSheet and the connection picker.
+  final CommentService _commentService = CommentService();
 
   /// Convenience getter for the parent-supplied onOpenUserProfile
   /// callback. Used by the feed's moment cards to navigate to a
@@ -1433,19 +1442,116 @@ Future<void> _toggleMomentBookmark(int index) async {
     final activityId = (moment["id"] ?? "").toString().trim();
     if (activityId.isEmpty) return;
 
+    final momentId = _momentIdFromForeignId(
+      (moment["foreignId"] ?? "").toString(),
+      fallback: activityId,
+    );
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _MomentCommentsSheet(
+      builder: (sheetContext) => MomentCommentsSheet(
         activityId: activityId,
-        feedService: _feedService,
+        commentService: _commentService,
+        onAuthorTap: (authorUid) {
+          if (authorUid.isEmpty) return;
+          Navigator.of(sheetContext).pop();
+          _onOpenUserProfile?.call(authorUid);
+        },
+        onOpenReplies: (parent) {
+          // Pop the sheet, then push the replies sub-page.
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => MomentCommentRepliesScreen(
+                rootComment: parent,
+                activityId: activityId,
+                commentService: _commentService,
+                onAuthorTap: (authorUid) {
+                  if (authorUid.isEmpty) return;
+                  _onOpenUserProfile?.call(authorUid);
+                },
+                onShareToConnection: (comment) =>
+                    _shareCommentToConnection(sheetContext, comment, moment, momentId),
+              ),
+            ),
+          );
+        },
+        onShareToConnection: (comment) =>
+            _shareCommentToConnection(sheetContext, comment, moment, momentId),
       ),
     );
 
     await _loadTimelineMoments(reason: "after comments sheet");
   }
+
+  /// Resolve a Firestore moment id from a Stream foreign_id, with a
+  /// safe fallback when the foreign_id is missing.
+  String _momentIdFromForeignId(String foreignId, {required String fallback}) {
+    final f = foreignId.trim();
+    if (f.startsWith("moment:")) return f.substring(7);
+    return fallback;
+  }
+
+  /// Open the connection picker for a comment, then navigate to the chat
+  /// once the shared-comment message has been posted.
+  Future<void> _shareCommentToConnection(
+    BuildContext sheetContext,
+    Comment comment,
+    Map<String, dynamic> moment,
+    String momentId,
+  ) async {
+    final authorName = (moment["authorName"] ?? "").toString().trim();
+    final text = (moment["text"] ?? "").toString().trim();
+    await showCommentConnectionPicker(
+      sheetContext,
+      commentText: comment.text,
+      commentAuthorName: comment.authorName,
+      commentAuthorPhotoUrl: comment.authorPhotoUrl,
+      momentId: momentId.isEmpty ? null : momentId,
+      momentText: text.isEmpty ? null : text,
+      momentAuthorName: authorName.isEmpty ? null : authorName,
+      commentService: _commentService,
+      onSent: (cid) async {
+        // cid is the messaging:dm_uid1_uid2 channel id. Re-open via the
+        // canonical router so the page renders with the right Stream
+        // provider context. The router checks friend connection + creates
+        // the channel if missing, then returns a Channel object.
+        if (!mounted) return;
+        try {
+          final channel = await PingmeeMessageRequestRouter.openDirectChat(
+            otherUid: _otherUidFromCid(cid, myUid: _authCurrentUid) ?? cid,
+          );
+          if (!context.mounted) return;
+          Navigator.of(context).push(pingmeeChatRoute(channel));
+        } catch (_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Comment shared. Open chat from the Inbox tab.")),
+          );
+        }
+      },
+    );
+  }
+
+  /// Best-effort reverse: extract the OTHER uid from a Stream cid like
+  /// `messaging:dm_uid1_uid2`. Returns null if anything goes wrong.
+  String? _otherUidFromCid(String cid, {String? myUid}) {
+    final parts = cid.split(':');
+    if (parts.length != 2) return null;
+    final tail = parts[1];
+    if (!tail.startsWith('dm_')) return null;
+    final ids = tail.substring(3).split('_');
+    if (ids.length != 2) return null;
+    if (myUid != null && ids[0] == myUid) return ids[1];
+    if (myUid != null && ids[1] == myUid) return ids[0];
+    return ids[0];
+  }
+
+  /// Best-effort accessor for the current uid from the Auth instance.
+  String? get _authCurrentUid => FirebaseAuth.instance.currentUser?.uid;
 
   Future<void> _toggleMomentLike(int index) async {
     if (index < 0 || index >= _timelineMoments.length) return;
@@ -4024,336 +4130,6 @@ class _ShareMomentSheet extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _MomentCommentsSheet extends StatefulWidget {
-  final String activityId;
-  final PingmeeFeedService feedService;
-
-  const _MomentCommentsSheet({
-    required this.activityId,
-    required this.feedService,
-  });
-
-  @override
-  State<_MomentCommentsSheet> createState() => _MomentCommentsSheetState();
-}
-
-class _MomentCommentsSheetState extends State<_MomentCommentsSheet> {
-  final TextEditingController _controller = TextEditingController();
-
-  bool _loading = true;
-  bool _sending = false;
-  String? _error;
-
-  List<Map<String, dynamic>> _comments = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadComments();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadComments() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final comments = await widget.feedService.loadMomentComments(
-        activityId: widget.activityId,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _comments = comments;
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _loading = false;
-        _error = "Couldn’t load comments.";
-      });
-    }
-  }
-
-  Future<void> _sendComment() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
-
-    setState(() => _sending = true);
-
-    try {
-      await widget.feedService.addMomentComment(
-        activityId: widget.activityId,
-        text: text,
-      );
-
-      _controller.clear();
-      await _loadComments();
-    } catch (_) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text("Couldn’t add comment.")),
-      );
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
-
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: bottom),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
-            height: MediaQuery.of(context).size.height * .82,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.96),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(30),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(.12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 18),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "Comments",
-                        style: TextStyle(
-                          fontFamily: "Nunito",
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: _loading
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.brandGreen,
-                              ),
-                            ),
-                          )
-                        : _error != null
-                            ? Center(
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    fontFamily: "Nunito",
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              )
-                            : _comments.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      "No comments yet. Start it.",
-                                      style: TextStyle(
-                                        fontFamily: "Nunito",
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black.withOpacity(.55),
-                                      ),
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      18,
-                                      0,
-                                      18,
-                                      18,
-                                    ),
-                                    itemCount: _comments.length,
-                                    separatorBuilder: (_, __) =>
-                                        const SizedBox(height: 10),
-                                    itemBuilder: (context, index) {
-                                      return _MomentCommentTile(
-                                        data: _comments[index],
-                                      );
-                                    },
-                                  ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border(
-                        top: BorderSide(
-                          color: Colors.black.withOpacity(.06),
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _controller,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _sendComment(),
-                            decoration: InputDecoration(
-                              hintText: "Add a comment...",
-                              hintStyle: TextStyle(
-                                fontFamily: "Nunito",
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black.withOpacity(.38),
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFFF3F4F6),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        InkWell(
-                          onTap: _sending ? null : _sendComment,
-                          borderRadius: BorderRadius.circular(18),
-                          child: Container(
-                            width: 46,
-                            height: 46,
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Center(
-                              child: _sending
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                          Colors.white,
-                                        ),
-                                      ),
-                                    )
-                                  : Icon(
-                                      PhosphorIcons.paperPlaneTilt(
-                                        PhosphorIconsStyle.fill,
-                                      ),
-                                      color: Colors.white,
-                                      size: 19,
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MomentCommentTile extends StatelessWidget {
-  final Map<String, dynamic> data;
-
-  const _MomentCommentTile({
-    required this.data,
-  });
-
-  String _text(String key) => (data[key] ?? "").toString().trim();
-
-  @override
-  Widget build(BuildContext context) {
-    final name = _text("authorName").isNotEmpty
-        ? _text("authorName")
-        : "Pingmee user";
-    final photoUrl = _text("authorPhotoUrl");
-    final text = _text("text");
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _MomentAvatar(photoUrl: photoUrl),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  text,
-                  style: TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                    color: Colors.black.withOpacity(.72),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
