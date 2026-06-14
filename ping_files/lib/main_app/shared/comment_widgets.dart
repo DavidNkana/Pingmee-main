@@ -982,6 +982,16 @@ class MomentCommentTile extends StatelessWidget {
   /// The parent (sheet) typically shows a Report action.
   final VoidCallback? onMore;
 
+  /// v66: per-sheet cache of UserRef by uid. The renderer uses this to
+  /// resolve a clicked @-mention to the mentioned user's uid so the
+  /// parent can navigate to their profile.
+  final Map<String, UserRef> mentionedUsersCache;
+
+  /// v66: called when the user taps a blue @-mention span in the comment
+  /// body. The parent (sheet) typically forwards to onAuthorTap so the
+  /// profile navigation is identical for avatars and mentions.
+  final ValueChanged<String> onMentionTap;
+
   const MomentCommentTile({
     super.key,
     required this.comment,
@@ -994,7 +1004,11 @@ class MomentCommentTile extends StatelessWidget {
     this.onBubbleTap,
     this.onParentAuthorTap,
     this.onMore,
+    this.mentionedUsersCache = const <String, UserRef>{},
+    this.onMentionTap = _noopMentionTap,
   });
+
+  static void _noopMentionTap(String uid) {}
 
   @override
   Widget build(BuildContext context) {
@@ -1065,16 +1079,13 @@ class MomentCommentTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      // Comment text
-                      Text(
-                        comment.text,
-                        style: TextStyle(
-                          fontFamily: "Nunito",
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                          height: 1.3,
-                          color: Colors.black.withOpacity(.72),
-                        ),
+                      // v66: comment body — text (with @-mentions as
+                      // blue clickable spans) PLUS any image/sticker
+                      // attachments stacked below.
+                      _CommentBody(
+                        comment: comment,
+                        mentionedUsersCache: mentionedUsersCache,
+                        onMentionTap: onMentionTap,
                       ),
                     ],
                   ),
@@ -1112,6 +1123,203 @@ class MomentCommentTile extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+
+// ============================================================================
+// v66: _CommentBody — renders a comment's text PLUS any attachments.
+//
+// Text:
+//   * Walks the text for @-mention patterns and wraps them in TextSpans.
+//   * Mention spans are X-blue (Color(0xFF1D9BF0)) + clickable. The
+//     click handler resolves the lowercased no-spaces tag back to a
+//     uid by reverse-looking-up [mentionedUsersCache] (whose keys are
+//     uids and whose values carry the fullName used to compute the
+//     mentionTag). When the cache has the user, the span's recognizer
+//     fires [onMentionTap] with the resolved uid.
+//   * The remaining text is rendered with the existing font / color
+//     (Nunito 13.5, w500, color .72 opacity) so the rest of the body
+//     reads as plain comment text.
+//
+// Attachments:
+//   * kind == "image"      -> ClipRRect thumbnail, max 220x220, BoxFit.cover.
+//   * kind == "sticker"    -> inline GIPHY image, max 140 tall, BoxFit.contain.
+//   * Stacked below the text in a Column with 6-px spacing.
+// ============================================================================
+
+class _CommentBody extends StatelessWidget {
+  final Comment comment;
+  final Map<String, UserRef> mentionedUsersCache;
+  final ValueChanged<String> onMentionTap;
+
+  const _CommentBody({
+    required this.comment,
+    required this.mentionedUsersCache,
+    required this.onMentionTap,
+  });
+
+  // Pattern: @-token not at a word boundary. We require a non-word
+  // boundary before the @ so we don't match email addresses; the @ may
+  // be at position 0 of the text (start of comment).
+  static final RegExp _mentionRe = RegExp(r"\B@([a-z0-9_.]+)", caseSensitive: false);
+
+  @override
+  Widget build(BuildContext context) {
+    final text = comment.text;
+    final hasAttachments = comment.attachments.isNotEmpty;
+
+    // Build a single child if neither text nor attachments are present
+    // (e.g. a comment that's only an attachment with empty text).
+    if (text.trim().isEmpty && !hasAttachments) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (text.isNotEmpty) _buildText(context),
+        if (hasAttachments) ...[
+          if (text.isNotEmpty) const SizedBox(height: 6),
+          for (final att in comment.attachments)
+            Padding(
+              padding: EdgeInsets.only(
+                top: att == comment.attachments.first ? 0 : 6,
+              ),
+              child: _CommentAttachmentThumb(attachment: att),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildText(BuildContext context) {
+    final text = comment.text;
+    final matches = _mentionRe.allMatches(text).toList();
+    if (matches.isEmpty) {
+      return Text(
+        text,
+        style: TextStyle(
+          fontFamily: "Nunito",
+          fontSize: 13.5,
+          fontWeight: FontWeight.w500,
+          height: 1.3,
+          color: Colors.black.withOpacity(.72),
+        ),
+      );
+    }
+
+    // Build a reverse-lookup: mentionTag (lowercased no-spaces) -> uid.
+    // Skip entries whose mentionTag is empty.
+    final tagToUid = <String, String>{};
+    for (final entry in mentionedUsersCache.entries) {
+      final tag = entry.value.mentionTag;
+      if (tag.isNotEmpty) {
+        tagToUid[tag] = entry.key;
+      }
+    }
+
+    final spans = <InlineSpan>[];
+    int cursor = 0;
+    final baseStyle = TextStyle(
+      fontFamily: "Nunito",
+      fontSize: 13.5,
+      fontWeight: FontWeight.w500,
+      height: 1.3,
+      color: Colors.black.withOpacity(.72),
+    );
+    final mentionStyle = baseStyle.copyWith(
+      color: const Color(0xFF1D9BF0),
+      fontWeight: FontWeight.w600,
+    );
+    for (final m in matches) {
+      if (m.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, m.start), style: baseStyle));
+      }
+      final raw = m.group(1) ?? "";
+      final tag = raw.toLowerCase();
+      final uid = tagToUid[tag];
+      spans.add(TextSpan(
+        text: "@$raw",
+        style: mentionStyle,
+        recognizer: uid == null
+            ? null
+            : (TapGestureRecognizer..bind)..onTap = () => onMentionTap(uid),
+      ));
+      cursor = m.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+    }
+    return Text.rich(TextSpan(children: spans));
+  }
+}
+
+// ============================================================================
+// v66: _CommentAttachmentThumb — renders a single CommentAttachment
+// inside the comment body. Image: thumbnail (max 220x220). Sticker:
+// inline GIPHY image (max 140 tall). Tapping is a no-op for now; the
+// bubble-level onBubbleTap / onAuthorTap callbacks still cover the
+// surrounding gestures. (Future work: a tap-to-fullscreen view.)
+// ============================================================================
+
+class _CommentAttachmentThumb extends StatelessWidget {
+  final CommentAttachment attachment;
+
+  const _CommentAttachmentThumb({required this.attachment});
+
+  @override
+  Widget build(BuildContext context) {
+    final url = (attachment.thumbUrl != null &&
+            attachment.thumbUrl!.isNotEmpty)
+        ? attachment.thumbUrl!
+        : attachment.url;
+    if (url.isEmpty) return const SizedBox.shrink();
+
+    final isSticker = attachment.kind == "sticker";
+    final maxW = isSticker ? 140.0 : 220.0;
+    final maxH = isSticker ? 140.0 : 220.0;
+    final fit = isSticker ? BoxFit.contain : BoxFit.cover;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxH),
+        child: Image.network(
+          url,
+          fit: fit,
+          errorBuilder: (_, __, ___) => Container(
+            width: maxW,
+            height: 80,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF1F4),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              isSticker
+                  ? PhosphorIcons.sticker(PhosphorIconsStyle.regular)
+                  : PhosphorIcons.image(PhosphorIconsStyle.regular),
+              size: 24,
+              color: Colors.black38,
+            ),
+          ),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              width: maxW,
+              height: 80,
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
