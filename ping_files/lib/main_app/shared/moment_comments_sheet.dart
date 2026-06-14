@@ -546,7 +546,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                         ? const Center(
                             child: CircularProgressIndicator(
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.brandGreen,
+                                Colors.black,
                               ),
                             ),
                           )
@@ -769,7 +769,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      "Reply to this moment",
+                      "Reply to this comment",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -805,7 +805,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                   decoration: InputDecoration(
                     hintText: replyingTo == null
                         ? "Add a comment…"
-                        : "Reply to this moment…",
+                        : "Reply to this comment…",
                     hintStyle: TextStyle(
                       fontFamily: "Nunito",
                       fontWeight: FontWeight.w600,
@@ -1257,7 +1257,7 @@ class _MomentCommentRepliesScreenState
                 ? const Center(
                     child: CircularProgressIndicator(
                       valueColor:
-                          AlwaysStoppedAnimation<Color>(AppColors.brandGreen),
+                          AlwaysStoppedAnimation<Color>(Colors.black),
                     ),
                   )
                 : _error != null
@@ -1332,7 +1332,7 @@ class _MomentCommentRepliesScreenState
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _sendReply(),
               decoration: InputDecoration(
-                hintText: "Reply to this moment…",
+                hintText: "Reply to this comment…",
                 hintStyle: TextStyle(
                   fontFamily: "Nunito",
                   fontWeight: FontWeight.w600,
