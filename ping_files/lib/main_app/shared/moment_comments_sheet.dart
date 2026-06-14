@@ -817,7 +817,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
               onTap: () => widget.onOpenReplies?.call(c),
               behavior: HitTestBehavior.opaque,
               child: Text(
-                "View ${c.replyCount} ${c.replyCount == 1 ? "reply" : "replies"}",
+                "View ${c.replyCount} ${c.replyCount == 1 ? 'reply' : 'replies'}",
                 style: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 12.5,
