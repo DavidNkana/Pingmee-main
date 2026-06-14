@@ -23,6 +23,9 @@
 //                       pill to open).
 // ============================================================================
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -32,6 +35,132 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 
 import 'package:ping_files/theme/colors2.dart';
+
+// ============================================================================
+// CommentAttachment — image or sticker attached to a comment. Matches the
+// v63 backend shape so render-side can be wire-format exact.
+// ============================================================================
+
+class CommentAttachment {
+  /// "image" or "sticker".
+  final String kind;
+
+  /// The public URL of the asset (Firebase Storage for images; Giphy CDN for
+  /// stickers).
+  final String url;
+
+  /// Optional thumbnail. Stickers use the Giphy preview URL.
+  final String? thumbUrl;
+
+  /// Pixel dimensions when known. Null for stickers that the GIPHY picker
+  /// doesn't return dimensions for.
+  final int? width;
+  final int? height;
+
+  /// GIPHY's id for the sticker. Null for images.
+  final String? stickerId;
+
+  /// "giphy" for now. Null for plain images.
+  final String? stickerSource;
+
+  const CommentAttachment({
+    required this.kind,
+    required this.url,
+    this.thumbUrl,
+    this.width,
+    this.height,
+    this.stickerId,
+    this.stickerSource,
+  });
+
+  factory CommentAttachment.fromMap(Map<String, dynamic> map) {
+    int? n(String k) {
+      final v = map[k];
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
+    return CommentAttachment(
+      kind: (map["kind"] ?? "").toString() == "sticker" ? "sticker" : "image",
+      url: (map["url"] ?? "").toString(),
+      thumbUrl: (map["thumbUrl"] as String?)?.isNotEmpty == true
+          ? map["thumbUrl"] as String
+          : null,
+      width: n("width"),
+      height: n("height"),
+      stickerId: (map["stickerId"] as String?)?.isNotEmpty == true
+          ? map["stickerId"] as String
+          : null,
+      stickerSource: (map["stickerSource"] as String?)?.isNotEmpty == true
+          ? map["stickerSource"] as String
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        "kind": kind,
+        "url": url,
+        if (thumbUrl != null) "thumbUrl": thumbUrl,
+        if (width != null) "width": width,
+        if (height != null) "height": height,
+        if (stickerId != null) "stickerId": stickerId,
+        if (stickerSource != null) "stickerSource": stickerSource,
+      };
+}
+
+// ============================================================================
+// UserRef — lightweight user reference used by:
+//   * the @-mention picker (searchConnections result)
+//   * the per-sheet _mentionedUsersCache (lookupManyByUids result)
+// All fields are denormalized copies of users/{uid} so the render path can
+// build blue clickable TextSpans without a second read.
+// ============================================================================
+
+class UserRef {
+  final String uid;
+  final String fullName;
+  final String username;
+  final String photoUrl;
+
+  const UserRef({
+    required this.uid,
+    required this.fullName,
+    required this.username,
+    required this.photoUrl,
+  });
+
+  /// Lowercased, no-spaces display name used as the @-tag (e.g. "John Doe"
+  /// -> "johndoe"). Falls back to uid when name is empty.
+  String get mentionTag {
+    final s = (fullName.isNotEmpty ? fullName : username)
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]"), "");
+    return s.isNotEmpty ? s : uid;
+  }
+
+  factory UserRef.fromFirestore(
+    String uid,
+    Map<String, dynamic> data,
+  ) {
+    String s(String k) => (data[k] ?? "").toString().trim();
+    final first = s("firstName");
+    final last = s("lastName");
+    final full = s("fullName").isNotEmpty
+        ? s("fullName")
+        : (first.isNotEmpty || last.isNotEmpty
+            ? "$first $last".trim()
+            : "");
+    return UserRef(
+      uid: uid,
+      fullName: full.isNotEmpty ? full : "Pingmee user",
+      username: s("username"),
+      photoUrl: s("photoUrl").isNotEmpty
+          ? s("photoUrl")
+          : (s("profileImage").isNotEmpty ? s("profileImage") : ""),
+    );
+  }
+}
 
 // ============================================================================
 // Comment model
@@ -69,6 +198,13 @@ class Comment {
   final String? myLikeReactionId;
   final String? mySaveReactionId;
 
+  /// v64: UIDs the author @-mentioned in this comment. The render path
+  /// builds blue clickable TextSpans for these.
+  final List<String> mentions;
+
+  /// v64: image or sticker attachments (usually 0 or 1).
+  final List<CommentAttachment> attachments;
+
   const Comment({
     required this.id,
     required this.userId,
@@ -87,6 +223,8 @@ class Comment {
     required this.savedByMe,
     this.myLikeReactionId,
     this.mySaveReactionId,
+    this.mentions = const <String>[],
+    this.attachments = const <CommentAttachment>[],
   });
 
   bool get isTopLevel => parentId == null || parentId!.isEmpty;
@@ -130,6 +268,20 @@ class Comment {
           (map["mySaveReactionId"] as String?)?.isNotEmpty == true
               ? map["mySaveReactionId"] as String
               : null,
+      mentions: (map["mentions"] is List)
+          ? (map["mentions"] as List)
+              .map((e) => e.toString())
+              .where((s) => s.isNotEmpty)
+              .toList()
+          : <String>[],
+      attachments: (map["attachments"] is List)
+          ? (map["attachments"] as List)
+              .whereType<Map>()
+              .map((m) => CommentAttachment.fromMap(
+                    Map<String, dynamic>.from(m),
+                  ))
+              .toList()
+          : <CommentAttachment>[],
     );
   }
 
@@ -141,6 +293,8 @@ class Comment {
     bool? savedByMe,
     String? myLikeReactionId,
     String? mySaveReactionId,
+    List<String>? mentions,
+    List<CommentAttachment>? attachments,
   }) {
     return Comment(
       id: id,
@@ -160,6 +314,8 @@ class Comment {
       savedByMe: savedByMe ?? this.savedByMe,
       myLikeReactionId: myLikeReactionId ?? this.myLikeReactionId,
       mySaveReactionId: mySaveReactionId ?? this.mySaveReactionId,
+      mentions: mentions ?? this.mentions,
+      attachments: attachments ?? this.attachments,
     );
   }
 }
@@ -223,14 +379,20 @@ class CommentService {
   ///   1. Look up the parent's author to set `mentionedUid`.
   ///   2. Write the reaction with `kind: "comment"` and `data.parentId`.
   ///   3. Write a notification to the parent's author (skipped for self-replies).
+  ///   4. v64: store `mentions` (UIDs) and `attachments` (images/stickers)
+  ///      on the reaction data, and write a `comment_mention` notification
+  ///      to every mentioned UID (skip self).
   Future<Comment> addComment({
     required String activityId,
     required String text,
     String? parentCommentId,
     String? rootCommentId,
+    List<String> mentions = const <String>[],
+    List<CommentAttachment> attachments = const <CommentAttachment>[],
   }) async {
     debugPrint("🟢 CommentService.addComment activityId=$activityId"
-        " parentId=$parentCommentId rootId=$rootCommentId");
+        " parentId=$parentCommentId rootId=$rootCommentId"
+        " mentions=${mentions.length} attachments=${attachments.length}");
 
     try {
       final callable = _functions.httpsCallable("addMomentComment");
@@ -241,6 +403,9 @@ class CommentService {
           "parentCommentId": parentCommentId,
         if (rootCommentId != null && rootCommentId.isNotEmpty)
           "rootCommentId": rootCommentId,
+        if (mentions.isNotEmpty) "mentions": mentions,
+        if (attachments.isNotEmpty)
+          "attachments": attachments.map((a) => a.toMap()).toList(),
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -374,6 +539,161 @@ class CommentService {
       debugPrintStack(stackTrace: st);
       rethrow;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // v64: @-mention helpers + image upload.
+  // ------------------------------------------------------------------
+
+  /// Return up to [limit] connections of [myUid] (capped at 10 by the
+  /// comment composer), optionally filtered by [query] (case-insensitive
+  /// substring against fullName or username). Reads
+  /// `users/{myUid}.friendIds` then resolves each friend's public fields
+  /// via a single `whereIn` lookup.
+  Future<List<UserRef>> searchConnections(
+    String myUid, {
+    String? query,
+    int limit = 10,
+  }) async {
+    final me = myUid.trim();
+    if (me.isEmpty) return <UserRef>[];
+
+    final cap = limit.clamp(1, 25);
+    final q = (query ?? "").trim().toLowerCase();
+
+    try {
+      final db = FirebaseFirestore.instance;
+
+      // 1. Read the user's friendIds. We pull all of them and filter
+      // client-side so a small friends list (<= 200) resolves in one
+      // whereIn batch. Cloud Functions doesn't have a "users by id" RPC
+      // we can lean on; the Firestore whereIn has a 30-id cap per call,
+      // so we chunk if the friend list ever gets very large.
+      final myDoc = await db.collection("users").doc(me).get();
+      final data = myDoc.data();
+      final raw = (data?["friendIds"] is List)
+          ? (data!["friendIds"] as List)
+              .map((e) => e.toString())
+              .where((s) => s.isNotEmpty)
+              .toList()
+          : <String>[];
+      if (raw.isEmpty) return <UserRef>[];
+
+      // 2. Resolve each friend via chunked whereIn (30 per batch).
+      final resolved = <UserRef>[];
+      for (var i = 0; i < raw.length && resolved.length < cap * 3;
+          i += 30) {
+        final chunk = raw.sublist(i, (i + 30).clamp(0, raw.length));
+        final snap = await db
+            .collection("users")
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (final d in snap.docs) {
+          resolved.add(UserRef.fromFirestore(d.id, d.data()));
+        }
+      }
+
+      // 3. Optional substring filter.
+      final filtered = q.isEmpty
+          ? resolved
+          : resolved
+              .where((u) =>
+                  u.fullName.toLowerCase().contains(q) ||
+                  u.username.toLowerCase().contains(q))
+              .toList();
+
+      // 4. Sort: prefix matches first, then alphabetical, then cap.
+      filtered.sort((a, b) {
+        final aFull = a.fullName.toLowerCase();
+        final bFull = b.fullName.toLowerCase();
+        final aUser = a.username.toLowerCase();
+        final bUser = b.username.toLowerCase();
+        final aPrefix = aFull.startsWith(q) || aUser.startsWith(q);
+        final bPrefix = bFull.startsWith(q) || bUser.startsWith(q);
+        if (aPrefix != bPrefix) return aPrefix ? -1 : 1;
+        return aFull.compareTo(bFull);
+      });
+
+      return filtered.take(cap).toList();
+    } on FirebaseException catch (e) {
+      debugPrint("🔥 searchConnections failed: ${e.message}");
+      return <UserRef>[];
+    } catch (e, st) {
+      debugPrint("🔥 searchConnections unexpected: $e");
+      debugPrintStack(stackTrace: st);
+      return <UserRef>[];
+    }
+  }
+
+  /// Resolve a batch of UIDs to UserRef in one Firestore whereIn call.
+  /// Used by the per-sheet `_mentionedUsersCache` warmup.
+  Future<Map<String, UserRef>> lookupManyByUids(
+    List<String> uids,
+  ) async {
+    final cleaned = uids
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cleaned.isEmpty) return <String, UserRef>{};
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final out = <String, UserRef>{};
+      for (var i = 0; i < cleaned.length; i += 30) {
+        final chunk = cleaned.sublist(
+          i,
+          (i + 30).clamp(0, cleaned.length),
+        );
+        final snap = await db
+            .collection("users")
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (final d in snap.docs) {
+          out[d.id] = UserRef.fromFirestore(d.id, d.data());
+        }
+      }
+      return out;
+    } on FirebaseException catch (e) {
+      debugPrint("🔥 lookupManyByUids failed: ${e.message}");
+      return <String, UserRef>{};
+    }
+  }
+
+  /// Upload a single image to Firebase Storage via the v63
+  /// `uploadCommentImage` cloud function. Returns the public URL on
+  /// success. Throws on error.
+  Future<String> uploadCommentImage({
+    required String activityId,
+    required String commentIdLocal,
+    required Uint8List bytes,
+    String contentType = "image/jpeg",
+  }) async {
+    final cleanActivityId = activityId.trim();
+    final cleanLocal = commentIdLocal.trim().isEmpty
+        ? "local-${DateTime.now().millisecondsSinceEpoch}"
+        : commentIdLocal.trim();
+    if (cleanActivityId.isEmpty) {
+      throw StateError("activityId is required");
+    }
+    if (bytes.isEmpty) {
+      throw StateError("image bytes are empty");
+    }
+
+    final b64 = base64Encode(bytes);
+    final callable = _functions.httpsCallable("uploadCommentImage");
+    final result = await callable.call({
+      "activityId": cleanActivityId,
+      "commentIdLocal": cleanLocal,
+      "contentType": contentType,
+      "base64": b64,
+    });
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final url = (data["url"] ?? "").toString();
+    if (url.isEmpty) {
+      throw StateError("uploadCommentImage returned an empty url");
+    }
+    return url;
   }
 }
 
