@@ -714,18 +714,35 @@ class MomentCommentTile extends StatelessWidget {
                     children: [
                       // (Reply context is conveyed by the branch line +
                       // indent at the sheet level. No in-bubble pill.)
-                      // Author name
+                      // Author name + optional inline blue tick
                       GestureDetector(
                         onTap: onAuthorTap,
                         behavior: HitTestBehavior.opaque,
-                        child: Text(
-                          comment.authorName,
-                          style: const TextStyle(
-                            fontFamily: "Nunito",
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                comment.authorName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: "Nunito",
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            if (authorVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified_rounded,
+                                size: 13,
+                                color: Color(0xFF1DA1F2),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       const SizedBox(height: 2),
