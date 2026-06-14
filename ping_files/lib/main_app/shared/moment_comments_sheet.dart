@@ -318,8 +318,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
       );
       if (!mounted) return;
       // De-dupe by id (defensive in case a comment was double-loaded
-      across pages, which can happen if a new comment was inserted
-      between calls).
+      // across pages, which can happen if a new comment was inserted
+      // between calls).
       final existing = _comments.map((c) => c.id).toSet();
       final fresh = page.comments
           .where((c) => !existing.contains(c.id))
