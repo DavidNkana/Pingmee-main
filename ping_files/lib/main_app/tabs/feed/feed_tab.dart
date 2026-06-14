@@ -1627,7 +1627,7 @@ Future<void> _toggleMomentBookmark(int index) async {
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
                                 child: Image.asset(
-                                  'assets/feed-center.png',
+                                  'assets/images/feed-center.png',
                                   fit: BoxFit.cover,
                                 ),
                               ),
