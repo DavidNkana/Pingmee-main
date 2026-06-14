@@ -23,6 +23,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ping_files/main_app/shared/comment_widgets.dart';
 import 'package:ping_files/theme/colors2.dart';
 
@@ -165,6 +167,13 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
 
   List<Comment> _comments = [];
 
+  /// Per-sheet verified-author cache. Populated lazily by
+  /// _refreshVerifiedCache after _loadComments returns.
+  /// Mirrors the parent feed_tab's _verifiedCache but is sheet-local
+  /// so the sheet can resolve verified flags even for comment authors
+  /// who never appeared in a moment in this session.
+  final Map<String, bool> _verifiedCache = {};
+
   /// Top-level only, sorted by the current sort mode. Replies (where
   /// parentId is non-empty) are excluded.
   List<Comment> get _topLevelSorted {
@@ -238,12 +247,118 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
         _comments = list;
         _loading = false;
       });
+
+      // Refresh the per-sheet verified cache for any unknown author
+      // (uids that the parent's _verifiedCache doesn't know about
+      // because they never appeared as a moment author in this
+      // session). The optimistic "You" row has an empty authorUid
+      // and is correctly skipped here.
+      await _refreshVerifiedCache();
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = "Couldn't load comments.";
       });
+    }
+  }
+
+  /// Resolves whether the comment's author is verified. The parent's
+  /// [authorIsVerified] callback is authoritative (it may know about
+  /// uids we don't have cached). The per-sheet [_verifiedCache] is
+  /// the fallback for comment authors the parent doesn't know
+  /// about. Empty authorUid (the optimistic "You" row) is always
+  /// false.
+  bool _isAuthorVerified(Comment c) {
+    final uid = c.authorUid.trim();
+    if (uid.isEmpty) return false;
+    if (widget.authorIsVerified != null) {
+      if (widget.authorIsVerified!(c)) return true;
+    }
+    return _verifiedCache[uid] ?? false;
+  }
+
+  /// Reads the loaded comments, batches a whereIn query for any author
+  /// uid not already in the cache (or in the parent's
+  /// [authorIsVerified] callback), populates the cache from the
+  /// `verification.status` field, and rebuilds. Empty uids (the
+  /// optimistic "You" row) are skipped.
+  Future<void> _refreshVerifiedCache() async {
+    // Also resolve the current user's verified flag (so the local
+    // user gets a tick on their own comments if they are verified).
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me != null && me.isNotEmpty &&
+        widget.authorIsVerified == null &&
+        !_verifiedCache.containsKey(me)) {
+      try {
+        final myDoc = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(me)
+            .get();
+        if (myDoc.exists && mounted) {
+          final v = myDoc.data()?["verification"];
+          bool isVerified = false;
+          if (v is bool) {
+            isVerified = v;
+          } else if (v is Map) {
+            isVerified = v["status"] == "verified";
+          }
+          setState(() {
+            _verifiedCache[me] = isVerified;
+          });
+        }
+      } catch (_) {
+        // Non-fatal.
+      }
+    }
+
+    final unknown = <String>{};
+    for (final c in _comments) {
+      final uid = c.authorUid.trim();
+      if (uid.isEmpty) continue;
+      // The parent's callback is the source of truth (it may know
+      // about uids we don't). Only fall back to Firestore when the
+      // callback also returns false (which means the parent doesn't
+      // know either).
+      if (widget.authorIsVerified == null) {
+        if (!_verifiedCache.containsKey(uid)) unknown.add(uid);
+      } else {
+        if (widget.authorIsVerified!(c)) continue;
+        if (!_verifiedCache.containsKey(uid)) unknown.add(uid);
+      }
+    }
+    if (unknown.isEmpty) return;
+
+    // Firestore `whereIn` is limited to 10 per query; chunk.
+    for (var i = 0; i < unknown.length; i += 10) {
+      final chunk = unknown
+          .skip(i)
+          .take(10)
+          .toList();
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection("users")
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        if (!mounted) return;
+        final next = <String, bool>{};
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final v = d["verification"];
+          bool isVerified = false;
+          if (v is bool) {
+            isVerified = v;
+          } else if (v is Map) {
+            isVerified = v["status"] == "verified";
+          }
+          next[doc.id] = isVerified;
+        }
+        setState(() {
+          _verifiedCache.addAll(next);
+        });
+      } catch (_) {
+        // Non-fatal: just don't show ticks for these authors.
+      }
     }
   }
 
@@ -633,7 +748,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
         MomentCommentTile(
           comment: c,
           authorVerified:
-              (widget.authorIsVerified?.call(c) ?? false) || c.authorUid == "",
+              _isAuthorVerified(c),
           onLike: () => _toggleLike(c),
           onReply: () => _enterReplyMode(c),
           onSendToConnection: () => _onShareToConnection(c),
@@ -658,9 +773,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                     padding: const EdgeInsets.only(top: 8),
                     child: MomentCommentTile(
                       comment: r,
-                      authorVerified: (widget.authorIsVerified?.call(r) ??
-                              false) ||
-                          r.authorUid == "",
+                      authorVerified: _isAuthorVerified(r),
                       onLike: () => _toggleLike(r),
                       onReply: () => _enterReplyMode(c),
                       onSendToConnection: () => _onShareToConnection(r),
@@ -1408,9 +1521,8 @@ class _MomentCommentRepliesScreenState
             child: MomentCommentTile(
               comment: widget.rootComment,
               authorVerified:
-                  (widget.authorIsVerified?.call(widget.rootComment) ??
-                          false) ||
-                      widget.rootComment.authorUid == "",
+                  _isAuthorVerified(widget.rootComment) ||
+                      false,
               onLike: () => _toggleLike(widget.rootComment),
               onReply: () {
                 // Replies to a reply: the parent is the root, so we just
@@ -1466,10 +1578,7 @@ class _MomentCommentRepliesScreenState
                               final r = _replies[index];
                               return MomentCommentTile(
                                 comment: r,
-                                authorVerified: (widget.authorIsVerified
-                                            ?.call(r) ??
-                                        false) ||
-                                    r.authorUid == "",
+                                authorVerified: _isAuthorVerified(r),
                                 onLike: () => _toggleLike(r),
                                 onReply: () => _composerFocus.requestFocus(),
                                 onSendToConnection: () =>
