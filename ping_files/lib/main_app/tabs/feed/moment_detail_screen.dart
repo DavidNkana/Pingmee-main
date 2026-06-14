@@ -298,7 +298,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
           Navigator.of(sheetContext).pop();
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => ProfileTab.forUser(authorUid),
+              builder: (_) => ProfileTab(profileUid: authorUid),
             ),
           );
         },
@@ -314,7 +314,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
                   if (authorUid.isEmpty) return;
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => ProfileTab.forUser(authorUid),
+                      builder: (_) => ProfileTab(profileUid: authorUid),
                     ),
                   );
                 },
