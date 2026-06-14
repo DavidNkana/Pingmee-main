@@ -331,6 +331,20 @@ class Comment {
 // All methods throw on error; callers are expected to show a SnackBar.
 // ============================================================================
 
+/// v73: a single page of comments returned by [CommentService.loadComments].
+/// Use [hasMore] and [nextCursor] for infinite-scroll pagination.
+class CommentsPage {
+  final List<Comment> comments;
+  final bool hasMore;
+  final String? nextCursor;
+  const CommentsPage({
+    required this.comments,
+    required this.hasMore,
+    this.nextCursor,
+  });
+  static const empty = CommentsPage(comments: <Comment>[], hasMore: false);
+}
+
 class CommentService {
   CommentService({
     FirebaseFunctions? functions,
@@ -339,17 +353,21 @@ class CommentService {
 
   final FirebaseFunctions _functions;
 
-  /// Load the top-level comments for a moment. Pass [parentCommentId] or
+  /// Load a page of comments for a moment. Pass [parentCommentId] or
   /// [rootCommentId] to load the children of one thread (used by the
-  /// Threads-style "View N replies" sub-page).
-  Future<List<Comment>> loadComments({
+  /// Threads-style "View N replies" sub-page). Pass [beforeId] for
+  /// cursor-based pagination - the cloud function returns comments
+  /// with id < beforeId, plus hasMore / nextCursor metadata.
+  Future<CommentsPage> loadComments({
     required String activityId,
     int limit = 30,
     String? parentCommentId,
     String? rootCommentId,
+    String? beforeId,
   }) async {
     debugPrint("🟢 CommentService.loadComments activityId=$activityId"
-        " parentId=$parentCommentId rootId=$rootCommentId");
+        " parentId=$parentCommentId rootId=$rootCommentId"
+        " beforeId=$beforeId");
 
     try {
       final callable = _functions.httpsCallable("loadMomentComments");
@@ -360,6 +378,8 @@ class CommentService {
           "parentCommentId": parentCommentId,
         if (rootCommentId != null && rootCommentId.isNotEmpty)
           "rootCommentId": rootCommentId,
+        if (beforeId != null && beforeId.isNotEmpty)
+          "beforeId": beforeId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -370,9 +390,19 @@ class CommentService {
                   Comment.fromMap(Map<String, dynamic>.from(item as Map)))
               .toList()
           : <Comment>[];
+      final hasMore = data["hasMore"] == true;
+      final nextCursor = data["nextCursor"] is String &&
+              (data["nextCursor"] as String).isNotEmpty
+          ? data["nextCursor"] as String
+          : null;
 
-      debugPrint("✅ loadComments count=${comments.length}");
-      return comments;
+      debugPrint("✅ loadComments count=${comments.length}"
+          " hasMore=$hasMore nextCursor=$nextCursor");
+      return CommentsPage(
+        comments: comments,
+        hasMore: hasMore,
+        nextCursor: nextCursor,
+      );
     } on FirebaseFunctionsException catch (e, st) {
       debugPrint("🔥 loadComments failed code=${e.code} message=${e.message}");
       debugPrintStack(stackTrace: st);
