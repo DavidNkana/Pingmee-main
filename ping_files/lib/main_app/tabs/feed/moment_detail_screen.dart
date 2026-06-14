@@ -1,9 +1,15 @@
 // moment_detail_screen: rebuilt for the author-tap fix on 2026-06-11
+// + threaded comments (v54).
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:ping_files/main_app/shared/comment_widgets.dart';
+import 'package:ping_files/main_app/shared/connection_picker_sheet.dart';
+import 'package:ping_files/main_app/shared/moment_comments_sheet.dart';
 import 'package:ping_files/main_app/tabs/feed/pingmee_feed_service.dart';
+import 'package:ping_files/features/chat/message_request_router.dart';
+import 'package:ping_files/features/chat/pingmee_chat_routes.dart';
 import 'shared_moment_widgets.dart';
 import '../profile/profile_tab.dart';
 
@@ -54,6 +60,30 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       _resolvedOriginalActivityId != null &&
       _resolvedOriginalActivityId!.isNotEmpty &&
       !_originalResolved;
+
+  final CommentService _commentService = CommentService();
+
+  /// Resolve a Firestore moment id from a Stream foreign_id, with a safe
+  /// fallback. Mirrors the helper on _FeedTabState.
+  String _momentIdFromForeignId(Map<String, dynamic> moment, {required String fallback}) {
+    final f = (moment["foreignId"] ?? "").toString().trim();
+    if (f.startsWith("moment:")) return f.substring(7);
+    return fallback;
+  }
+
+  /// Best-effort reverse: extract the OTHER uid from a Stream cid.
+  String? _otherUidFromCid(String cid) {
+    final parts = cid.split(':');
+    if (parts.length != 2) return null;
+    final tail = parts[1];
+    if (!tail.startsWith('dm_')) return null;
+    final ids = tail.substring(3).split('_');
+    if (ids.length != 2) return null;
+    final my = FirebaseAuth.instance.currentUser?.uid;
+    if (my != null && ids[0] == my) return ids[1];
+    if (my != null && ids[1] == my) return ids[0];
+    return ids[0];
+  }
 
   String get _activityId {
     final id = (_moment["id"] ?? "").toString().trim();
@@ -217,16 +247,86 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
 
   Future<void> _openComments() async {
     if (_isResolvingOriginal) return; // don't act on the wrapper's activity
+    final activityId = _activityId;
+    if (activityId.isEmpty) return;
+
+    final momentId = _momentIdFromForeignId(_moment, fallback: activityId);
+    final moment = _moment;
+
+    Future<void> shareToConnection(BuildContext sheetContext, Comment comment) async {
+      final authorName = (moment["authorName"] ?? "").toString().trim();
+      final text = (moment["text"] ?? "").toString().trim();
+      await showCommentConnectionPicker(
+        sheetContext,
+        commentText: comment.text,
+        commentAuthorName: comment.authorName,
+        commentAuthorPhotoUrl: comment.authorPhotoUrl,
+        momentId: momentId.isEmpty ? null : momentId,
+        momentText: text.isEmpty ? null : text,
+        momentAuthorName: authorName.isEmpty ? null : authorName,
+        commentService: _commentService,
+        onSent: (cid) async {
+          if (!mounted) return;
+          try {
+            final other = _otherUidFromCid(cid);
+            if (other == null) throw StateError('bad cid');
+            final channel = await PingmeeMessageRequestRouter.openDirectChat(
+              otherUid: other,
+            );
+            if (!context.mounted) return;
+            Navigator.of(context).push(pingmeeChatRoute(channel));
+          } catch (_) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Comment shared. Open chat from the Inbox tab.")),
+            );
+          }
+        },
+      );
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => CommentsMomentSheet(
-        activityId: _activityId,
-        feedService: widget.feedService,
+      builder: (sheetContext) => MomentCommentsSheet(
+        activityId: activityId,
+        commentService: _commentService,
+        onAuthorTap: (authorUid) {
+          if (authorUid.isEmpty) return;
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ProfileTab.forUser(authorUid),
+            ),
+          );
+        },
+        onOpenReplies: (parent) {
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => MomentCommentRepliesScreen(
+                rootComment: parent,
+                activityId: activityId,
+                commentService: _commentService,
+                onAuthorTap: (authorUid) {
+                  if (authorUid.isEmpty) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ProfileTab.forUser(authorUid),
+                    ),
+                  );
+                },
+                onShareToConnection: (c) => shareToConnection(sheetContext, c),
+              ),
+            ),
+          );
+        },
+        onShareToConnection: (c) => shareToConnection(sheetContext, c),
       ),
     );
+
     // Refresh counts after comments change
     if (mounted) setState(() {});
   }
