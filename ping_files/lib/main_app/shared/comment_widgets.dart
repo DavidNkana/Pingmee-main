@@ -66,8 +66,8 @@ class Comment {
   /// Per-comment "send to connection" reaction id, when the current user has
   /// bookmarked/sent this comment into a chat. Mirrors the moment's
   /// myLikeReactionId field.
-  String? myLikeReactionId;
-  String? mySaveReactionId;
+  final String? myLikeReactionId;
+  final String? mySaveReactionId;
 
   const Comment({
     required this.id,
