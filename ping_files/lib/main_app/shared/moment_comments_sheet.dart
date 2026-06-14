@@ -177,6 +177,15 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
 
   List<Comment> _comments = [];
 
+  // v73: infinite-scroll pagination state. The initial load replaces
+  // _comments; subsequent load-more calls append. _nextCursor is the
+  // id of the LAST comment in the current page (oldest visible) and
+  // is sent as `beforeId` to the next cloud function call.
+  bool _hasMore = true;
+  String? _nextCursor;
+  bool _loadingMore = false;
+  final ScrollController _commentsScrollController = ScrollController();
+
   /// Per-sheet verified-author cache. Populated lazily by
   /// _refreshVerifiedCache after _loadComments returns.
   /// Mirrors the parent feed_tab's _verifiedCache but is sheet-local
@@ -236,30 +245,50 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
   @override
   void initState() {
     super.initState();
+    _commentsScrollController.addListener(_onCommentsScroll);
     _loadComments();
   }
 
   @override
   void dispose() {
+    _commentsScrollController.removeListener(_onCommentsScroll);
+    _commentsScrollController.dispose();
     _controller.dispose();
     _composerFocus.dispose();
     super.dispose();
+  }
+
+  // v73: infinite scroll. When the user scrolls within 400px of the
+  // bottom of the list AND we have more to load AND we're not
+  // already loading, fetch the next page. Mirrors the feed pattern
+  // in feed_tab.dart line 296-309.
+  void _onCommentsScroll() {
+    if (!_hasMore || _loadingMore || _loading) return;
+    if (!_commentsScrollController.hasClients) return;
+    final pos = _commentsScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 400) {
+      _loadMoreComments();
+    }
   }
 
   Future<void> _loadComments() async {
     setState(() {
       _loading = true;
       _error = null;
+      _hasMore = true;
+      _nextCursor = null;
     });
 
     try {
-      final list = await widget.commentService.loadComments(
+      final page = await widget.commentService.loadComments(
         activityId: widget.activityId,
         limit: 30,
       );
       if (!mounted) return;
       setState(() {
-        _comments = list;
+        _comments = page.comments;
+        _hasMore = page.hasMore;
+        _nextCursor = page.nextCursor;
         _loading = false;
       });
 
@@ -275,6 +304,35 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
         _loading = false;
         _error = "Couldn't load comments.";
       });
+    }
+  }
+
+  Future<void> _loadMoreComments() async {
+    if (!_hasMore || _loadingMore || _nextCursor == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await widget.commentService.loadComments(
+        activityId: widget.activityId,
+        limit: 30,
+        beforeId: _nextCursor,
+      );
+      if (!mounted) return;
+      // De-dupe by id (defensive in case a comment was double-loaded
+      across pages, which can happen if a new comment was inserted
+      between calls).
+      final existing = _comments.map((c) => c.id).toSet();
+      final fresh = page.comments
+          .where((c) => !existing.contains(c.id))
+          .toList();
+      setState(() {
+        _comments = [..._comments, ...fresh];
+        _hasMore = page.hasMore;
+        _nextCursor = page.nextCursor;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
     }
   }
 
@@ -728,16 +786,43 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                                     ),
                                   )
                                 : ListView.separated(
+                                    controller:
+                                        _commentsScrollController,
                                     padding: const EdgeInsets.fromLTRB(
                                       18,
                                       0,
                                       18,
                                       18,
                                     ),
-                                    itemCount: _topLevelSorted.length,
+                                    itemCount: _topLevelSorted.length +
+                                        ((_hasMore || _loadingMore) ? 1 : 0),
                                     separatorBuilder: (_, __) =>
                                         const SizedBox(height: 10),
                                     itemBuilder: (context, index) {
+                                      // v73: trailing footer that
+                                      // shows a small spinner while
+                                      // loading the next page.
+                                      if (index ==
+                                          _topLevelSorted.length) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(
+                                              top: 14,
+                                              bottom: 8),
+                                          child: Center(
+                                            child: SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child:
+                                                  CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                        Color>(Colors.black),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }
                                       final c = _topLevelSorted[index];
                                       return _buildTopLevelRow(c);
                                     },
@@ -1227,8 +1312,14 @@ class _MomentCommentRepliesScreenState
   bool _sending = false;
   String? _error;
 
-  /// The root comment is always shown pinned at the top. Replies follow.
   List<Comment> _replies = [];
+
+  // v73: same pagination shape as the main sheet. Replies on a hot
+  // moment can also exceed 30, so the sub-page scrolls the same way.
+  bool _hasMore = true;
+  String? _nextCursor;
+  bool _loadingMore = false;
+  final ScrollController _repliesScrollController = ScrollController();
 
   final Set<String> _pendingLikes = <String>{};
   final Set<String> _pendingSaves = <String>{};
@@ -1236,34 +1327,53 @@ class _MomentCommentRepliesScreenState
   @override
   void initState() {
     super.initState();
+    _repliesScrollController.addListener(_onRepliesScroll);
     _loadReplies();
   }
 
   @override
   void dispose() {
+    _repliesScrollController.removeListener(_onRepliesScroll);
+    _repliesScrollController.dispose();
     _controller.dispose();
     _composerFocus.dispose();
     super.dispose();
+  }
+
+  // v73: same scroll pattern as the main sheet.
+  void _onRepliesScroll() {
+    if (!_hasMore || _loadingMore || _loading) return;
+    if (!_repliesScrollController.hasClients) return;
+    final pos = _repliesScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 400) {
+      _loadMoreReplies();
+    }
   }
 
   Future<void> _loadReplies() async {
     setState(() {
       _loading = true;
       _error = null;
+      _hasMore = true;
+      _nextCursor = null;
     });
 
     try {
       // One call: rootCommentId=root.id returns root + every descendant.
       // We discard the root row in the list (it's pinned at the top with
       // its own tile).
-      final all = await widget.commentService.loadComments(
+      final page = await widget.commentService.loadComments(
         activityId: widget.activityId,
-        limit: 100,
+        limit: 30,
         rootCommentId: widget.rootComment.id,
       );
       if (!mounted) return;
       setState(() {
-        _replies = all.where((c) => c.id != widget.rootComment.id).toList();
+        _replies = page.comments
+            .where((c) => c.id != widget.rootComment.id)
+            .toList();
+        _hasMore = page.hasMore;
+        _nextCursor = page.nextCursor;
         _loading = false;
       });
 
@@ -1277,6 +1387,35 @@ class _MomentCommentRepliesScreenState
         _loading = false;
         _error = "Couldn't load replies.";
       });
+    }
+  }
+
+  Future<void> _loadMoreReplies() async {
+    if (!_hasMore || _loadingMore || _nextCursor == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await widget.commentService.loadComments(
+        activityId: widget.activityId,
+        limit: 30,
+        rootCommentId: widget.rootComment.id,
+        beforeId: _nextCursor,
+      );
+      if (!mounted) return;
+      final existing = _replies.map((c) => c.id).toSet();
+      final fresh = page.comments
+          .where((c) =>
+              c.id != widget.rootComment.id &&
+              !existing.contains(c.id))
+          .toList();
+      setState(() {
+        _replies = [..._replies, ...fresh];
+        _hasMore = page.hasMore;
+        _nextCursor = page.nextCursor;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
     }
   }
 
@@ -1689,12 +1828,34 @@ class _MomentCommentRepliesScreenState
                             ),
                           )
                         : ListView.separated(
+                            controller: _repliesScrollController,
                             padding:
                                 const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                            itemCount: _replies.length,
+                            itemCount: _replies.length +
+                                ((_hasMore || _loadingMore) ? 1 : 0),
                             separatorBuilder: (_, __) =>
                                 const SizedBox(height: 10),
                             itemBuilder: (context, index) {
+                              // v73: trailing footer spinner for
+                              // load-more on replies.
+                              if (index == _replies.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(
+                                      top: 14, bottom: 8),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Colors.black),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
                               final r = _replies[index];
                               return MomentCommentTile(
                                 comment: r,
