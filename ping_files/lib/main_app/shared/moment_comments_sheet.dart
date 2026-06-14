@@ -446,6 +446,42 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
       );
 
 
+      if (!mounted) return;
+      setState(() {
+        // Replace the optimistic row with the server-confirmed one, OR
+        // append the server one if the optimistic row was lost.
+        final idx = _comments.indexWhere((c) => c.id == optimistic.id);
+        if (idx >= 0) {
+          _comments = [..._comments]..[idx] = real;
+        } else {
+          _comments = [..._comments, real];
+        }
+        // If this was a top-level comment, nothing to bump. If this was
+        // a reply, bump the parent's replyCount in-place.
+        if (replyParent != null) {
+          final p = _comments.indexWhere((c) => c.id == replyParent.id);
+          if (p >= 0) {
+            _comments[p] = _comments[p].copyWith(
+              replyCount: _comments[p].replyCount + 1,
+            );
+          }
+        }
+        _replyingTo = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        // Drop the optimistic row
+        _comments = _comments.where((c) => c.id != optimistic.id).toList();
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Couldn't add comment.")),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _toggleLike(Comment comment) async {
     if (_pendingLikes.contains(comment.id)) return;
     _pendingLikes.add(comment.id);
@@ -1262,6 +1298,20 @@ class _MomentCommentRepliesScreenState
         attachments: attachments,
       );
 
+
+      if (!mounted) return;
+      setState(() {
+        _replies = [..._replies, reply];
+        _sending = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Couldn't add reply.")),
+      );
+    }
+  }
 
   Future<void> _toggleLike(Comment comment) async {
     if (_pendingLikes.contains(comment.id)) return;
