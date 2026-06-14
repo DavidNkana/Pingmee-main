@@ -27,6 +27,97 @@ import 'package:ping_files/main_app/shared/comment_widgets.dart';
 import 'package:ping_files/theme/colors2.dart';
 
 // ============================================================================
+// Comment sort dropdown — Top / Recent
+// ============================================================================
+
+enum _CommentSort { top, recent }
+
+extension _CommentSortLabel on _CommentSort {
+  String get label {
+    switch (this) {
+      case _CommentSort.top:
+        return "Top";
+      case _CommentSort.recent:
+        return "Recent";
+    }
+  }
+}
+
+class _CommentSortDropdown extends StatelessWidget {
+  final _CommentSort value;
+  final ValueChanged<_CommentSort?> onChanged;
+
+  const _CommentSortDropdown({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_CommentSort>(
+      onSelected: onChanged,
+      tooltip: "Sort comments",
+      offset: const Offset(0, 36),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      color: Colors.white,
+      itemBuilder: (_) => _CommentSort.values
+          .map((s) => PopupMenuItem<_CommentSort>(
+                value: s,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (s == value)
+                      const Icon(Icons.check_rounded, size: 16, color: Colors.black87)
+                    else
+                      const SizedBox(width: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.label,
+                      style: const TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ))
+          .toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value.label,
+              style: const TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 16,
+              color: Colors.black.withOpacity(.55),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
 // MomentCommentsSheet — public, replaces the two private sheets.
 // ============================================================================
 
@@ -74,11 +165,44 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
 
   List<Comment> _comments = [];
 
+  /// Top-level only, sorted by the current sort mode. Replies (where
+  /// parentId is non-empty) are excluded.
+  List<Comment> get _topLevelSorted {
+    final list = _comments.where((c) => c.isTopLevel).toList();
+    switch (_sort) {
+      case _CommentSort.recent:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case _CommentSort.top:
+        list.sort((a, b) {
+          // Threads-style "top" ranking:
+          //   1. Liked-by-me first (your comments pinned)
+          //   2. Like count desc
+          //   3. Reply count desc
+          //   4. Newest first as a tiebreaker
+          if (a.likedByMe != b.likedByMe) {
+            return a.likedByMe ? -1 : 1;
+          }
+          if (a.likeCount != b.likeCount) {
+            return b.likeCount.compareTo(a.likeCount);
+          }
+          if (a.replyCount != b.replyCount) {
+            return b.replyCount.compareTo(a.replyCount);
+          }
+          return b.createdAt.compareTo(a.createdAt);
+        });
+    }
+    return list;
+  }
+
   /// Non-null when the composer is in "reply mode" for a specific parent.
   /// All replies are added with parentCommentId = this id and
   /// rootCommentId = either this id (if the parent was top-level) or the
   /// parent's own rootId.
   Comment? _replyingTo;
+
+  /// Current sort order for the top-level list. Replies in the
+  /// sub-page are always chronological.
+  _CommentSort _sort = _CommentSort.top;
 
   /// Per-comment in-flight flags so the user can't double-tap a heart or
   /// bookmark while the request is in flight.
@@ -390,19 +514,30 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 18),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "Comments",
-                        style: TextStyle(
-                          fontFamily: "Nunito",
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black87,
+                  // Header row: title left, sort dropdown right
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            "Comments",
+                            style: TextStyle(
+                              fontFamily: "Nunito",
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
                         ),
-                      ),
+                        _CommentSortDropdown(
+                          value: _sort,
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _sort = v);
+                          },
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -421,7 +556,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                                   _error!,
                                   style: const TextStyle(
                                     fontFamily: "Nunito",
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               )
@@ -431,7 +566,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                                       "No comments yet. Start it.",
                                       style: TextStyle(
                                         fontFamily: "Nunito",
-                                        fontWeight: FontWeight.w700,
+                                        fontWeight: FontWeight.w500,
                                         color:
                                             Colors.black.withOpacity(.55),
                                       ),
@@ -444,11 +579,11 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                                       18,
                                       18,
                                     ),
-                                    itemCount: _comments.length,
+                                    itemCount: _topLevelSorted.length,
                                     separatorBuilder: (_, __) =>
                                         const SizedBox(height: 10),
                                     itemBuilder: (context, index) {
-                                      final c = _comments[index];
+                                      final c = _topLevelSorted[index];
                                       return _buildTopLevelRow(c);
                                     },
                                   ),
@@ -464,9 +599,18 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
   }
 
   Widget _buildTopLevelRow(Comment c) {
-    // Top-level row = the comment tile + a "View N replies" pill if replies
-    // exist.
+    // 1) The top-level tile itself.
+    // 2) Any direct replies whose parentId == c.id (1 visible level).
+    // 3) A "View N replies" pill (left-indented) ONLY if there are MORE
+    //    replies on the server than the visible ones — currently the cloud
+    //    function returns the count but not the children when listing
+    //    top-level, so the pill always shows when replyCount > 0.
     final hasReplies = c.replyCount > 0;
+    final visibleReplies = _comments
+        .where((r) => r.parentId == c.id)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -478,42 +622,124 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
           onReply: () => _enterReplyMode(c),
           onSendToConnection: () => _onShareToConnection(c),
           onSave: () => _toggleSave(c),
-          onAuthorTap: () =>
-              widget.onAuthorTap?.call(c.authorUid),
+          onAuthorTap: () => widget.onAuthorTap?.call(c.authorUid),
           onBubbleTap: hasReplies
               ? () => widget.onOpenReplies?.call(c)
               : null,
+          onMore: () => _openMoreSheet(c),
         ),
-        if (hasReplies)
-          Padding(
-            padding: const EdgeInsets.only(left: 36, top: 6),
-            child: GestureDetector(
-              onTap: () => widget.onOpenReplies?.call(c),
-              behavior: HitTestBehavior.opaque,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 18,
-                    height: 1,
-                    color: Colors.black.withOpacity(.18),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    "View ${c.replyCount} ${c.replyCount == 1 ? "reply" : "replies"}",
-                    style: TextStyle(
-                      fontFamily: "Nunito",
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.black.withOpacity(.55),
+        if (visibleReplies.isNotEmpty)
+          _CommentBranch(
+            // The branch line runs from the OG comment's avatar column
+            // down to the last visible reply. The width is a fixed 28-px
+            // indent so the replies align under the bubble body.
+            childCount: visibleReplies.length,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final r in visibleReplies) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: MomentCommentTile(
+                      comment: r,
+                      authorVerified: (widget.authorIsVerified?.call(r) ??
+                              false) ||
+                          r.authorUid == "",
+                      onLike: () => _toggleLike(r),
+                      onReply: () => _enterReplyMode(c),
+                      onSendToConnection: () => _onShareToConnection(r),
+                      onSave: () => _toggleSave(r),
+                      onAuthorTap: () =>
+                          widget.onAuthorTap?.call(r.authorUid),
+                      onMore: () => _openMoreSheet(r),
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+        if (hasReplies)
+          Padding(
+            padding: const EdgeInsets.only(left: 36, top: 4),
+            child: GestureDetector(
+              onTap: () => widget.onOpenReplies?.call(c),
+              behavior: HitTestBehavior.opaque,
+              child: Text(
+                "View ${c.replyCount} ${c.replyCount == 1 ? "reply" : "replies"}",
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black.withOpacity(.55),
+                ),
               ),
             ),
           ),
       ],
     );
+  }
+
+  Future<void> _openMoreSheet(Comment c) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: Container(
+            color: Colors.white,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.flag_outlined,
+                      color: Color(0xFFEF4444),
+                    ),
+                    title: const Text(
+                      "Report comment",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFEF4444),
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop("report"),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == "report" && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Thanks. We'll review this comment.",
+            style: TextStyle(
+              fontFamily: "Nunito",
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildComposer() {
@@ -543,13 +769,13 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      "Replying to ${replyingTo.authorName}",
+                      "Reply to this moment",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontFamily: "Nunito",
                         fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                         color: Colors.black.withOpacity(.6),
                       ),
                     ),
@@ -579,7 +805,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                   decoration: InputDecoration(
                     hintText: replyingTo == null
                         ? "Add a comment…"
-                        : "Reply to ${replyingTo.authorName}…",
+                        : "Reply to this moment…",
                     hintStyle: TextStyle(
                       fontFamily: "Nunito",
                       fontWeight: FontWeight.w600,
@@ -636,6 +862,95 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
       ),
     );
   }
+}
+
+// ============================================================================
+// _CommentBranch — vertical curved line connecting an OG comment to its
+// visible replies. The line lives in a CustomPaint and occupies a fixed
+// 28-px column on the left. The avatar of the OG comment sits in that
+// column; the bubble of each reply is indented past the line so the
+// branch clearly belongs to the OG comment.
+//
+// Visual:
+//   • The curve goes from the OG bubble's BOTTOM-LEFT corner, down past
+//     each reply, and ends at the BOTTOM-LEFT of the LAST reply.
+//   • A short horizontal "tick" at each reply's top connects the curve
+//     to the reply bubble.
+//   • Curve width is 2 px in black at 18% opacity — subtle but visible.
+// ============================================================================
+
+class _CommentBranch extends StatelessWidget {
+  final int childCount;
+  final Widget child;
+
+  const _CommentBranch({
+    required this.childCount,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 18),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 18,
+              child: CustomPaint(
+                painter: _CommentBranchPainter(childCount: childCount),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentBranchPainter extends CustomPainter {
+  final int childCount;
+  _CommentBranchPainter({required this.childCount});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (childCount <= 0) return;
+    final paint = Paint()
+      ..color = Colors.black.withOpacity(.18)
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    // Single vertical line down the left edge. The visual indent of each
+    // reply tile is provided by the parent Padding, so this painter only
+    // needs one straight line + a small horizontal tick at the top so the
+    // line clearly connects to the OG comment above.
+    final w = size.width;
+    final h = size.height;
+    final x = w * 0.4; // 40% from the left (slight right-of-center anchor)
+
+    // Top tick: a short horizontal stroke that visually "starts" the
+    // branch from the OG bubble. 12 px long.
+    canvas.drawLine(
+      Offset(x, 0),
+      Offset(x + 12, 0),
+      paint,
+    );
+
+    // Vertical line down to the bottom of the last reply.
+    canvas.drawLine(
+      Offset(x, 0),
+      Offset(x, h),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CommentBranchPainter old) =>
+      old.childCount != childCount;
 }
 
 // ============================================================================
@@ -904,7 +1219,7 @@ class _MomentCommentRepliesScreenState
           style: TextStyle(
             fontFamily: "Nunito",
             fontSize: 17,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w600,
             color: Colors.black87,
           ),
         ),
@@ -951,7 +1266,7 @@ class _MomentCommentRepliesScreenState
                           _error!,
                           style: const TextStyle(
                             fontFamily: "Nunito",
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       )
@@ -961,7 +1276,7 @@ class _MomentCommentRepliesScreenState
                               "No replies yet.",
                               style: TextStyle(
                                 fontFamily: "Nunito",
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w500,
                                 color: Colors.black.withOpacity(.55),
                               ),
                             ),
@@ -1017,7 +1332,7 @@ class _MomentCommentRepliesScreenState
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _sendReply(),
               decoration: InputDecoration(
-                hintText: "Reply to this thread…",
+                hintText: "Reply to this moment…",
                 hintStyle: TextStyle(
                   fontFamily: "Nunito",
                   fontWeight: FontWeight.w600,
