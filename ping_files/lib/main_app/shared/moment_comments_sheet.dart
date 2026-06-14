@@ -782,6 +782,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
               ? () => widget.onOpenReplies?.call(c)
               : null,
           onMore: () => _openMoreSheet(c),
+          mentionedUsersCache: _mentionedUsersCache,
+          onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
         ),
         if (visibleReplies.isNotEmpty)
           _CommentBranch(
@@ -805,6 +807,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                       onAuthorTap: () =>
                           widget.onAuthorTap?.call(r.authorUid),
                       onMore: () => _openMoreSheet(r),
+                      mentionedUsersCache: _mentionedUsersCache,
+                      onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
                     ),
                   ),
                 ],
@@ -1647,6 +1651,8 @@ class _MomentCommentRepliesScreenState
               onSave: () => _toggleSave(widget.rootComment),
               onAuthorTap: () =>
                   widget.onAuthorTap?.call(widget.rootComment.authorUid),
+              mentionedUsersCache: _mentionedUsersCache,
+              onMentionTap: (uid) => widget.onAuthorTap?.call(uid),
             ),
           ),
           Divider(height: 1, color: Colors.black.withOpacity(.06)),
@@ -1698,6 +1704,9 @@ class _MomentCommentRepliesScreenState
                                 onAuthorTap: () =>
                                     widget.onAuthorTap?.call(r.authorUid),
                                 onMore: () => _openRepliesMoreSheet(r),
+                                mentionedUsersCache: _mentionedUsersCache,
+                                onMentionTap: (uid) =>
+                                    widget.onAuthorTap?.call(uid),
                               );
                             },
                           ),
