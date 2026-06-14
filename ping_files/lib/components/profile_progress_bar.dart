@@ -30,10 +30,15 @@ class ProfileProgressBar extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              gradient: LinearGradient(
+              // The round progress bar fill. Switched to a
+            // black-on-black gradient (was the brand green)
+            // so the bar reads as a single dark unit, matching
+            // the round "Next" button in the main onboarding
+            // flow.
+            gradient: LinearGradient(
                 colors: [
-                  AppColors.brandGreen,
-                  AppColors.brandGreen.withOpacity(.6),
+                  Colors.black,
+                  Colors.black.withOpacity(.6),
                 ],
               ),
             ),
