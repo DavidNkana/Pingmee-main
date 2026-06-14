@@ -34,6 +34,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_manager/photo_manager.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 import 'package:ping_files/theme/colors2.dart';
 
@@ -989,6 +994,11 @@ class MomentCommentTile extends StatelessWidget {
   /// parent can navigate to their profile.
   final Map<String, UserRef> mentionedUsersCache;
 
+  /// v72: called when the user taps an image attachment. The parent
+  /// (sheet) typically forwards to showCommentImageViewer. Null means
+  /// image attachments are not tappable.
+  final ValueChanged<String>? onTapImage;
+
   /// v66: called when the user taps a blue @-mention span in the comment
   /// body. The parent (sheet) typically forwards to onAuthorTap so the
   /// profile navigation is identical for avatars and mentions.
@@ -1008,6 +1018,7 @@ class MomentCommentTile extends StatelessWidget {
     this.onMore,
     this.mentionedUsersCache = const <String, UserRef>{},
     this.onMentionTap = _noopMentionTap,
+    this.onTapImage,
   });
 
   static void _noopMentionTap(String uid) {}
@@ -1189,7 +1200,24 @@ class _CommentBody extends StatelessWidget {
               padding: EdgeInsets.only(
                 top: att == comment.attachments.first ? 0 : 6,
               ),
-              child: _CommentAttachmentThumb(attachment: att),
+              child: Builder(
+                builder: (_) {
+                  // v72: only image attachments are tappable. Stickers
+                  // animate inline and don't need a viewer. We pass
+                  // the full attachment.url (not the thumb) so the
+                  // viewer renders the high-res original.
+                  if (att.kind == "image" &&
+                      onTapImage != null &&
+                      att.url.isNotEmpty) {
+                    return GestureDetector(
+                      onTap: () => onTapImage!(att.url),
+                      behavior: HitTestBehavior.opaque,
+                      child: _CommentAttachmentThumb(attachment: att),
+                    );
+                  }
+                  return _CommentAttachmentThumb(attachment: att);
+                },
+              ),
             ),
         ],
       ],
@@ -1345,6 +1373,205 @@ class _CommentAttachmentThumb extends StatelessWidget {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+
+// ============================================================================
+// v72: showCommentImageViewer — quick bottom-sheet image viewer with a
+// black Save button. Opens the full-resolution image (passed via
+// attachment.url, NOT the thumb) in a PhotoView (pinch-to-zoom). Tapping
+// Save downloads the bytes with http, writes them to a temp file, and
+// hands the path to PhotoManager.editor.saveImageWithPath (the project
+// already has photo_manager: ^3.8.3 in pubspec — no new dep).
+//
+// We intentionally use a full-screen bottom sheet (isScrollControlled +
+// useSafeArea) instead of a dialog so it feels like part of the same
+// conversation surface. The black top bar keeps the Save button visually
+// weighted (matches the existing black send-button style in CommentComposer).
+// ============================================================================
+
+Future<void> showCommentImageViewer(
+  BuildContext context,
+  String imageUrl,
+) async {
+  if (imageUrl.isEmpty) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.black,
+    isScrollControlled: true,
+    useSafeArea: true,
+    barrierColor: Colors.black.withOpacity(.7),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => _CommentImageViewerSheet(imageUrl: imageUrl),
+  );
+}
+
+class _CommentImageViewerSheet extends StatefulWidget {
+  final String imageUrl;
+  const _CommentImageViewerSheet({required this.imageUrl});
+
+  @override
+  State<_CommentImageViewerSheet> createState() =>
+      _CommentImageViewerSheetState();
+}
+
+class _CommentImageViewerSheetState extends State<_CommentImageViewerSheet> {
+  bool _saving = false;
+
+  Future<void> _onTapSave() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final resp = await http.get(Uri.parse(widget.imageUrl));
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception("HTTP ${resp.statusCode}");
+      }
+      final bytes = resp.bodyBytes;
+      // Ask for gallery permission on the first save. photo_manager handles
+      // both iOS PHAuthorizationStatus and Android MediaStore permissions.
+      final perm = await PhotoManager.requestPermissionExtend();
+      if (!perm.hasAccess) {
+        if (!mounted) return;
+        setState(() => _saving = false);
+        messenger?.showSnackBar(const SnackBar(
+          content: Text("Gallery permission denied"),
+        ));
+        return;
+      }
+      // Write to a temp file then hand the path to PhotoManager so the
+      // library file is created with proper EXIF / mime detection.
+      final dir = await getTemporaryDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final ext = _guessExtFromUrl(widget.imageUrl);
+      final tmp = File('${dir.path}/comment_img_$stamp$ext');
+      await tmp.writeAsBytes(bytes, flush: true);
+      final asset = await PhotoManager.editor.saveImageWithPath(
+        tmp.path,
+        title: 'comment_img_$stamp',
+      );
+      // Clean up the temp file regardless of result.
+      try {
+        await tmp.delete();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (asset != null) {
+        messenger?.showSnackBar(const SnackBar(
+          content: Text("Saved to gallery"),
+          duration: Duration(seconds: 2),
+        ));
+        Navigator.of(context).maybePop();
+      } else {
+        messenger?.showSnackBar(const SnackBar(
+          content: Text("Couldn't save to gallery"),
+        ));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      messenger?.showSnackBar(SnackBar(
+        content: Text("Save failed: $e"),
+      ));
+    }
+  }
+
+  String _guessExtFromUrl(String url) {
+    final u = url.toLowerCase();
+    if (u.contains('.png')) return '.png';
+    if (u.contains('.webp')) return '.webp';
+    if (u.contains('.gif')) return '.gif';
+    return '.jpg';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final safeTop = MediaQuery.viewPaddingOf(context).top;
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height,
+      child: Column(
+        children: [
+          // Black top bar with close X (left) and Save button (right).
+          Container(
+            color: Colors.black,
+            padding: EdgeInsets.only(
+              top: safeTop + 4,
+              bottom: 10,
+              left: 8,
+              right: 8,
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+                const Spacer(),
+                Material(
+                  color: Colors.black,
+                  shape: const StadiumBorder(),
+                  child: InkWell(
+                    onTap: _saving ? null : _onTapSave,
+                    customBorder: const StadiumBorder(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white, width: 1.2),
+                      ),
+                      child: _saving
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white),
+                              ),
+                            )
+                          : const Text(
+                              'Save',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Body: the full image, pinch-zoomable, on a black canvas.
+          Expanded(
+            child: Container(
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: PhotoView(
+                imageProvider: NetworkImage(widget.imageUrl),
+                backgroundDecoration: const BoxDecoration(color: Colors.black),
+                minScale: PhotoViewComputedScale.contained,
+                maxScale: PhotoViewComputedScale.covered * 3.0,
+                loadingBuilder: (_, __) => const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
