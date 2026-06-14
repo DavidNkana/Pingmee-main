@@ -432,9 +432,9 @@ class CommentActionBar extends StatelessWidget {
             semanticLabel: liked ? "Unlike comment" : "Like comment",
           ),
           const SizedBox(width: 14),
-          // Reply
+          // Reply (rounded chat-circle, matches the moment card's comment icon)
           _CommentActionButton(
-            icon: Icons.mode_comment_outlined,
+            icon: PhosphorIcons.chatCircle(PhosphorIconsStyle.regular),
             color: Colors.black54,
             count: comment.replyCount > 0
                 ? _friendlyCount(comment.replyCount)
@@ -451,12 +451,12 @@ class CommentActionBar extends StatelessWidget {
             semanticLabel: "Send to a connection",
           ),
           const SizedBox(width: 14),
-          // Save
+          // Save (active state is green, matches brand)
           _CommentActionButton(
             icon: saved
                 ? Icons.bookmark_rounded
                 : Icons.bookmark_border_rounded,
-            color: saved ? Colors.black : Colors.black54,
+            color: saved ? AppColors.brandGreen : Colors.black54,
             count: comment.savedCount > 0
                 ? _friendlyCount(comment.savedCount)
                 : null,
@@ -515,7 +515,7 @@ class _CommentActionButton extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: "Nunito",
                     fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                     color: color,
                   ),
                 ),
@@ -658,6 +658,10 @@ class MomentCommentTile extends StatelessWidget {
   /// top of the bubble.
   final VoidCallback? onParentAuthorTap;
 
+  /// Optional. Tapping the 3-dot menu in the top-right of the bubble.
+  /// The parent (sheet) typically shows a Report action.
+  final VoidCallback? onMore;
+
   const MomentCommentTile({
     super.key,
     required this.comment,
@@ -669,6 +673,7 @@ class MomentCommentTile extends StatelessWidget {
     required this.onAuthorTap,
     this.onBubbleTap,
     this.onParentAuthorTap,
+    this.onMore,
   });
 
   @override
@@ -701,42 +706,14 @@ class MomentCommentTile extends StatelessWidget {
                     color: const Color(0xFFF3F4F6),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Column(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Reply context pill
-                      if (isReply &&
-                          comment.mentionedUid != null &&
-                          comment.mentionedUid!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: GestureDetector(
-                            onTap: onParentAuthorTap,
-                            behavior: HitTestBehavior.opaque,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  PhosphorIcons
-                                      .arrowBendUpLeft(
-                                          PhosphorIconsStyle.regular),
-                                  size: 11,
-                                  color: Colors.black54,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  "Replying to comment",
-                                  style: TextStyle(
-                                    fontFamily: "Nunito",
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.black.withOpacity(.55),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                      // (Reply context is conveyed by the branch line +
+                      // indent at the sheet level. No in-bubble pill.)
                       // Author name
                       GestureDetector(
                         onTap: onAuthorTap,
@@ -746,7 +723,7 @@ class MomentCommentTile extends StatelessWidget {
                           style: const TextStyle(
                             fontFamily: "Nunito",
                             fontSize: 13,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w600,
                             color: Colors.black87,
                           ),
                         ),
@@ -758,11 +735,47 @@ class MomentCommentTile extends StatelessWidget {
                         style: TextStyle(
                           fontFamily: "Nunito",
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w500,
                           height: 1.3,
                           color: Colors.black.withOpacity(.72),
                         ),
                       ),
+                      if (onMore != null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: onMore,
+                            behavior: HitTestBehavior.opaque,
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 2, left: 8),
+                              child: Icon(
+                                Icons.more_horiz_rounded,
+                                size: 18,
+                                color: Colors.black.withOpacity(.55),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                      // 3-dot menu (top-right of the bubble)
+                      if (onMore != null)
+                        Positioned(
+                          right: -6,
+                          top: -2,
+                          child: GestureDetector(
+                            onTap: onMore,
+                            behavior: HitTestBehavior.opaque,
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.more_horiz_rounded,
+                                size: 18,
+                                color: Colors.black.withOpacity(.55),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
