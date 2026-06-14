@@ -2004,6 +2004,12 @@ exports.addMomentComment = onCall(
 
       const activityId = cleanString(request.data && request.data.activityId);
       const text = cleanString(request.data && request.data.text);
+      const parentCommentId = cleanString(
+          request.data && request.data.parentCommentId,
+      );
+      const rootCommentId = cleanString(
+          request.data && request.data.rootCommentId,
+      );
 
       if (!activityId) {
         throw new HttpsError(
@@ -2029,16 +2035,43 @@ exports.addMomentComment = onCall(
       const client = getStreamFeedsClient();
       const streamUser = await getPublicUser(uid);
 
+      // data.parentId is the immediate parent comment id (for nested replies).
+      // data.rootId is the top-level comment id (for fast fan-out queries).
+      // data.mentionedUid is the user being replied to (the parent author);
+      // used by the client to surface a "Replying to @name" pill and by the
+      // server to write a notification row in users/{parentAuthorUid}/notifications.
+      const reactionData = {
+        text,
+        authorUid: uid,
+        authorName: streamUser.name,
+        authorPhotoUrl: streamUser.image,
+      };
+      let parentAuthorUid = "";
+      if (parentCommentId) {
+        try {
+          const parentReaction = await client.reactions.get(parentCommentId);
+          const parentData = parentReaction && parentReaction.data ?
+            parentReaction.data :
+            {};
+          parentAuthorUid = cleanString(parentData.authorUid);
+        } catch (parentError) {
+          console.error(
+              "addMomentComment: parentCommentId lookup failed",
+              {parentCommentId, message: parentError && parentError.message},
+          );
+        }
+        reactionData.parentId = parentCommentId;
+        reactionData.rootId = rootCommentId || parentCommentId;
+        if (parentAuthorUid) {
+          reactionData.mentionedUid = parentAuthorUid;
+        }
+      }
+
       try {
         const reaction = await client.reactions.add(
             "comment",
             activityId,
-            {
-              text,
-              authorUid: uid,
-              authorName: streamUser.name,
-              authorPhotoUrl: streamUser.image,
-            },
+            reactionData,
             {
               userId: uid,
             },
@@ -2073,6 +2106,38 @@ exports.addMomentComment = onCall(
           );
         }
 
+        // Best-effort notification for comment replies — skip on top-level
+        // comments and skip self-replies. Notification is a single Firestore
+        // doc under the parent's author; we don't increment any counters
+        // here because the read-side listener on the client owns the badge
+        // count.
+        if (parentCommentId && parentAuthorUid && parentAuthorUid !== uid) {
+          try {
+            const notifRef = admin.firestore()
+                .collection("users").doc(parentAuthorUid)
+                .collection("notifications").doc();
+            await notifRef.set({
+              kind: "comment_reply",
+              actorUid: uid,
+              actorName: streamUser.name,
+              actorPhotoUrl: streamUser.image,
+              activityId,
+              momentId: firestoreMomentId || null,
+              parentCommentId,
+              rootCommentId: rootCommentId || parentCommentId,
+              commentId: cleanString(reaction.id),
+              text,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              read: false,
+            });
+          } catch (notifError) {
+            console.error(
+                "addMomentComment: notification write failed",
+                {message: notifError && notifError.message},
+            );
+          }
+        }
+
         return {
           ok: true,
           comment: {
@@ -2082,6 +2147,8 @@ exports.addMomentComment = onCall(
             authorName: streamUser.name,
             authorPhotoUrl: streamUser.image,
             createdAt: cleanString(reaction.created_at),
+            parentId: parentCommentId || null,
+            rootId: (rootCommentId || parentCommentId) || null,
           },
         };
       } catch (error) {
@@ -2127,6 +2194,19 @@ exports.loadMomentComments = onCall(
       const limit = Number.isFinite(rawLimit) ?
         Math.min(Math.max(rawLimit, 1), 50) :
         30;
+      // parentCommentId filter — when present, only replies whose
+      // data.parentId matches are returned. Used for the Threads-style
+      // "View N replies" sub-page.
+      const parentCommentId = cleanString(
+          request.data && request.data.parentCommentId,
+      );
+      // rootCommentId filter — when present, returns the immediate top-level
+      // comment plus ALL its children (root + every reply), for the
+      // dedicated thread page where you want the original comment pinned
+      // at the top. Takes priority over parentCommentId when both set.
+      const rootCommentId = cleanString(
+          request.data && request.data.rootCommentId,
+      );
 
       if (!activityId) {
         throw new HttpsError(
@@ -2136,23 +2216,154 @@ exports.loadMomentComments = onCall(
       }
 
       const client = getStreamFeedsClient();
+      const db = admin.firestore();
 
       try {
+        // Fetch a wider window than `limit` so we can post-filter by
+        // parent/root without truncating. 200 is plenty for any one moment.
+        const windowLimit = 200;
         const response = await client.reactions.filter({
           activity_id: activityId,
           kind: "comment",
-          limit,
+          limit: windowLimit,
         });
 
         const results = Array.isArray(response.results) ?
           response.results :
           [];
 
-        const comments = results.map((item) => {
+        // Filter by parent / root client-side (Stream does not expose a
+        // server-side `data.parentId` filter on reactions.filter).
+        const filtered = results.filter((item) => {
           const data = item && item.data ? item.data : {};
+          const itemParent = cleanString(data.parentId);
+          const itemRoot = cleanString(data.rootId);
+          if (rootCommentId) {
+            if (itemRoot) {
+              return itemRoot === rootCommentId;
+            }
+            // Top-level comment that started the thread.
+            return cleanString(item && item.id) === rootCommentId;
+          }
+          if (parentCommentId) {
+            return itemParent === parentCommentId;
+          }
+          // Top-level comments only: those with no parentId at all.
+          return itemParent === "";
+        });
+
+        const trimmed = filtered.slice(0, limit);
+
+        // Aggregate like/save/reply counts + per-comment "did I like/save
+        // this?" by reading the user's own reaction filter for each
+        // comment id. Stream gives us reaction_counts in a separate
+        // endpoint, but pulling per-reaction keeps this single call
+        // self-contained.
+        const commentIds = trimmed.map((c) => cleanString(c && c.id))
+            .filter((id) => id);
+
+        // Single bulk request for the user's own like + save reactions on
+        // these comment ids. Stream supports up to ~100 ids in one filter.
+        const ownLikeSet = new Set();
+        const ownSaveSet = new Set();
+        const likeCountMap = {};
+        const saveCountMap = {};
+        const replyCountMap = {};
+
+        if (commentIds.length > 0) {
+          try {
+            const ownLikesResp = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-like",
+              filter_user_id: uid,
+              limit: 100,
+            });
+            const ownLikes = Array.isArray(ownLikesResp.results) ?
+              ownLikesResp.results :
+              [];
+            for (const r of ownLikes) {
+              const target = cleanString(r && r.data &&
+                r.data.targetCommentId);
+              if (target) ownLikeSet.add(target);
+            }
+
+            const ownSavesResp = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-bookmark",
+              filter_user_id: uid,
+              limit: 100,
+            });
+            const ownSaves = Array.isArray(ownSavesResp.results) ?
+              ownSavesResp.results :
+              [];
+            for (const r of ownSaves) {
+              const target = cleanString(r && r.data &&
+                r.data.targetCommentId);
+              if (target) ownSaveSet.add(target);
+            }
+
+            // Global like/save counts per comment id. Stream doesn't
+            // expose a per-target aggregation in the v1 filter, so we
+            // do a single unfiltered request and bucket counts by
+            // data.targetCommentId. 500 is the documented max for one
+            // filter call; we cap at that.
+            const allLikesResp = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-like",
+              limit: 500,
+            });
+            const allLikes = Array.isArray(allLikesResp.results) ?
+              allLikesResp.results :
+              [];
+            for (const r of allLikes) {
+              const target = cleanString(r && r.data &&
+                r.data.targetCommentId);
+              if (target) {
+                likeCountMap[target] =
+                  (likeCountMap[target] || 0) + 1;
+              }
+            }
+
+            const allSavesResp = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-bookmark",
+              limit: 500,
+            });
+            const allSaves = Array.isArray(allSavesResp.results) ?
+              allSavesResp.results :
+              [];
+            for (const r of allSaves) {
+              const target = cleanString(r && r.data &&
+                r.data.targetCommentId);
+              if (target) {
+                saveCountMap[target] =
+                  (saveCountMap[target] || 0) + 1;
+              }
+            }
+          } catch (aggregateError) {
+            console.error(
+                "loadMomentComments: aggregate reaction fetch failed",
+                {message: aggregateError && aggregateError.message},
+            );
+          }
+        }
+
+        // Reply count: how many reactions have data.parentId === this id.
+        // We already have the full `results` list above — bucket it once.
+        for (const item of results) {
+          const data = item && item.data ? item.data : {};
+          const parent = cleanString(data.parentId);
+          if (parent) {
+            replyCountMap[parent] = (replyCountMap[parent] || 0) + 1;
+          }
+        }
+
+        const comments = trimmed.map((item) => {
+          const data = item && item.data ? item.data : {};
+          const id = cleanString(item && item.id);
 
           return {
-            id: cleanString(item && item.id),
+            id,
             userId: cleanString(item && item.user_id),
             text: cleanString(data.text),
             authorUid: cleanString(data.authorUid) ||
@@ -2160,6 +2371,14 @@ exports.loadMomentComments = onCall(
             authorName: cleanString(data.authorName) || "Pingmee user",
             authorPhotoUrl: cleanString(data.authorPhotoUrl),
             createdAt: cleanString(item && item.created_at),
+            parentId: cleanString(data.parentId) || null,
+            rootId: cleanString(data.rootId) || null,
+            mentionedUid: cleanString(data.mentionedUid) || null,
+            likeCount: Number(likeCountMap[id] || 0),
+            savedCount: Number(saveCountMap[id] || 0),
+            replyCount: Number(replyCountMap[id] || 0),
+            likedByMe: ownLikeSet.has(id),
+            savedByMe: ownSaveSet.has(id),
           };
         });
 
@@ -2251,6 +2470,386 @@ exports.createDirectChat = onCall(
         channelId,
         cid: `messaging:${channelId}`,
       };
+    },
+);
+
+// ============================================================
+// Comment reactions — toggle like + save on a single comment.
+// Mirrors the moment like / save pattern (Stream reaction + Firestore
+// subcollection) so the read path can fetch all my own comment likes
+// in one filter and the user's own state is denormalised into
+// users/{uid}/liked_comments and users/{uid}/saved_comments.
+// ============================================================
+
+exports.toggleCommentLike = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const activityId = cleanString(request.data && request.data.activityId);
+      const commentId = cleanString(request.data && request.data.commentId);
+      const currentlyLiked =
+        request.data && request.data.currentlyLiked === true;
+      const existingReactionId = cleanString(
+          request.data && request.data.reactionId,
+      );
+
+      if (!activityId || !commentId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Missing activityId or commentId.",
+        );
+      }
+
+      const client = getStreamFeedsClient();
+      const db = admin.firestore();
+
+      try {
+        if (currentlyLiked) {
+          let reactionId = existingReactionId;
+
+          if (!reactionId) {
+            const existing = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-like",
+              filter_user_id: uid,
+              limit: 50,
+            });
+            const results = Array.isArray(existing.results) ?
+              existing.results :
+              [];
+            for (const r of results) {
+              if (cleanString(r && r.data &&
+                r.data.targetCommentId) === commentId) {
+                reactionId = cleanString(r && r.id);
+                break;
+              }
+            }
+          }
+
+          if (reactionId) {
+            await safeDeleteReaction(client, reactionId);
+          }
+
+          await db.collection("users").doc(uid)
+              .collection("liked_comments").doc(commentId)
+              .delete()
+              .catch(() => {});
+
+          return {
+            ok: true,
+            liked: false,
+            reactionId: "",
+          };
+        }
+
+        const reaction = await client.reactions.add(
+            "comment-like",
+            activityId,
+            {
+              targetCommentId: commentId,
+            },
+            {
+              userId: uid,
+            },
+        );
+
+        await db.collection("users").doc(uid)
+            .collection("liked_comments").doc(commentId)
+            .set({likedAt: admin.firestore.FieldValue.serverTimestamp()})
+            .catch(() => {});
+
+        return {
+          ok: true,
+          liked: true,
+          reactionId: cleanString(reaction.id),
+        };
+      } catch (error) {
+        console.error("toggleCommentLike failed", {
+          uid,
+          activityId,
+          commentId,
+          message: error && error.message,
+          code: error && error.code,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not update comment like.",
+        );
+      }
+    },
+);
+
+exports.toggleCommentSave = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const activityId = cleanString(request.data && request.data.activityId);
+      const commentId = cleanString(request.data && request.data.commentId);
+      const momentId = cleanString(request.data && request.data.momentId);
+      const currentlySaved =
+        request.data && request.data.currentlySaved === true;
+      const existingReactionId = cleanString(
+          request.data && request.data.reactionId,
+      );
+
+      if (!activityId || !commentId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Missing activityId or commentId.",
+        );
+      }
+
+      const client = getStreamFeedsClient();
+      const db = admin.firestore();
+
+      try {
+        if (currentlySaved) {
+          let reactionId = existingReactionId;
+
+          if (!reactionId) {
+            const existing = await client.reactions.filter({
+              activity_id: activityId,
+              kind: "comment-bookmark",
+              filter_user_id: uid,
+              limit: 50,
+            });
+            const results = Array.isArray(existing.results) ?
+              existing.results :
+              [];
+            for (const r of results) {
+              if (cleanString(r && r.data &&
+                r.data.targetCommentId) === commentId) {
+                reactionId = cleanString(r && r.id);
+                break;
+              }
+            }
+          }
+
+          if (reactionId) {
+            await safeDeleteReaction(client, reactionId);
+          }
+
+          // saved_comments doc id is the same as the comment's reaction id
+          // so each user has at most one row per comment and the
+          // Saved Comments tab can paginate by .orderBy('savedAt', 'desc').
+          await db.collection("users").doc(uid)
+              .collection("saved_comments").doc(commentId)
+              .delete()
+              .catch(() => {});
+
+          return {
+            ok: true,
+            saved: false,
+            reactionId: "",
+          };
+        }
+
+        const reaction = await client.reactions.add(
+            "comment-bookmark",
+            activityId,
+            {
+              targetCommentId: commentId,
+              momentId: momentId || null,
+            },
+            {
+              userId: uid,
+            },
+        );
+
+        await db.collection("users").doc(uid)
+            .collection("saved_comments").doc(commentId)
+            .set({
+              savedAt: admin.firestore.FieldValue.serverTimestamp(),
+              momentId: momentId || null,
+              activityId,
+            })
+            .catch(() => {});
+
+        return {
+          ok: true,
+          saved: true,
+          reactionId: cleanString(reaction.id),
+        };
+      } catch (error) {
+        console.error("toggleCommentSave failed", {
+          uid,
+          activityId,
+          commentId,
+          message: error && error.message,
+          code: error && error.code,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not update comment save.",
+        );
+      }
+    },
+);
+
+// ============================================================
+// sendCommentToConnection — wraps createDirectChat and posts a
+// comment preview message into the chat. The text is the user's
+// preview, prefixed with a structured marker so the chat renderer
+// can show the comment card above the message bubble.
+// ============================================================
+
+exports.sendCommentToConnection = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      const otherUid = cleanString(request.data && request.data.otherUid);
+      const commentText = cleanString(
+          request.data && request.data.commentText,
+      );
+      const commentAuthorName = cleanString(
+          request.data && request.data.commentAuthorName,
+      );
+      const commentAuthorPhotoUrl = cleanString(
+          request.data && request.data.commentAuthorPhotoUrl,
+      );
+      const momentId = cleanString(request.data && request.data.momentId);
+      const momentText = cleanString(
+          request.data && request.data.momentText,
+      );
+      const momentAuthorName = cleanString(
+          request.data && request.data.momentAuthorName,
+      );
+
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      if (!otherUid || otherUid === uid) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Invalid chat user.",
+        );
+      }
+
+      if (!commentText) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Comment text is required.",
+        );
+      }
+
+      const otherSnap = await admin.firestore()
+          .collection("users").doc(otherUid).get();
+      if (!otherSnap.exists) {
+        throw new HttpsError(
+            "not-found",
+            "That user does not exist.",
+        );
+      }
+
+      const client = getStreamClient();
+      const me = await getPublicUser(uid);
+      const other = await getPublicUser(otherUid);
+
+      await client.upsertUser(me);
+      await client.upsertUser(other);
+
+      const members = [uid, otherUid].sort();
+      const channelId = `dm_${members[0]}_${members[1]}`;
+
+      const channel = client.channel("messaging", channelId, {
+        members,
+        pingmeeType: "dm",
+        created_by_id: uid,
+      });
+      await safeCreateChannel(channel);
+      await channel.addMembers(members);
+
+      // Compose a short shared-comment message. The leading line is a
+      // stable machine-readable header the client uses to render the
+      // "shared comment" card; the user's note (or the comment text
+      // itself, if they didn't add a note) is the body.
+      const header = "pingmee_share_kind:shared_comment";
+      const authorLine = commentAuthorName ?
+        `From @${commentAuthorName.replace(/\s+/g, "")}` :
+        "From a Pingmee comment";
+      const momentLine = momentAuthorName ?
+        `on @${momentAuthorName.replace(/\s+/g, "")}'s moment` :
+        "";
+      const note = cleanString(request.data && request.data.note);
+      const body = note || commentText;
+
+      const commentPreview = commentText.length > 240 ?
+            commentText.substring(0, 240) + "…" :
+            commentText;
+      const composedText = [
+        header,
+        authorLine,
+        momentLine,
+        "",
+        `💬 "${commentPreview}"`,
+        "",
+        body,
+      ].filter((line) => line && line.length > 0).join("\n");
+
+      try {
+        const sent = await channel.sendMessage({
+          text: composedText,
+          customData: {
+            pingmee_share_kind: "shared_comment",
+            commentText,
+            commentAuthorName,
+            commentAuthorPhotoUrl,
+            momentId: momentId || null,
+            momentText: momentText || null,
+            momentAuthorName: momentAuthorName || null,
+            senderUid: uid,
+            senderName: me.name,
+            senderPhotoUrl: me.image,
+          },
+        });
+
+        return {
+          ok: true,
+          channelId,
+          cid: `messaging:${channelId}`,
+          messageId: sent && sent.message ? sent.message.id : "",
+        };
+      } catch (error) {
+        console.error("sendCommentToConnection failed", {
+          uid,
+          otherUid,
+          message: error && error.message,
+          code: error && error.code,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not share the comment.",
+        );
+      }
     },
 );
 
