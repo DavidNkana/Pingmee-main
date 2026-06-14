@@ -514,7 +514,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  // Header row: title left, sort dropdown right
+                  // Header row: title left, sort dropdown middle-right,
+                  // 3-dot more icon far right.
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: Row(
@@ -536,6 +537,21 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                             if (v == null) return;
                             setState(() => _sort = v);
                           },
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.more_horiz_rounded,
+                            size: 20,
+                          ),
+                          onPressed: _openSheetMoreMenu,
+                          color: Colors.black87,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          tooltip: "More",
                         ),
                       ],
                     ),
@@ -677,6 +693,101 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
           ),
       ],
     );
+  }
+
+  /// Sheet-level more menu (header 3-dot on the right of the
+  /// "Comments" title). Opens a small bottom sheet with sheet-level
+  /// actions.
+  Future<void> _openSheetMoreMenu() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: Container(
+            color: Colors.white,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.flag_outlined,
+                      color: Color(0xFFEF4444),
+                    ),
+                    title: const Text(
+                      "Report spam",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFEF4444),
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop("report_spam"),
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.link_rounded,
+                      color: Colors.black87,
+                    ),
+                    title: const Text(
+                      "Copy link to all comments",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop("copy_link"),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted) return;
+    if (picked == "report_spam") {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Thanks. We'll review this thread.",
+            style: TextStyle(
+              fontFamily: "Nunito",
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    } else if (picked == "copy_link") {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Link copied!",
+            style: TextStyle(
+              fontFamily: "Nunito",
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _openMoreSheet(Comment c) async {
@@ -1196,6 +1307,70 @@ class _MomentCommentRepliesScreenState
     }
     await cb(comment);
   }
+  /// Reply-level more menu (per-comment 3-dot in the replies list).
+  Future<void> _openRepliesMoreSheet(Comment c) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: Container(
+            color: Colors.white,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.flag_outlined,
+                      color: Color(0xFFEF4444),
+                    ),
+                    title: const Text(
+                      "Report comment",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFEF4444),
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop("report"),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == "report" && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Thanks. We'll review this comment.",
+            style: TextStyle(
+              fontFamily: "Nunito",
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
 
   // ------------------------------------------------------------------
   // Build
@@ -1302,6 +1477,7 @@ class _MomentCommentRepliesScreenState
                                 onSave: () => _toggleSave(r),
                                 onAuthorTap: () =>
                                     widget.onAuthorTap?.call(r.authorUid),
+                                onMore: () => _openRepliesMoreSheet(r),
                               );
                             },
                           ),
