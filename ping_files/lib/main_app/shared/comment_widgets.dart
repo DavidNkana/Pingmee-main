@@ -542,7 +542,7 @@ class CommentAvatar extends StatelessWidget {
   const CommentAvatar({
     super.key,
     required this.photoUrl,
-    this.size = 28,
+    this.size = 32,
     this.verified = false,
   });
 
@@ -601,7 +601,7 @@ class CommentAvatar extends StatelessWidget {
               width: size * 0.45,
               height: size * 0.45,
               decoration: BoxDecoration(
-                color: AppColors.brandGreen,
+                color: Color(0xFF1DA1F2),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 1.5),
               ),
@@ -740,22 +740,6 @@ class MomentCommentTile extends StatelessWidget {
                           color: Colors.black.withOpacity(.72),
                         ),
                       ),
-                      if (onMore != null)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: GestureDetector(
-                            onTap: onMore,
-                            behavior: HitTestBehavior.opaque,
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 2, left: 8),
-                              child: Icon(
-                                Icons.more_horiz_rounded,
-                                size: 18,
-                                color: Colors.black.withOpacity(.55),
-                              ),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                       // 3-dot menu (top-right of the bubble)
