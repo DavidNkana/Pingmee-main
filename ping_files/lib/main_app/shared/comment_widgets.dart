@@ -30,6 +30,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
@@ -1239,14 +1240,21 @@ class _CommentBody extends StatelessWidget {
       }
       final raw = m.group(1) ?? "";
       final tag = raw.toLowerCase();
-      final uid = tagToUid[tag];
-      spans.add(TextSpan(
-        text: "@$raw",
-        style: mentionStyle,
-        recognizer: uid == null
-            ? null
-            : (TapGestureRecognizer..bind)..onTap = () => onMentionTap(uid),
-      ));
+      final resolvedUid = tagToUid[tag];
+      if (resolvedUid == null) {
+        // Cache miss for this mention tag — render as plain styled text
+        // (still X-blue so the user sees it's a mention, but no tap
+        // handler because we don't have a uid to navigate to yet).
+        spans.add(TextSpan(text: "@$raw", style: mentionStyle));
+      } else {
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () => onMentionTap(resolvedUid);
+        spans.add(TextSpan(
+          text: "@$raw",
+          style: mentionStyle,
+          recognizer: recognizer,
+        ));
+      }
       cursor = m.end;
     }
     if (cursor < text.length) {
