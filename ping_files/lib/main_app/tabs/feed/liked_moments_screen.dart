@@ -369,9 +369,14 @@ class _LikedMomentsScreenState extends State<LikedMomentsScreen> {
           );
         },
         onOpenReplies: (parent) {
-          Navigator.of(sheetContext).pop();
-          Navigator.of(context).push(
+          // Push ABOVE the sheet so the back button returns to
+
+          // comments (not the feed).
+
+          Navigator.of(sheetContext, rootNavigator: true).push(
+
             MaterialPageRoute<void>(
+
               builder: (_) => MomentCommentRepliesScreen(
                 rootComment: parent,
                 activityId: activityId,
