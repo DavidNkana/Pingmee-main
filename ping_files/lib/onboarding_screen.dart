@@ -276,7 +276,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 progress: (_currentPage + 1) / _pages.length,
                                 strokeWidth: 3,
                                 backgroundColor: Colors.grey.shade200,
-                                progressColor: AppColors.brandGreen,
+                                // Round progress bar — switched to
+                                // black (was AppColors.brandGreen) so
+                                // the round button + ring read as a
+                                // single dark unit, matching the
+                                // search/feed "Connect" button family.
+                                progressColor: Colors.black,
                               ),
                             ),
                           ),
@@ -284,8 +289,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             onTap: _onNext,
                             child: Container(
                               padding: const EdgeInsets.all(16),
+                              // Round button with the arrow-forward
+                              // icon. Switched to black (was
+                              // AppColors.brandGreen) per the
+                              // onboarding redesign — the round
+                              // button + circular progress bar
+                              // now read as a single dark unit.
                               decoration: const BoxDecoration(
-                                color: AppColors.brandGreen,
+                                color: Colors.black,
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
