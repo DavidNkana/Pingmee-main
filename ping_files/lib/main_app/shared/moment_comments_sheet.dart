@@ -18,15 +18,25 @@
 // ============================================================================
 
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:giphy_get/giphy_get.dart';
+import 'package:image_picker/image_picker.dart';
+
 import 'package:ping_files/main_app/shared/comment_widgets.dart';
 import 'package:ping_files/theme/colors2.dart';
+
+// Re-use the same GIPHY key as the chat channel so a single billing
+// identity covers the app.
+const String kPingmeeGiphyApiKey = 'g3wdgZSfWXCPsRDJn4fosL6bXjtYgQXJ';
 
 // ============================================================================
 // Comment sort dropdown — Top / Recent
@@ -173,6 +183,11 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
   /// so the sheet can resolve verified flags even for comment authors
   /// who never appeared in a moment in this session.
   final Map<String, bool> _verifiedCache = {};
+
+  /// v65: per-sheet @-mention user cache. Populated lazily by
+  /// _refreshMentionedUsersCache after a comment with `mentions` is
+  /// loaded. Same copy-paste pattern as _verifiedCache from v61/v62.
+  final Map<String, UserRef> _mentionedUsersCache = {};
 
   /// Top-level only, sorted by the current sort mode. Replies (where
   /// parentId is non-empty) are excluded.
@@ -382,15 +397,22 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
     _composerFocus.unfocus();
   }
 
-  Future<void> _sendComment() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
+  /// v65: send a comment with optional mentions and attachments.
+  /// Called by the new [CommentComposer].
+  Future<void> _sendComment({
+    required String text,
+    List<String> mentions = const <String>[],
+    List<CommentAttachment> attachments = const <CommentAttachment>[],
+  }) async {
+    final cleanText = text.trim();
+    if (cleanText.isEmpty && attachments.isEmpty) return;
+    if (_sending) return;
 
     final replyParent = _replyingTo;
     final optimistic = Comment(
       id: "optimistic_${DateTime.now().millisecondsSinceEpoch}",
       userId: "",
-      text: text,
+      text: cleanText,
       authorUid: "",
       authorName: "You",
       authorPhotoUrl: "",
@@ -403,6 +425,8 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
       replyCount: 0,
       likedByMe: false,
       savedByMe: false,
+      mentions: mentions,
+      attachments: attachments,
     );
 
     setState(() {
@@ -414,50 +438,13 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
     try {
       final real = await widget.commentService.addComment(
         activityId: widget.activityId,
-        text: text,
+        text: cleanText,
         parentCommentId: replyParent?.id,
         rootCommentId: replyParent?.rootId ?? replyParent?.id,
+        mentions: mentions,
+        attachments: attachments,
       );
 
-      if (!mounted) return;
-      setState(() {
-        // Replace the optimistic row with the server-confirmed one, OR
-        // append the server one if the optimistic row was lost.
-        final idx = _comments.indexWhere((c) => c.id == optimistic.id);
-        if (idx >= 0) {
-          _comments = [..._comments]..[idx] = real;
-        } else {
-          _comments = [..._comments, real];
-        }
-        // If this was a top-level comment, nothing to bump. If this was
-        // a reply, bump the parent's replyCount in-place.
-        if (replyParent != null) {
-          final p = _comments.indexWhere((c) => c.id == replyParent.id);
-          if (p >= 0) {
-            _comments[p] = _comments[p].copyWith(
-              replyCount: _comments[p].replyCount + 1,
-            );
-          }
-        }
-        _replyingTo = null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        // Drop the optimistic row
-        _comments = _comments.where((c) => c.id != optimistic.id).toList();
-      });
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text("Couldn't add comment.")),
-      );
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Like + Save
-  // ------------------------------------------------------------------
 
   Future<void> _toggleLike(Comment comment) async {
     if (_pendingLikes.contains(comment.id)) return;
@@ -1016,75 +1003,47 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                 ],
               ),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _composerFocus,
-                  minLines: 1,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendComment(),
-                  decoration: InputDecoration(
-                    hintText: replyingTo == null
-                        ? "Add a comment…"
-                        : "Reply to this comment…",
-                    hintStyle: TextStyle(
-                      fontFamily: "Nunito",
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black.withOpacity(.38),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF3F4F6),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              InkWell(
-                onTap: _sending ? null : _sendComment,
-                borderRadius: BorderRadius.circular(18),
-                child: Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Center(
-                    child: _sending
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            PhosphorIcons.paperPlaneTilt(
-                                PhosphorIconsStyle.fill),
-                            color: Colors.white,
-                            size: 19,
-                          ),
-                  ),
-                ),
-              ),
-            ],
+          const SizedBox(height: 8),
+          CommentComposer(
+            controller: _controller,
+            focusNode: _composerFocus,
+            hintText: replyingTo == null
+                ? "Add a comment…"
+                : "Reply to this comment…",
+            sending: _sending,
+            myUid: FirebaseAuth.instance.currentUser?.uid ?? "",
+            commentService: widget.commentService,
+            activityId: widget.activityId,
+            mentionedUsersCache: _mentionedUsersCache,
+            onRefreshMentionedCache: _refreshMentionedUsersCache,
+            onSend: _sendComment,
           ),
         ],
       ),
     );
+  }
+
+  /// v65: lazy-populate the per-sheet _mentionedUsersCache for any
+  /// comment whose `mentions` we don't already have. Mirrors
+  /// _refreshVerifiedCache (v61/v62) but resolves UserRef via
+  /// CommentService.lookupManyByUids.
+  Future<void> _refreshMentionedUsersCache() async {
+    final missing = <String>{};
+    for (final c in _comments) {
+      for (final uid in c.mentions) {
+        if (uid.isNotEmpty && !_mentionedUsersCache.containsKey(uid)) {
+          missing.add(uid);
+        }
+      }
+    }
+    if (missing.isEmpty) return;
+    final fetched = await widget.commentService
+        .lookupManyByUids(missing.toList());
+    if (!mounted) return;
+    if (fetched.isEmpty) return;
+    setState(() {
+      _mentionedUsersCache.addAll(fetched);
+    });
   }
 }
 
@@ -1214,6 +1173,10 @@ class _MomentCommentRepliesScreenState
   /// to keep the patch minimal; refactor to a shared mixin later.
   final Map<String, bool> _verifiedCache = {};
 
+  /// v65: per-sheet @-mention user cache. Same pattern as the
+  /// _MomentCommentsSheetState.
+  final Map<String, UserRef> _mentionedUsersCache = {};
+
   final TextEditingController _controller = TextEditingController();
   final FocusNode _composerFocus = FocusNode();
 
@@ -1274,9 +1237,15 @@ class _MomentCommentRepliesScreenState
     }
   }
 
-  Future<void> _sendReply() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
+  /// v65: send a reply with optional mentions and attachments.
+  Future<void> _sendReply({
+    required String text,
+    List<String> mentions = const <String>[],
+    List<CommentAttachment> attachments = const <CommentAttachment>[],
+  }) async {
+    final cleanText = text.trim();
+    if (cleanText.isEmpty && attachments.isEmpty) return;
+    if (_sending) return;
 
     setState(() {
       _sending = true;
@@ -1286,27 +1255,13 @@ class _MomentCommentRepliesScreenState
     try {
       final reply = await widget.commentService.addComment(
         activityId: widget.activityId,
-        text: text,
+        text: cleanText,
         parentCommentId: widget.rootComment.id,
         rootCommentId: widget.rootComment.id,
+        mentions: mentions,
+        attachments: attachments,
       );
-      if (!mounted) return;
-      setState(() {
-        _replies = [..._replies, reply];
-        _sending = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _sending = false);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text("Couldn't add reply.")),
-      );
-    }
-  }
 
-  // ------------------------------------------------------------------
-  // Like / Save — same optimistic-flip pattern as the sheet
-  // ------------------------------------------------------------------
 
   Future<void> _toggleLike(Comment comment) async {
     if (_pendingLikes.contains(comment.id)) return;
@@ -1710,69 +1665,1110 @@ class _MomentCommentRepliesScreenState
           top: BorderSide(color: Colors.black.withOpacity(.06)),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _composerFocus,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _sendReply(),
-              decoration: InputDecoration(
-                hintText: "Reply to this comment…",
-                hintStyle: TextStyle(
-                  fontFamily: "Nunito",
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black.withOpacity(.38),
+          // "Reply to this comment" pill (always shown in replies screen).
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(
+                  PhosphorIcons.arrowBendUpLeft(
+                      PhosphorIconsStyle.regular),
+                  size: 13,
+                  color: Colors.black54,
                 ),
-                filled: true,
-                fillColor: const Color(0xFFF3F4F6),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    "Reply to this comment",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black.withOpacity(.6),
+                    ),
+                  ),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-              ),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
-          InkWell(
-            onTap: _sending ? null : _sendReply,
-            borderRadius: BorderRadius.circular(18),
-            child: Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Center(
-                child: _sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : Icon(
-                        PhosphorIcons.paperPlaneTilt(
-                            PhosphorIconsStyle.fill),
-                        color: Colors.white,
-                        size: 19,
-                      ),
-              ),
-            ),
+          CommentComposer(
+            controller: _controller,
+            focusNode: _composerFocus,
+            hintText: "Reply to this comment…",
+            sending: _sending,
+            myUid: FirebaseAuth.instance.currentUser?.uid ?? "",
+            commentService: widget.commentService,
+            activityId: widget.activityId,
+            mentionedUsersCache: _mentionedUsersCache,
+            onRefreshMentionedCache: _refreshMentionedUsersCache,
+            onSend: _sendReply,
           ),
         ],
       ),
     );
   }
+
+  /// v65: lazy-populate the per-sheet _mentionedUsersCache for the
+  /// replies list. Mirrors _MomentCommentsSheetState.
+  Future<void> _refreshMentionedUsersCache() async {
+    final missing = <String>{};
+    for (final c in _replies) {
+      for (final uid in c.mentions) {
+        if (uid.isNotEmpty && !_mentionedUsersCache.containsKey(uid)) {
+          missing.add(uid);
+        }
+      }
+    }
+    if (missing.isEmpty) return;
+    final fetched = await widget.commentService
+        .lookupManyByUids(missing.toList());
+    if (!mounted) return;
+    if (fetched.isEmpty) return;
+    setState(() {
+      _mentionedUsersCache.addAll(fetched);
+    });
+  }
+}
+
+
+
+// ============================================================================
+// v65: MentionPicker — a floating popup that appears above the composer
+// when the user types '@'. Shows up to 10 connection chips (avatar + name +
+// username). As the user types after the '@', the list filters by name /
+// username substring (case-insensitive). Tapping a chip inserts
+// '@<mentionTag> ' at the current cursor position in the composer
+// TextField via the onPickMention callback.
+// ============================================================================
+
+class MentionPicker extends StatefulWidget {
+  final String myUid;
+  final CommentService commentService;
+  final ValueChanged<UserRef> onPickMention;
+
+  const MentionPicker({
+    super.key,
+    required this.myUid,
+    required this.commentService,
+    required this.onPickMention,
+  });
+
+  @override
+  State<MentionPicker> createState() => _MentionPickerState();
+}
+
+class _MentionPickerState extends State<MentionPicker> {
+  final TextEditingController _queryCtrl = TextEditingController();
+
+  Timer? _debounce;
+  List<UserRef> _results = const <UserRef>[];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _runSearch();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _queryCtrl.dispose();
+    super.dispose();
+  }
+
+  void _runSearch() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 150), () async {
+      if (!mounted) return;
+      setState(() => _loading = true);
+      final list = await widget.commentService.searchConnections(
+        widget.myUid,
+        query: _queryCtrl.text,
+        limit: 10,
+      );
+      if (!mounted) return;
+      setState(() {
+        _results = list;
+        _loading = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 280),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withOpacity(.08)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _queryCtrl,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              onChanged: (_) => _runSearch(),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: "Search connections",
+                hintStyle: TextStyle(
+                  fontFamily: "Nunito",
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black.withOpacity(.4),
+                ),
+                prefixIcon: Icon(
+                  PhosphorIcons.magnifyingGlass(
+                      PhosphorIconsStyle.regular),
+                  size: 16,
+                  color: Colors.black.withOpacity(.55),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF3F4F6),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+              ),
+              style: const TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Flexible(
+              child: _loading
+                  ? Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.black.withOpacity(.6)),
+                        ),
+                      ),
+                    )
+                  : _results.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 16),
+                          child: Text(
+                            _queryCtrl.text.trim().isEmpty
+                                ? "No connections yet."
+                                : "No matches.",
+                            style: TextStyle(
+                              fontFamily: "Nunito",
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black.withOpacity(.55),
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          itemCount: _results.length,
+                          separatorBuilder: (_, __) => Divider(
+                            height: 1,
+                            thickness: 0.5,
+                            color: Colors.black.withOpacity(.06),
+                          ),
+                          itemBuilder: (_, i) {
+                            final u = _results[i];
+                            return InkWell(
+                              onTap: () => widget.onPickMention(u),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    ClipOval(
+                                      child: u.photoUrl.isNotEmpty
+                                          ? Image.network(
+                                              u.photoUrl,
+                                              width: 28,
+                                              height: 28,
+                                              fit: BoxFit.cover,
+                                              errorBuilder:
+                                                  (_, __, ___) => Container(
+                                                width: 28,
+                                                height: 28,
+                                                color: const Color(
+                                                    0xFFEFF1F4),
+                                                child: Icon(
+                                                  PhosphorIcons.user(
+                                                      PhosphorIconsStyle
+                                                          .regular),
+                                                  size: 16,
+                                                  color: Colors.black26,
+                                                ),
+                                              ),
+                                            )
+                                          : Container(
+                                              width: 28,
+                                              height: 28,
+                                              color:
+                                                  const Color(0xFFEFF1F4),
+                                              child: Icon(
+                                                PhosphorIcons.user(
+                                                    PhosphorIconsStyle
+                                                        .regular),
+                                                size: 16,
+                                                color: Colors.black26,
+                                              ),
+                                            ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            u.fullName,
+                                            maxLines: 1,
+                                            overflow:
+                                                TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: "Nunito",
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          if (u.username.isNotEmpty)
+                                            Text(
+                                              "@${u.username}",
+                                              maxLines: 1,
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontFamily: "Nunito",
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w500,
+                                                color: Colors.black
+                                                    .withOpacity(.55),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// v65: AttachmentBar — a thin icon row that sits ABOVE the composer
+// TextField. 4 buttons: @, emoji, image, sticker.
+// ============================================================================
+
+class AttachmentBar extends StatelessWidget {
+  final VoidCallback onTapMention;
+  final VoidCallback onTapEmoji;
+  final VoidCallback onTapImage;
+  final VoidCallback onTapSticker;
+
+  final bool mentionOpen;
+  final bool emojiOpen;
+  final bool stickerOpen;
+  final bool uploading;
+
+  const AttachmentBar({
+    super.key,
+    required this.onTapMention,
+    required this.onTapEmoji,
+    required this.onTapImage,
+    required this.onTapSticker,
+    this.mentionOpen = false,
+    this.emojiOpen = false,
+    this.stickerOpen = false,
+    this.uploading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final inactive = Colors.black.withOpacity(.55);
+    return SizedBox(
+      height: 36,
+      child: Row(
+        children: [
+          _BarButton(
+            iconData: PhosphorIcons.at(PhosphorIconsStyle.regular),
+            color: mentionOpen ? Colors.black : inactive,
+            tooltip: "Mention",
+            onTap: onTapMention,
+          ),
+          _BarButton(
+            iconData: PhosphorIcons.smiley(PhosphorIconsStyle.regular),
+            color: emojiOpen ? Colors.black : inactive,
+            tooltip: "Emoji",
+            onTap: onTapEmoji,
+          ),
+          _BarButton(
+            iconData: PhosphorIcons.image(PhosphorIconsStyle.regular),
+            color: inactive,
+            tooltip: "Image",
+            onTap: uploading ? null : onTapImage,
+            uploading: uploading,
+          ),
+          _BarButton(
+            iconData: PhosphorIcons.sticker(PhosphorIconsStyle.regular),
+            color: stickerOpen ? Colors.black : inactive,
+            tooltip: "Sticker",
+            onTap: onTapSticker,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BarButton extends StatelessWidget {
+  final IconData iconData;
+  final Color color;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool uploading;
+
+  const _BarButton({
+    required this.iconData,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+    this.uploading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: Center(
+            child: uploading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.black54),
+                    ),
+                  )
+                : Icon(iconData, size: 20, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// v65: CommentComposer — the new composer used by BOTH the main sheet
+// and the replies screen.
+// ============================================================================
+
+typedef CommentComposerSend = Future<void> Function(
+  String text, {
+  List<String> mentions,
+  List<CommentAttachment> attachments,
+});
+
+class CommentComposer extends StatefulWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String hintText;
+  final bool sending;
+  final String myUid;
+  final CommentService commentService;
+  final String activityId;
+
+  final Map<String, UserRef> mentionedUsersCache;
+  final Future<void> Function() onRefreshMentionedCache;
+
+  final CommentComposerSend onSend;
+
+  const CommentComposer({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.hintText,
+    required this.sending,
+    required this.myUid,
+    required this.commentService,
+    required this.activityId,
+    required this.mentionedUsersCache,
+    required this.onRefreshMentionedCache,
+    required this.onSend,
+  });
+
+  @override
+  State<CommentComposer> createState() => _CommentComposerState();
+}
+
+class _CommentComposerState extends State<CommentComposer> {
+  final ImagePicker _imagePicker = ImagePicker();
+
+  final List<String> _mentionUids = <String>[];
+
+  String? _pendingImageUrl;
+  int? _pendingImageWidth;
+  int? _pendingImageHeight;
+  String? _pendingStickerUrl;
+  String? _pendingStickerThumb;
+  String? _pendingStickerId;
+
+  bool _emojiOpen = false;
+  bool _mentionPickerVisible = false;
+  bool _uploadingImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTextChanged);
+    widget.focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    widget.focusNode.removeListener(_onFocusChanged);
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (!widget.focusNode.hasFocus && mounted) {
+      if (_emojiOpen) setState(() => _emojiOpen = false);
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+    }
+  }
+
+  void _onTextChanged() {
+    if (!mounted) return;
+    final text = widget.controller.text;
+    final selection = widget.controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final cursor = selection.baseOffset;
+    if (cursor <= 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final before = text.substring(0, cursor);
+    final atIndex = before.lastIndexOf('@');
+    if (atIndex < 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final between = before.substring(atIndex + 1);
+    if (between.contains(' ') || between.contains('\n')) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (between.length > 32) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (!_mentionPickerVisible) {
+      setState(() => _mentionPickerVisible = true);
+    }
+  }
+
+  void _insertAtCursor(String s) {
+    final ctrl = widget.controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      final newText = ctrl.text + s;
+      ctrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+      return;
+    }
+    final newText = ctrl.text.replaceRange(sel.start, sel.end, s);
+    final newCursor = sel.start + s.length;
+    ctrl.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+  }
+
+  void _onPickMention(UserRef u) {
+    final tag = '@${u.mentionTag} ';
+    final ctrl = widget.controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      _insertAtCursor(tag);
+    } else {
+      final text = ctrl.text;
+      final atIndex = text.lastIndexOf('@', sel.start - 1);
+      if (atIndex >= 0) {
+        final newText = text.replaceRange(atIndex, sel.start, tag);
+        ctrl.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: atIndex + tag.length),
+        );
+      } else {
+        _insertAtCursor(tag);
+      }
+    }
+    if (!_mentionUids.contains(u.uid)) {
+      _mentionUids.add(u.uid);
+      widget.mentionedUsersCache[u.uid] = u;
+    }
+    setState(() => _mentionPickerVisible = false);
+    widget.focusNode.requestFocus();
+  }
+
+  Future<void> _onPickImageFromGallery() async {
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      await _uploadImage(bytes, _mimeForFileName(picked.name));
+    } on PlatformException catch (e) {
+      _toast("Couldn't pick image: ${e.message ?? e.code}");
+    } catch (_) {
+      _toast("Couldn't pick image.");
+    }
+  }
+
+  Future<void> _onPickImageFromCamera() async {
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      await _uploadImage(bytes, _mimeForFileName(picked.name));
+    } on PlatformException catch (e) {
+      _toast("Couldn't take photo: ${e.message ?? e.code}");
+    } catch (_) {
+      _toast("Couldn't take photo.");
+    }
+  }
+
+  String _mimeForFileName(String name) {
+    final n = name.toLowerCase();
+    if (n.endsWith(".png")) return "image/png";
+    if (n.endsWith(".gif")) return "image/gif";
+    if (n.endsWith(".webp")) return "image/webp";
+    return "image/jpeg";
+  }
+
+  Future<void> _uploadImage(Uint8List bytes, String contentType) async {
+    setState(() => _uploadingImage = true);
+    try {
+      final localId =
+          "local-${DateTime.now().millisecondsSinceEpoch}";
+      final url = await widget.commentService.uploadCommentImage(
+        activityId: widget.activityId,
+        commentIdLocal: localId,
+        bytes: bytes,
+        contentType: contentType,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingImageUrl = url;
+        _pendingImageWidth = null;
+        _pendingImageHeight = null;
+        _uploadingImage = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _uploadingImage = false);
+      _toast("Couldn't upload image.");
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text(
+                  "Take photo",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("camera"),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text(
+                  "Choose from library",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("library"),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (picked == "camera") {
+      await _onPickImageFromCamera();
+    } else if (picked == "library") {
+      await _onPickImageFromGallery();
+    }
+  }
+
+  Future<void> _onPickSticker() async {
+    if (kPingmeeGiphyApiKey.contains('PASTE_')) {
+      _toast("Sticker library is not set up yet.");
+      return;
+    }
+    try {
+      final gif = await GiphyGet.getGif(
+        context: context,
+        apiKey: kPingmeeGiphyApiKey,
+        lang: GiphyLanguage.english,
+        tabColor: Colors.black,
+        debounceTimeInMilliseconds: 350,
+        showGIFs: false,
+        showStickers: true,
+        showEmojis: false,
+      );
+      if (gif == null) return;
+      final url = _bestGiphyUrl(gif);
+      final previewUrl = _bestGiphyPreviewUrl(gif);
+      if (url.isEmpty) {
+        _toast("Couldn't load sticker.");
+        return;
+      }
+      final id = (gif.id ?? "").toString();
+      if (!mounted) return;
+      setState(() {
+        _pendingStickerUrl = url;
+        _pendingStickerThumb = previewUrl.isNotEmpty ? previewUrl : url;
+        _pendingStickerId = id.isNotEmpty ? id : null;
+      });
+    } catch (_) {
+      _toast("Couldn't open sticker library.");
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  Future<void> _onTapSend() async {
+    final text = widget.controller.text;
+    final clean = text.trim();
+    final pendingImage = _pendingImageUrl;
+    final pendingSticker = _pendingStickerUrl;
+
+    if (clean.isEmpty &&
+        pendingImage == null &&
+        pendingSticker == null) {
+      return;
+    }
+
+    final attachments = <CommentAttachment>[];
+    if (pendingImage != null) {
+      attachments.add(CommentAttachment(
+        kind: "image",
+        url: pendingImage,
+        width: _pendingImageWidth,
+        height: _pendingImageHeight,
+      ));
+    }
+    if (pendingSticker != null) {
+      attachments.add(CommentAttachment(
+        kind: "sticker",
+        url: pendingSticker,
+        thumbUrl: _pendingStickerThumb,
+        stickerId: _pendingStickerId,
+        stickerSource: "giphy",
+      ));
+    }
+
+    final mentions = List<String>.from(_mentionUids);
+
+    setState(() {
+      _pendingImageUrl = null;
+      _pendingImageWidth = null;
+      _pendingImageHeight = null;
+      _pendingStickerUrl = null;
+      _pendingStickerThumb = null;
+      _pendingStickerId = null;
+      _mentionUids.clear();
+    });
+
+    await widget.onSend(
+      clean,
+      mentions: mentions,
+      attachments: attachments,
+    );
+
+    if (widget.controller.text.isNotEmpty) {
+      widget.controller.clear();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAttachment = _pendingImageUrl != null ||
+        _pendingStickerUrl != null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (hasAttachment)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _AttachmentPreview(
+              imageUrl: _pendingImageUrl,
+              stickerUrl: _pendingStickerUrl,
+              stickerThumb: _pendingStickerThumb,
+              onClear: () {
+                setState(() {
+                  _pendingImageUrl = null;
+                  _pendingImageWidth = null;
+                  _pendingImageHeight = null;
+                  _pendingStickerUrl = null;
+                  _pendingStickerThumb = null;
+                  _pendingStickerId = null;
+                });
+              },
+            ),
+          ),
+        AttachmentBar(
+          onTapMention: () {
+            setState(() {
+              _mentionPickerVisible = !_mentionPickerVisible;
+              if (_mentionPickerVisible) _emojiOpen = false;
+            });
+            if (_mentionPickerVisible) {
+              _insertAtCursor('@');
+              widget.focusNode.requestFocus();
+            }
+          },
+          onTapEmoji: () {
+            setState(() {
+              _emojiOpen = !_emojiOpen;
+              if (_emojiOpen) _mentionPickerVisible = false;
+            });
+            if (_emojiOpen) {
+              widget.focusNode.unfocus();
+            } else {
+              widget.focusNode.requestFocus();
+            }
+          },
+          onTapImage: _showImageSourceSheet,
+          onTapSticker: _onPickSticker,
+          mentionOpen: _mentionPickerVisible,
+          emojiOpen: _emojiOpen,
+          uploading: _uploadingImage,
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _onTapSend(),
+                decoration: InputDecoration(
+                  hintText: widget.hintText,
+                  hintStyle: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withOpacity(.38),
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFF3F4F6),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            InkWell(
+              onTap: widget.sending ? null : _onTapSend,
+              borderRadius: BorderRadius.circular(18),
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Center(
+                  child: widget.sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white),
+                          ),
+                        )
+                      : Icon(
+                          PhosphorIcons.paperPlaneTilt(
+                              PhosphorIconsStyle.fill),
+                          color: Colors.white,
+                          size: 19,
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_mentionPickerVisible)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: MentionPicker(
+              myUid: widget.myUid,
+              commentService: widget.commentService,
+              onPickMention: _onPickMention,
+            ),
+          ),
+        if (_emojiOpen)
+          SizedBox(
+            height: 280,
+            child: EmojiPicker(
+              textEditingController: widget.controller,
+              config: Config(
+                height: 280,
+                checkPlatformCompatibility: true,
+                emojiViewConfig: const EmojiViewConfig(
+                  columns: 7,
+                  emojiSizeMax: 30,
+                  backgroundColor: Colors.white,
+                  verticalSpacing: 0,
+                  horizontalSpacing: 0,
+                ),
+                viewOrderConfig: const ViewOrderConfig(
+                  top: EmojiPickerItem.categoryBar,
+                  middle: EmojiPickerItem.emojiView,
+                  bottom: EmojiPickerItem.searchBar,
+                ),
+                categoryViewConfig: const CategoryViewConfig(
+                  backgroundColor: Colors.white,
+                  indicatorColor: Colors.black,
+                  iconColor: Color(0xFF9CA3AF),
+                  iconColorSelected: Colors.black,
+                  dividerColor: Colors.transparent,
+                ),
+                bottomActionBarConfig: const BottomActionBarConfig(
+                  backgroundColor: Colors.white,
+                  buttonIconColor: Colors.black,
+                ),
+                searchViewConfig: const SearchViewConfig(
+                  backgroundColor: Color(0xFFF3F4F6),
+                  buttonIconColor: Colors.black,
+                  hintText: 'Search emoji',
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// v65: _AttachmentPreview — small inline preview of a staged image or
+// sticker above the TextField. The user can clear it with the X button.
+// ============================================================================
+
+class _AttachmentPreview extends StatelessWidget {
+  final String? imageUrl;
+  final String? stickerUrl;
+  final String? stickerThumb;
+  final VoidCallback onClear;
+
+  const _AttachmentPreview({
+    this.imageUrl,
+    this.stickerUrl,
+    this.stickerThumb,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl ?? stickerUrl ?? stickerThumb;
+    if (url == null || url.isEmpty) return const SizedBox.shrink();
+    final isSticker = imageUrl == null;
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            constraints: const BoxConstraints(maxHeight: 96),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Image.network(
+              url,
+              fit: isSticker ? BoxFit.contain : BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                child: Icon(
+                  isSticker
+                      ? PhosphorIcons.sticker(PhosphorIconsStyle.regular)
+                      : PhosphorIcons.image(PhosphorIconsStyle.regular),
+                  size: 24,
+                  color: Colors.black38,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: onClear,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: const BoxDecoration(
+                color: Colors.black87,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// v65: GIPHY URL helpers. Copied verbatim from chat_channel_page.dart so the
+// comment sticker pipeline returns the same shape the chat uses.
+// ============================================================================
+
+String _tryReadGiphyUrl(Object? Function() read) {
+  final value = read()?.toString().trim() ?? '';
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+  return '';
+}
+
+String _bestGiphyUrl(GiphyGif gif) {
+  final dynamic g = gif;
+  final candidates = [
+    _tryReadGiphyUrl(() => g.images?.original?.url),
+    _tryReadGiphyUrl(() => g.images?.downsized?.url),
+    _tryReadGiphyUrl(() => g.images?.fixedHeight?.url),
+    _tryReadGiphyUrl(() => g.images?.fixedWidth?.url),
+    _tryReadGiphyUrl(() => g.images?.previewGif?.url),
+  ];
+  for (final url in candidates) {
+    if (url.isNotEmpty) return url;
+  }
+  return '';
+}
+
+String _bestGiphyPreviewUrl(GiphyGif gif) {
+  final dynamic g = gif;
+  final candidates = [
+    _tryReadGiphyUrl(() => g.images?.fixedHeightSmallStill?.url),
+    _tryReadGiphyUrl(() => g.images?.fixedWidthSmallStill?.url),
+    _tryReadGiphyUrl(() => g.images?.downsizedStill?.url),
+    _tryReadGiphyUrl(() => g.images?.originalStill?.url),
+    _tryReadGiphyUrl(() => g.images?.previewGif?.url),
+  ];
+  for (final url in candidates) {
+    if (url.isNotEmpty) return url;
+  }
+  return _bestGiphyUrl(gif);
 }
