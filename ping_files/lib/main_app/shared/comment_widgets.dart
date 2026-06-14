@@ -601,7 +601,7 @@ class CommentAvatar extends StatelessWidget {
               width: size * 0.45,
               height: size * 0.45,
               decoration: BoxDecoration(
-                color: Color(0xFF1DA1F2),
+                color: Color(0xFF1D9BF0),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 1.5),
               ),
@@ -701,20 +701,19 @@ class MomentCommentTile extends StatelessWidget {
                 onTap: onBubbleTap,
                 behavior: HitTestBehavior.opaque,
                 child: Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF3F4F6),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Column(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // (Reply context is conveyed by the branch line +
-                      // indent at the sheet level. No in-bubble pill.)
                       // Author name + optional inline blue tick
+                      // (X-blue, same as the verified badge in the feed)
                       GestureDetector(
                         onTap: onAuthorTap,
                         behavior: HitTestBehavior.opaque,
@@ -735,11 +734,11 @@ class MomentCommentTile extends StatelessWidget {
                               ),
                             ),
                             if (authorVerified) ...[
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 2),
                               const Icon(
                                 Icons.verified_rounded,
                                 size: 13,
-                                color: Color(0xFF1DA1F2),
+                                color: Color(0xFF1D9BF0),
                               ),
                             ],
                           ],
@@ -759,26 +758,6 @@ class MomentCommentTile extends StatelessWidget {
                       ),
                     ],
                   ),
-                      // 3-dot menu (top-right of the bubble)
-                      if (onMore != null)
-                        Positioned(
-                          right: -6,
-                          top: -2,
-                          child: GestureDetector(
-                            onTap: onMore,
-                            behavior: HitTestBehavior.opaque,
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: Icon(
-                                Icons.more_horiz_rounded,
-                                size: 18,
-                                color: Colors.black.withOpacity(.55),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
                 ),
               ),
               // Action bar
@@ -795,6 +774,23 @@ class MomentCommentTile extends StatelessWidget {
             ],
           ),
         ),
+        if (onMore != null)
+          // 3-dot sits OUTSIDE the grey bubble, on the far right of the
+          // row, top-aligned with the author name.
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: IconButton(
+              icon: const Icon(Icons.more_horiz_rounded, size: 18),
+              onPressed: onMore,
+              color: Colors.black.withOpacity(.55),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 28,
+                minHeight: 28,
+              ),
+              tooltip: "More",
+            ),
+          ),
       ],
     );
   }
