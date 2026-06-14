@@ -2575,16 +2575,14 @@ class _CommentComposerState extends State<CommentComposer> {
     final hasAttachment = _pendingImageUrl != null ||
         _pendingStickerUrl != null;
 
-    // v70: AnimatedPadding lifts the entire composer (including the
-    // MentionPicker stacked above the TextField) above the keyboard so
-    // the picker never gets squeezed under it.
-    return AnimatedPadding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-      child: Column(
+    // v71: the sheet's own AnimatedPadding at line ~626 already lifts
+    // the whole sheet (and the composer inside it) above the keyboard.
+    // v70 stacked an INNER AnimatedPadding on top of that, which lifted
+    // the TextField even higher than necessary. Removing the inner one
+    // puts the TextField back at its natural position while the
+    // MentionPicker (a child of this Column) still rides up with the
+    // sheet as one unit.
+    return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2748,7 +2746,6 @@ class _CommentComposerState extends State<CommentComposer> {
             ),
           ),
       ],
-    ),
     );
   }
 }
