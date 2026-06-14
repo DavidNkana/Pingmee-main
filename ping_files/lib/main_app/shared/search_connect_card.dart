@@ -118,9 +118,12 @@ class SearchConnectCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-            // Top row: x dismiss (top-right).
+            // Top row: x dismiss (top-right). 18 px
+            // (was 22) — the dismiss icon is only 14 px
+            // tall with 2-px padding (so 18 total), so
+            // the SizedBox was just extra whitespace.
             SizedBox(
-              height: 22,
+              height: 18,
               child: Align(
                 alignment: Alignment.centerRight,
                 child: InkResponse(
@@ -210,7 +213,8 @@ class SearchConnectCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 10),
+            // 8 px (was 10) to keep the card compact.
+            const SizedBox(height: 8),
             // Name — bold, single-line ellipsis. Lighter weight so it
             // doesn't compete with the avatar for visual focus; the
             // avatar is the primary element on the card.
@@ -229,7 +233,9 @@ class SearchConnectCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 2),
+            // No SizedBox between name and username; the
+            // line-height difference gives a natural
+            // visual gap. Saves 2 px in the column.
             // Username — even lighter (regular), still smaller grey.
             if (username.isNotEmpty)
               Padding(
@@ -247,13 +253,15 @@ class SearchConnectCard extends StatelessWidget {
                   ),
                 ),
               ),
-            // 18 px between the username and the connect
-            // button — the card's "much padding" (per the
-            // v47 design pass). The bottom of the card has
-            // 0 padding so the button hugs the card edge;
-            // the breath lives here, between the username
-            // and the button.
-            const SizedBox(height: 18),
+            // 12 px between the username and the connect
+            // button — the card's breathing room. The
+            // bottom of the card has 0 padding so the
+            // button hugs the card edge; the breath
+            // lives here. 12 px (was 18 in v47) keeps the
+            // card under 209 px tall so the carousel's
+            // SizedBox (231 px in feed/search) never
+            // overflows the Column.
+            const SizedBox(height: 12),
             // Connect / Request sent / Already-friends button. The
             // button is disabled while the manager is busy with a
             // network call (optimistic override is in flight).
