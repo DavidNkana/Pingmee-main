@@ -2011,6 +2011,43 @@ exports.addMomentComment = onCall(
           request.data && request.data.rootCommentId,
       );
 
+      // v63: @mentions and rich attachments on the comment.
+      // mentions is an array of UIDs. attachments is an array of objects:
+      //   { kind: "image"|"sticker", url, thumbUrl?, width?, height?,
+      //     stickerId?, stickerSource? }
+      // Both are optional. We sanitize here so the rest of the function
+      // can trust the shape.
+      const rawMentions = request.data && request.data.mentions;
+      const sanitizedMentions = Array.isArray(rawMentions) ?
+        Array.from(new Set(
+            rawMentions
+                .map((m) => cleanString(m))
+                .filter((m) => m && m.length <= 128),
+        )).slice(0, 20) :
+        [];
+      const rawAttachments = request.data && request.data.attachments;
+      const sanitizedAttachments = Array.isArray(rawAttachments) ?
+        rawAttachments
+            .filter((a) => a && typeof a === "object")
+            .map((a) => ({
+              kind: cleanString(a.kind) === "sticker" ? "sticker" : "image",
+              url: cleanString(a.url),
+              thumbUrl: cleanString(a.thumbUrl) || null,
+              width: Number.isFinite(Number(a.width)) ?
+                Number(a.width) :
+                null,
+              height: Number.isFinite(Number(a.height)) ?
+                Number(a.height) :
+                null,
+              stickerId: cleanString(a.stickerId) || null,
+              stickerSource: cleanString(a.stickerSource) === "giphy" ?
+                "giphy" :
+                null,
+            }))
+            .filter((a) => a.url && a.url.length <= 1024)
+            .slice(0, 4) :
+        [];
+
       if (!activityId) {
         throw new HttpsError(
             "invalid-argument",
@@ -2018,14 +2055,17 @@ exports.addMomentComment = onCall(
         );
       }
 
-      if (!text) {
+      // v63: when rich attachments are present, the text itself is optional
+      // (a sticker / image can be the whole comment). Still cap text length
+      // when present.
+      if (!text && sanitizedAttachments.length === 0) {
         throw new HttpsError(
             "invalid-argument",
-            "Comment text is required.",
+            "Comment text or attachment is required.",
         );
       }
 
-      if (text.length > 300) {
+      if (text && text.length > 300) {
         throw new HttpsError(
             "invalid-argument",
             "Comment is too long.",
@@ -2045,6 +2085,8 @@ exports.addMomentComment = onCall(
         authorUid: uid,
         authorName: streamUser.name,
         authorPhotoUrl: streamUser.image,
+        mentions: sanitizedMentions,
+        attachments: sanitizedAttachments,
       };
       let parentAuthorUid = "";
       if (parentCommentId) {
@@ -2138,6 +2180,47 @@ exports.addMomentComment = onCall(
           }
         }
 
+        // v63: write a comment_mention notification to every mentioned UID.
+        // Skip self-mentions. Use a single batched write to keep the cost
+        // low and the order stable.
+        if (sanitizedMentions.length > 0) {
+          const mentionTargets = sanitizedMentions.filter(
+              (m) => m && m !== uid,
+          );
+          if (mentionTargets.length > 0) {
+            try {
+              const mentionBatch = admin.firestore().batch();
+              for (const mentionedUid of mentionTargets) {
+                const ref = admin.firestore()
+                    .collection("users").doc(mentionedUid)
+                    .collection("notifications").doc();
+                mentionBatch.set(ref, {
+                  kind: "comment_mention",
+                  actorUid: uid,
+                  actorName: streamUser.name,
+                  actorPhotoUrl: streamUser.image,
+                  activityId,
+                  momentId: firestoreMomentId || null,
+                  parentCommentId: parentCommentId || null,
+                  rootCommentId: (rootCommentId || parentCommentId) || null,
+                  commentId: cleanString(reaction.id),
+                  text,
+                  mentions: mentionTargets,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                  read: false,
+                });
+              }
+              await mentionBatch.commit();
+            } catch (mentionError) {
+              // eslint-disable-next-line max-len
+              console.error(
+                  "addMomentComment: comment_mention notification write failed",
+                  {message: mentionError && mentionError.message},
+              );
+            }
+          }
+        }
+
         return {
           ok: true,
           comment: {
@@ -2149,6 +2232,9 @@ exports.addMomentComment = onCall(
             createdAt: cleanString(reaction.created_at),
             parentId: parentCommentId || null,
             rootId: (rootCommentId || parentCommentId) || null,
+            mentionedUid: parentAuthorUid || null,
+            mentions: sanitizedMentions,
+            attachments: sanitizedAttachments,
           },
         };
       } catch (error) {
@@ -2169,6 +2255,142 @@ exports.addMomentComment = onCall(
               code: error && error.code,
               statusCode: error && error.statusCode,
             },
+        );
+      }
+    },
+);
+
+// uploadCommentImage — accepts a base64 image body from the Flutter comment
+// composer, decodes it, writes it to Firebase Storage at
+// comments/{activityId}/{commentIdLocal}/{filename}, makes the file
+// world-readable so any logged-in user can render the comment image, and
+// returns the public url. Auth-gated at the cloud-function level.
+exports.uploadCommentImage = onCall(
+    {
+      region: REGION,
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const activityId = cleanString(
+          request.data && request.data.activityId,
+      );
+      const commentIdLocal = cleanString(
+          request.data && request.data.commentIdLocal,
+      ) || `local-${Date.now()}`;
+      const contentType = cleanString(
+          request.data && request.data.contentType,
+      ) || "image/jpeg";
+      const base64Body = cleanString(
+          request.data && request.data.base64,
+      );
+
+      if (!activityId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Missing activityId.",
+        );
+      }
+
+      if (!contentType.startsWith("image/")) {
+        throw new HttpsError(
+            "invalid-argument",
+            "contentType must be an image MIME type.",
+        );
+      }
+
+      if (!base64Body) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Missing base64 image body.",
+        );
+      }
+
+      // ~8 MB raw ceiling. Base64 inflates by 4/3 so cap the encoded string
+      // at ~11 MB.
+      if (base64Body.length > 11 * 1024 * 1024) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Image is too large (max 8 MB).",
+        );
+      }
+
+      let buffer;
+      try {
+        buffer = Buffer.from(base64Body, "base64");
+      } catch (decodeError) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Image body is not valid base64.",
+        );
+      }
+      if (!buffer || buffer.length === 0) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Decoded image is empty.",
+        );
+      }
+
+      // Pick a sensible file extension from the content type.
+      const ext = contentType === "image/png" ?
+        "png" :
+        contentType === "image/gif" ?
+          "gif" :
+          contentType === "image/webp" ?
+            "webp" :
+            "jpg";
+      const safeCommentId = commentIdLocal
+          .replace(/[^A-Za-z0-9_-]/g, "_")
+          .slice(0, 80) || "comment";
+      const filename = `${Date.now()}_${safeCommentId}.${ext}`;
+      const objectPath = `comments/${activityId}/${safeCommentId}/${filename}`;
+
+      try {
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(objectPath);
+        await file.save(buffer, {
+          resumable: false,
+          contentType,
+          metadata: {
+            contentType,
+            metadata: {
+              uploadedBy: uid,
+              activityId,
+              commentIdLocal: safeCommentId,
+            },
+          },
+        });
+        // World-readable so any logged-in user rendering the comment can
+        // GET the image without needing a signed URL. Auth is still gated
+        // at the cloud-function layer for the write path.
+        try {
+          await file.makePublic();
+        } catch (publicError) {
+          // eslint-disable-next-line max-len
+          console.error(
+              "uploadCommentImage: makePublic failed",
+              {objectPath, message: publicError && publicError.message},
+          );
+        }
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${objectPath}`;
+        return {ok: true, url: publicUrl, path: objectPath};
+      } catch (error) {
+        console.error("uploadCommentImage failed", {
+          uid,
+          activityId,
+          message: error && error.message,
+          stack: error && error.stack,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not upload image.",
+            {message: error && error.message},
         );
       }
     },
@@ -2362,6 +2584,38 @@ exports.loadMomentComments = onCall(
           const data = item && item.data ? item.data : {};
           const id = cleanString(item && item.id);
 
+          // v63: surface mentions and attachments on the read path.
+          const readMentions = Array.isArray(data.mentions) ?
+            data.mentions
+                .map((m) => cleanString(m))
+                .filter((m) => m)
+                .slice(0, 20) :
+            [];
+          const readAttachments = Array.isArray(data.attachments) ?
+            data.attachments
+                .filter((a) => a && typeof a === "object" &&
+                  cleanString(a.url))
+                .map((a) => ({
+                  kind: cleanString(a.kind) === "sticker" ?
+                    "sticker" :
+                    "image",
+                  url: cleanString(a.url),
+                  thumbUrl: cleanString(a.thumbUrl) || null,
+                  width: Number.isFinite(Number(a.width)) ?
+                    Number(a.width) :
+                    null,
+                  height: Number.isFinite(Number(a.height)) ?
+                    Number(a.height) :
+                    null,
+                  stickerId: cleanString(a.stickerId) || null,
+                  stickerSource: cleanString(a.stickerSource) ===
+                    "giphy" ?
+                    "giphy" :
+                    null,
+                }))
+                .slice(0, 4) :
+            [];
+
           return {
             id,
             userId: cleanString(item && item.user_id),
@@ -2374,6 +2628,8 @@ exports.loadMomentComments = onCall(
             parentId: cleanString(data.parentId) || null,
             rootId: cleanString(data.rootId) || null,
             mentionedUid: cleanString(data.mentionedUid) || null,
+            mentions: readMentions,
+            attachments: readAttachments,
             likeCount: Number(likeCountMap[id] || 0),
             savedCount: Number(saveCountMap[id] || 0),
             replyCount: Number(replyCountMap[id] || 0),
