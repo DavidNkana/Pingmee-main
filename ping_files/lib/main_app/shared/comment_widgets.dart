@@ -1260,7 +1260,16 @@ class _CommentBody extends StatelessWidget {
     if (cursor < text.length) {
       spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
     }
-    return Text.rich(TextSpan(children: spans));
+    // v68: wrap the Text.rich in a no-op GestureDetector so the inner
+    // TextSpan.recognizer wins the gesture arena over any parent
+    // GestureDetector (e.g. the bubble-level onBubbleTap). Without this
+    // wrapper, the outer GestureDetector's onTap fires and the mention
+    // tap is silently swallowed.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: Text.rich(TextSpan(children: spans)),
+    );
   }
 }
 
@@ -1279,13 +1288,21 @@ class _CommentAttachmentThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final url = (attachment.thumbUrl != null &&
-            attachment.thumbUrl!.isNotEmpty)
-        ? attachment.thumbUrl!
-        : attachment.url;
+    // v68: for STICKERS, always render the animated original URL
+    // (attachment.url) so the GIF animates. For IMAGES, prefer the
+    // thumbUrl when present (it's typically a smaller rendition) but
+    // fall back to the full url. Without this split, stickers were
+    // rendered as the small still frame (previewUrl) and appeared
+    // static.
+    final isSticker = attachment.kind == "sticker";
+    final url = isSticker
+        ? attachment.url
+        : ((attachment.thumbUrl != null &&
+                attachment.thumbUrl!.isNotEmpty)
+            ? attachment.thumbUrl!
+            : attachment.url);
     if (url.isEmpty) return const SizedBox.shrink();
 
-    final isSticker = attachment.kind == "sticker";
     final maxW = isSticker ? 140.0 : 220.0;
     final maxH = isSticker ? 140.0 : 220.0;
     final fit = isSticker ? BoxFit.contain : BoxFit.cover;
