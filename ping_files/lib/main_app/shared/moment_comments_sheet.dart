@@ -2006,30 +2006,59 @@ class _MentionPickerState extends State<MentionPicker> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            u.fullName,
-                                            maxLines: 1,
-                                            overflow:
-                                                TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontFamily: "Nunito",
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.black87,
-                                            ),
-                                          ),
+                                          // v70: show @username as the
+                                          // PRIMARY text so the user can
+                                          // see exactly what tag will
+                                          // be inserted. fullName becomes
+                                          // the smaller secondary text.
                                           if (u.username.isNotEmpty)
                                             Text(
                                               "@${u.username}",
                                               maxLines: 1,
                                               overflow:
                                                   TextOverflow.ellipsis,
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                 fontFamily: "Nunito",
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w500,
-                                                color: Colors.black
-                                                    .withOpacity(.55),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF1D9BF0),
+                                              ),
+                                            )
+                                          else
+                                            Text(
+                                              u.fullName,
+                                              maxLines: 1,
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontFamily: "Nunito",
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          if (u.fullName.isNotEmpty &&
+                                              u.fullName !=
+                                                  (u.username.isNotEmpty
+                                                      ? u.username
+                                                      : u.fullName))
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.only(
+                                                      top: 1),
+                                              child: Text(
+                                                u.fullName,
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow
+                                                        .ellipsis,
+                                                style: TextStyle(
+                                                  fontFamily: "Nunito",
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: Colors.black
+                                                      .withOpacity(.55),
+                                                ),
                                               ),
                                             ),
                                         ],
@@ -2546,7 +2575,16 @@ class _CommentComposerState extends State<CommentComposer> {
     final hasAttachment = _pendingImageUrl != null ||
         _pendingStickerUrl != null;
 
-    return Column(
+    // v70: AnimatedPadding lifts the entire composer (including the
+    // MentionPicker stacked above the TextField) above the keyboard so
+    // the picker never gets squeezed under it.
+    return AnimatedPadding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      child: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2710,6 +2748,7 @@ class _CommentComposerState extends State<CommentComposer> {
             ),
           ),
       ],
+    ),
     );
   }
 }
