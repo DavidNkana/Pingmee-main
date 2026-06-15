@@ -687,15 +687,6 @@ class SharedOriginalCard extends StatelessWidget {
               ),
             ),
           ],
-          // v78: Open Graph link preview for the original
-          // moment (when viewing a repost).
-          if (data["linkPreview"] is Map) ...[
-            const SizedBox(height: 10),
-            _LinkPreviewCard(
-              preview:
-                  Map<String, dynamic>.from(data["linkPreview"] as Map),
-            ),
-          ],
           // Original media carousel
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 8),
