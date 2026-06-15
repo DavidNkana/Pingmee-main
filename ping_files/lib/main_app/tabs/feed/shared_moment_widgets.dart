@@ -8,6 +8,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'pingmee_feed_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Shared moment card, share sheet, comments sheet, repost sheet, more sheet.
 /// Reused by the regular feed, the Liked Moments screen, and the Saved Moments screen
@@ -322,6 +323,16 @@ class SharedMomentCard extends StatelessWidget {
                   color: Colors.black.withOpacity(.82),
                 ),
               ),
+          ],
+          // v78: Open Graph link preview (if the moment text
+          // contained a URL, the v78 backend scraped its
+          // og:* tags and stored the result as data.linkPreview).
+          if (data["linkPreview"] is Map) ...[
+            const SizedBox(height: 10),
+            _LinkPreviewCard(
+              preview:
+                  Map<String, dynamic>.from(data["linkPreview"] as Map),
+            ),
           ],
           if (hashtags.isNotEmpty) ...[
             const SizedBox(height: 3),
@@ -674,6 +685,15 @@ class SharedOriginalCard extends StatelessWidget {
                 height: 1.32,
                 color: Colors.black.withOpacity(.70),
               ),
+            ),
+          ],
+          // v78: Open Graph link preview for the original
+          // moment (when viewing a repost).
+          if (data["linkPreview"] is Map) ...[
+            const SizedBox(height: 10),
+            _LinkPreviewCard(
+              preview:
+                  Map<String, dynamic>.from(data["linkPreview"] as Map),
             ),
           ],
           // Original media carousel
@@ -1681,6 +1701,165 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// v78: _LinkPreviewCard - Open Graph link preview. Used by
+// SharedMomentCard to render the linkPreview field set by
+// the v78 backend's createMomentV2 hook (which scrapes
+// og:title / og:description / og:image / og:site_name).
+// Tapping the card opens the URL in the system browser via
+// url_launcher. Falls back gracefully when fields are missing.
+// ============================================================================
+class _LinkPreviewCard extends StatelessWidget {
+  final Map<String, dynamic> preview;
+
+  const _LinkPreviewCard({required this.preview});
+
+  String _str(String key) {
+    final v = preview[key];
+    if (v == null) return "";
+    return v.toString().trim();
+  }
+
+  Future<void> _onTap(BuildContext context) async {
+    final url = _str("url");
+    if (url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text("Couldn't open link: $e")),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _str("url");
+    final title = _str("title");
+    final description = _str("description");
+    final image = _str("image");
+    final siteName = _str("siteName");
+    if (url.isEmpty && title.isEmpty && description.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _onTap(context),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.black.withOpacity(.08)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (image.isNotEmpty)
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.network(
+                    image,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: const Color(0xFFF3F4F6),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        PhosphorIcons.link(PhosphorIconsStyle.regular),
+                        size: 28,
+                        color: Colors.black38,
+                      ),
+                    ),
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: const Color(0xFFF3F4F6),
+                        alignment: Alignment.center,
+                        child: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.black54),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (siteName.isNotEmpty) ...[
+                      Text(
+                        siteName.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.4,
+                          color: Colors.black.withOpacity(.55),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    if (title.isNotEmpty)
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                          color: Colors.black.withOpacity(.88),
+                        ),
+                      ),
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w400,
+                          height: 1.3,
+                          color: Colors.black.withOpacity(.62),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
