@@ -214,6 +214,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   /// immediately reflects the new image (even for OLD moments that
   /// were created with the previous photoUrl snapshot).
   Map<String, String> _photoCache = {};
+
+  // v77: current user's Pingmee profile photo URL (NOT the Google
+  // OAuth one - we read from users/{myUid}.photoUrl). Synced via
+  // a one-shot fetch + a .snapshots() subscription, exactly like
+  // the per-author _photoCache entries below. Used by the
+  // 'Share what's happening around you' card so the leading
+  // avatar reflects what the user set in the Pingmee profile
+  // editor (NOT the Google account photo).
+  String? _myPhotoUrl;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _myPhotoSub;
   // Inline people-suggestion carousel state. Inserted at
   // itemIndex 11 in the feed's ListView.separated (i.e. after
   // the 10th moment), so the user sees it after scrolling past
@@ -285,6 +296,11 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       // feed bootstrap. By the time the user scrolls past
       // 10 moments, the loader has had time to query.
       _loadInlinePeopleSuggestions();
+      // v77: one-shot fetch + live subscription for the
+      // current user's Pingmee profile photo so the
+      // 'Share what's happening around you' card shows
+      // the in-app avatar (not the Google OAuth one).
+      _initMyPhoto();
     });
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -382,6 +398,7 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     _feedScrollController.removeListener(_onFeedScroll);
     _feedScrollController.dispose();
     _authSub?.cancel();
+    _myPhotoSub?.cancel();  // v77
     _drawerAnimController.dispose();
     super.dispose();
   }
@@ -635,6 +652,52 @@ Future<void> _toggleMomentBookmark(int index) async {
     }
 
     await _loadTimelineMoments(reason: "after follows sync");
+  }
+
+  /// v77: read the current user's Pingmee profile photo (NOT
+  /// the Google OAuth photo) and keep _myPhotoUrl in sync via a
+  /// Firestore .snapshots() subscription. Pattern matches
+  /// _refreshPhotoCacheFor() which feeds the per-author avatar
+  /// cache below. The subscription is cancelled in dispose().
+  Future<void> _initMyPhoto() async {
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+    if (myUid.isEmpty) return;
+    // One-shot initial fetch so the avatar is correct on the
+    // very first frame (instead of waiting for the snapshot
+    // stream to emit).
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(myUid)
+          .get();
+      if (!mounted) return;
+      final data = snap.data();
+      if (data != null) {
+        final url = (data["photoUrl"] ?? "").toString().trim();
+        if (url.isNotEmpty) {
+          setState(() => _myPhotoUrl = url);
+        }
+      }
+    } catch (e) {
+      debugPrint("v77 _initMyPhoto one-shot failed: $e");
+    }
+    // Live subscription so the avatar updates as soon as the
+    // user changes their photo in the profile editor.
+    _myPhotoSub?.cancel();
+    _myPhotoSub = FirebaseFirestore.instance
+        .collection("users")
+        .doc(myUid)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final data = snap.data();
+      final url = (data == null)
+          ? null
+          : (data["photoUrl"] ?? "").toString().trim();
+      final next = (url == null || url.isEmpty) ? null : url;
+      if (_myPhotoUrl == next) return;
+      setState(() => _myPhotoUrl = next);
+    });
   }
 
   Future<void> _bootstrapFeed({
@@ -1343,7 +1406,7 @@ Future<void> _toggleMomentBookmark(int index) async {
                       _CreateMomentPreviewCard(
         creating: _creatingMoment,
         onCreateMoment: _openCreateMomentSheet,
-        myPhotoUrl: FirebaseAuth.instance.currentUser?.photoURL,
+        myPhotoUrl: _myPhotoUrl,
       ),
                       const SizedBox(height: 24),
                       const _MomentsEmptyCard(),
@@ -1383,7 +1446,7 @@ Future<void> _toggleMomentBookmark(int index) async {
             return _CreateMomentPreviewCard(
         creating: _creatingMoment,
         onCreateMoment: _openCreateMomentSheet,
-        myPhotoUrl: FirebaseAuth.instance.currentUser?.photoURL,
+        myPhotoUrl: _myPhotoUrl,
       );
           }
 
