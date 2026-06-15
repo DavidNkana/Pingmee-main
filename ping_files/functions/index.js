@@ -2502,12 +2502,32 @@ exports.loadMomentComments = onCall(
         // passes that as beforeId on the next call. We use the LAST
         // item, not the trimmed-but-not-included one, because some
         // results may have been post-filtered out.
+        // v75: cursor fix. Use trimmed[0].id (the OLDEST in the
+        // page) not trimmed[trimmed.length-1].id (the NEWEST).
+        // Stream's default sort for reactions.filter is id ASC
+        // (oldest first), so trimmed[0] is the OLDEST comment in
+        // this page. On load-more, id_lt: <oldest> returns items
+        // even older than this page = all-new items. The frontend
+        // re-sorts by createdAt desc so the new (older) items land
+        // at the bottom of the displayed list.
         const hasMore = results.length === windowLimit &&
           trimmed.length > 0;
         const nextCursor = trimmed.length > 0 ?
-          cleanString(trimmed[trimmed.length - 1] &&
-            trimmed[trimmed.length - 1].id) :
+          cleanString(trimmed[0] && trimmed[0].id) :
           null;
+        console.log("v75 loadMomentComments", {
+          activityId,
+          beforeId: beforeId || null,
+          windowLimit,
+          resultsCount: results.length,
+          filteredCount: filtered.length,
+          trimmedCount: trimmed.length,
+          hasMore,
+          nextCursor,
+          cursorPoints: trimmed.length > 0 ?
+            `oldest=${trimmed[0].id} newest=${trimmed[trimmed.length - 1].id}` :
+            null,
+        });
 
         // Aggregate like/save/reply counts + per-comment "did I like/save
         // this?" by reading the user's own reaction filter for each
