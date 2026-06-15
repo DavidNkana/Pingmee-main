@@ -840,6 +840,175 @@ exports.createTestMoment = onCall(
     },
 );
 
+// ============================================================================
+// v78: _scrapeLinkPreview - shared helper used by both the
+// public scrapeLinkPreview cloud function and the
+// createMomentV2 hook. Validates URL, fetches with timeout,
+// parses Open Graph + fallback meta tags, resolves relative
+// og:image URLs, and returns a compact preview object.
+// ============================================================================
+function _scrapeLinkPreview(rawUrl) {
+  return (async () => {
+    const url = cleanString(rawUrl);
+    if (!url) return null;
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (_) {
+      return null;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    // SSRF guard: refuse private / loopback / link-local hosts.
+    // Stream's link preview is meant for public URLs only.
+    const host = (parsed.hostname || "").toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      host.endsWith(".local")
+    ) {
+      console.log("v78 _scrapeLinkPreview blocked private host:", host);
+      return null;
+    }
+    // Fetch with 5s timeout, 1MB cap, follow up to 3 redirects.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 5000);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        signal: ac.signal,
+        redirect: "follow",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (PingmeeBot/1.0; +https://pingmee.app)",
+          "Accept":
+            "text/html,application/xhtml+xml",
+        },
+      });
+    } catch (e) {
+      console.log("v78 _scrapeLinkPreview fetch failed:", url, e && e.message);
+      clearTimeout(timer);
+      return null;
+    }
+    clearTimeout(timer);
+    if (!resp || !resp.ok) {
+      console.log("v78 _scrapeLinkPreview non-2xx:", resp && resp.status, url);
+      return null;
+    }
+    const ctype = (resp.headers.get("content-type") || "").toLowerCase();
+    if (!ctype.includes("text/html") && !ctype.includes("xml")) {
+      return null;
+    }
+    // Cap body size at 1MB.
+    const body = await resp.text();
+    if (body.length > 1 * 1024 * 1024) {
+      return null;
+    }
+    // Decode a few HTML entities (the ones we actually display).
+    const decodeEntities = (s) =>
+      cleanString(s)
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&#(\d+);/g, (_, n) => {
+          const code = Number(n);
+          return Number.isFinite(code) ? String.fromCharCode(code) : "";
+        });
+    // Extract the first <meta> tag whose attributes match the
+    // given key/value pairs. Returns the content or "".
+    const metaContent = (html, attrs) => {
+      const entries = Object.entries(attrs);
+      for (const [k, v] of entries) {
+        // Build a regex that matches `<meta ... k="v" ... content="..."`.
+        // We accept the attributes in any order by matching both
+        // possible positions in a single regex.
+        const re = new RegExp(
+          "<meta[^>]*\\b" + k + "=\\s*[\"']" +
+            v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+            "[\"'][^>]*content=\\s*[\"']([^\"']+)[\"']",
+          "i"
+        );
+        const m = body.match(re);
+        if (m && m[1]) return decodeEntities(m[1]);
+      }
+      return "";
+    };
+    const title = (() => {
+      const og = metaContent(body, { property: "og:title" });
+      if (og) return og;
+      const t = body.match(/<title[^>]*>([^<]+)<\/title>/i);
+      return t && t[1] ? decodeEntities(t[1]) : "";
+    })();
+    const description = (() => {
+      const og = metaContent(body, { property: "og:description" });
+      if (og) return og;
+      return metaContent(body, { name: "description" });
+    })();
+    const siteName = metaContent(body, { property: "og:site_name" });
+    const rawImage = (() => {
+      const og = metaContent(body, { property: "og:image" });
+      if (og) return og;
+      const tw = metaContent(body, { name: "twitter:image" });
+      if (tw) return tw;
+      const link = body.match(
+        /<link[^>]*rel=["'](?:apple-touch-icon|icon)["'][^>]*href=["']([^"']+)/i
+      );
+      return link && link[1] ? link[1] : "";
+    })();
+    // Resolve relative image URL against the page URL.
+    let image = "";
+    if (rawImage) {
+      try {
+        image = new URL(rawImage, resp.url || url).toString();
+      } catch (_) {
+        image = rawImage;
+      }
+    }
+    if (!title && !description && !image) {
+      return null;
+    }
+    // Truncate fields to sane bounds for the client.
+    const trim = (s, n) =>
+      (s && s.length > n ? s.substring(0, n - 1) + "\u2026" : s);
+    return {
+      url: resp.url || url,
+      title: trim(title, 200),
+      description: trim(description, 400),
+      image,
+      siteName: trim(siteName, 80),
+    };
+  })().catch((e) => {
+    console.log("v78 _scrapeLinkPreview exception:", e && e.message);
+    return null;
+  });
+}
+
+exports.scrapeLinkPreview = onCall(
+    {
+      region: REGION,
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "Sign in required.");
+      }
+      const url = cleanString(request.data && request.data.url);
+      if (!url) {
+        throw new HttpsError("invalid-argument", "url is required.");
+      }
+      const preview = await _scrapeLinkPreview(url);
+      return { ok: true, preview: preview || null };
+    },
+);
+
 exports.createMomentV2 = onCall(
     {
       region: REGION,
@@ -984,6 +1153,27 @@ exports.createMomentV2 = onCall(
         source: "pingmee_moment",
       };
 
+      // v78: detect the first http(s) URL in the moment text
+      // and scrape its Open Graph metadata. Stored on BOTH the
+      // Stream activity (so the OG preview travels with the
+      // activity payload, like a real Stream chat link preview)
+      // AND the Firestore moment doc (so the frontend can
+      // render it from the moment card without re-scraping).
+      const urlMatch = text.match(
+        /https?:\/\/[^\s<>"\u201d]+/i,
+      );
+      let linkPreview = null;
+      if (urlMatch) {
+        try {
+          linkPreview = await _scrapeLinkPreview(urlMatch[0]);
+        } catch (e) {
+          console.log("v78 createMomentV2 linkPreview failed:", e && e.message);
+        }
+        if (linkPreview) {
+          activity.linkPreview = linkPreview;
+        }
+      }
+
       try {
         const userFeed = client.feed("user", uid);
         const timelineFeed = client.feed("timeline", uid);
@@ -1013,6 +1203,11 @@ exports.createMomentV2 = onCall(
 
           pingId: pingId || null,
           eventId: eventId || null,
+
+          // v78: Open Graph link preview, or null. Mirrors the
+          // Stream activity's linkPreview so the renderer can
+          // stay agnostic about which source it reads.
+          linkPreview: linkPreview || null,
 
           status: "active",
 
