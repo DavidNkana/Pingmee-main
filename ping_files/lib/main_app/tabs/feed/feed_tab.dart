@@ -1341,9 +1341,10 @@ Future<void> _toggleMomentBookmark(int index) async {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _CreateMomentPreviewCard(
-                        creating: _creatingMoment,
-                        onCreateMoment: _openCreateMomentSheet,
-                      ),
+        creating: _creatingMoment,
+        onCreateMoment: _openCreateMomentSheet,
+        myPhotoUrl: FirebaseAuth.instance.currentUser?.photoURL,
+      ),
                       const SizedBox(height: 24),
                       const _MomentsEmptyCard(),
                     ],
@@ -1380,9 +1381,10 @@ Future<void> _toggleMomentBookmark(int index) async {
         itemBuilder: (context, index) {
           if (index == 0) {
             return _CreateMomentPreviewCard(
-              creating: _creatingMoment,
-              onCreateMoment: _openCreateMomentSheet,
-            );
+        creating: _creatingMoment,
+        onCreateMoment: _openCreateMomentSheet,
+        myPhotoUrl: FirebaseAuth.instance.currentUser?.photoURL,
+      );
           }
 
           // Inline people-suggestion carousel at itemIndex
@@ -1951,9 +1953,16 @@ class _CreateMomentPreviewCard extends StatelessWidget {
   final bool creating;
   final VoidCallback onCreateMoment;
 
+  // v76: current user's profile photo URL. When non-null AND
+  // non-empty, the card's leading 42x42 icon becomes a
+  // ClipOval Image.network with the photo. When null/empty,
+  // fall back to the original brand-green sparkle icon.
+  final String? myPhotoUrl;
+
   const _CreateMomentPreviewCard({
     required this.creating,
     required this.onCreateMoment,
+    this.myPhotoUrl,
   });
 
   @override
@@ -1979,19 +1988,10 @@ class _CreateMomentPreviewCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.brandGreen.withOpacity(.10),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  PhosphorIcons.sparkle(PhosphorIconsStyle.fill),
-                  size: 20,
-                  color: AppColors.brandGreen,
-                ),
-              ),
+              // v76: leading avatar = current user's profile photo
+              // when available, else the original brand-green
+              // sparkle icon. See _buildLeadingAvatar().
+              _buildLeadingAvatar(),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -2038,6 +2038,78 @@ class _CreateMomentPreviewCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// v76: leading 42x42 avatar. Shows the current user's profile
+  /// photo if we have a non-empty URL, otherwise falls back to the
+  /// original brand-green sparkle icon. ClipOval makes the image
+  /// a perfect circle; the thin brand-green border keeps the
+  /// avatar visually framed inside the card.
+  Widget _buildLeadingAvatar() {
+    final url = myPhotoUrl;
+    if (url == null || url.isEmpty) {
+      return Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: AppColors.brandGreen.withOpacity(.10),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          PhosphorIcons.sparkle(PhosphorIconsStyle.fill),
+          size: 20,
+          color: AppColors.brandGreen,
+        ),
+      );
+    }
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: AppColors.brandGreen.withOpacity(.30),
+          width: 1.4,
+        ),
+      ),
+      child: ClipOval(
+        child: Image.network(
+          url,
+          width: 42,
+          height: 42,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            width: 42,
+            height: 42,
+            color: AppColors.brandGreen.withOpacity(.10),
+            alignment: Alignment.center,
+            child: Icon(
+              PhosphorIcons.user(PhosphorIconsStyle.fill),
+              size: 20,
+              color: AppColors.brandGreen,
+            ),
+          ),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              width: 42,
+              height: 42,
+              color: AppColors.brandGreen.withOpacity(.10),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(AppColors.brandGreen),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
