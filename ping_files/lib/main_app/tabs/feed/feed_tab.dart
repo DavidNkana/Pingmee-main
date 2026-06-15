@@ -3868,17 +3868,6 @@ class _OriginalMomentMiniCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
           ],
-          // v80: Open Graph link preview for the original-moment
-          // mini-card body (when viewing a repost). The linkPreview
-          // is the same data field as the main moment - the user
-          // sees the preview of the moment they're interacting with.
-          if (data["linkPreview"] is Map) ...[
-            const SizedBox(height: 4),
-            _LinkPreviewCard(
-              preview:
-                  Map<String, dynamic>.from(data["linkPreview"] as Map),
-            ),
-          ],
           // Horizontal media carousel
           if (hasMedia) ...[
             const SizedBox(height: 8),
