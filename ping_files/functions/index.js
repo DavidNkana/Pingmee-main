@@ -1239,6 +1239,11 @@ exports.createMomentV2 = onCall(
           hashtags,
           mediaCount: media.length,
           media,
+          // v83: echo the scraped linkPreview (or client-supplied
+          // one) back to the composer so the UI can confirm the
+          // preview was generated immediately, without waiting
+          // for the feed to reload.
+          linkPreview: linkPreview || null,
           debugLocation: {
             locationLabel,
             city,
@@ -1504,6 +1509,19 @@ exports.loadMyTimelineMoments = onCall(
             myLikeReactionId: ownLikes.length > 0 ?
             cleanString(ownLikes[0].id) :
             "",
+
+            // v83: passthrough the Open Graph link preview that
+            // createMomentV2 stored on the Stream activity. v78
+            // scraped and stored it correctly, but the read-side
+            // allowlist below was hardcoded and never included
+            // 'linkPreview', so the moment card never received it.
+            // Pass through as-is (an object or null). If null or
+            // not an object, the frontend's `is Map` guard skips
+            // rendering the preview card.
+            linkPreview: (activity.linkPreview &&
+              typeof activity.linkPreview === "object") ?
+              activity.linkPreview :
+              null,
           };
         });
 
@@ -1676,6 +1694,16 @@ exports.loadSingleActivity = onCall(
             likedByMe: ownLikes.length > 0,
             myLikeReactionId: ownLikes.length > 0
                 ? cleanString(ownLikes[0].id) : "",
+
+            // v83: passthrough the Open Graph link preview that
+            // createMomentV2 stored on the Stream activity. Same
+            // fix as loadMyTimelineMoments - the read-side
+            // allowlist never included 'linkPreview' so the
+            // moment-detail screen never received it.
+            linkPreview: (activity.linkPreview &&
+              typeof activity.linkPreview === "object") ?
+              activity.linkPreview :
+              null,
           },
         };
       } catch (error) {
