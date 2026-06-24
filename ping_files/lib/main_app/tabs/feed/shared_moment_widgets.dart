@@ -154,9 +154,18 @@ class SharedMomentCard extends StatelessWidget {
         ? _parseMediaList(data["media"] as List)
         : <Map<String, dynamic>>[];
 
+    // v85: stickers rendered separately (animated, not still photos)
+    final stickerMedia = media.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return kind == "sticker" && url.isNotEmpty;
+    }).toList();
+
     final visualMedia = media.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
       final type = (item["type"] ?? "").toString().trim();
       final url = (item["url"] ?? "").toString().trim();
+      if (kind == "sticker") return false;
       return url.isNotEmpty && (type == "image" || type == "video");
     }).toList();
 
@@ -360,6 +369,21 @@ class SharedMomentCard extends StatelessWidget {
               }).toList(),
             ),
           ],
+          // v85: sticker inline render (animated, BoxFit.contain)
+          if (stickerMedia.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final item in stickerMedia)
+                  _StickerInline(
+                    url: (item["url"] ?? "").toString(),
+                  ),
+              ],
+            ),
+          ],
+
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 12),
             // Variable-height media row.
@@ -609,9 +633,18 @@ class SharedOriginalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPhoto = authorPhotoUrl.trim().isNotEmpty;
+    // v85: stickers get their own inline render path
+    final stickerItems = originalMedia.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return kind == "sticker" && url.isNotEmpty;
+    }).toList();
+
     final visualMedia = originalMedia.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
       final type = (item["type"] ?? "").toString().trim();
       final url = (item["url"] ?? "").toString().trim();
+      if (kind == "sticker") return false;
       return url.isNotEmpty && (type == "image" || type == "video");
     }).toList();
 
@@ -687,6 +720,21 @@ class SharedOriginalCard extends StatelessWidget {
               ),
             ),
           ],
+          // v85: sticker inline render in original card
+          if (stickerItems.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in stickerItems)
+                  _StickerInline(
+                    url: (item["url"] ?? "").toString(),
+                  ),
+              ],
+            ),
+          ],
+
           // Original media carousel
           if (visualMedia.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -1851,6 +1899,64 @@ class _LinkPreviewCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// v85: _StickerInline - animated GIF sticker render for moment cards.
+// Same shape as the one in feed_tab.dart. Kept local to this file
+// because SharedMomentCard lives here and the visual parity between
+// the public (SharedMomentCard) and private (_MomentCard) cards
+// matters. (The same v80 lesson applies: "moment card" exists in
+// two places in this codebase.)
+// ============================================================================
+class _StickerInline extends StatelessWidget {
+  final String url;
+
+  const _StickerInline({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        constraints: const BoxConstraints(
+          maxWidth: 220,
+          maxHeight: 220,
+        ),
+        color: Colors.transparent,
+        child: Image.network(
+          url,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Container(
+            width: 96,
+            height: 96,
+            color: Colors.black.withOpacity(.06),
+            alignment: Alignment.center,
+            child: Icon(
+              PhosphorIcons.sticker(PhosphorIconsStyle.regular),
+              size: 28,
+              color: Colors.black38,
+            ),
+          ),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              width: 96,
+              height: 96,
+              color: Colors.black.withOpacity(.04),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
         ),
       ),
     );
