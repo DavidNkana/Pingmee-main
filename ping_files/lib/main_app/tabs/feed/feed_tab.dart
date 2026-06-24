@@ -1528,6 +1528,10 @@ Future<void> _toggleMomentBookmark(int index) async {
             verifiedCache: _verifiedCache,
             photoCache: _photoCache,
             feedService: _feedService,
+            // v88: pass CommentService down so _MomentBody can
+            // resolve @-mention UIDs to UserRefs (same pattern as
+            // the comment composer in MomentCommentTile).
+            commentService: _commentService,
             onAuthorTap: _onOpenUserProfile,
           );
         },
@@ -3281,6 +3285,13 @@ class _MomentCard extends StatelessWidget {
   /// Firestore snapshot subscriptions on the feed tab.
   final Map<String, String> photoCache;
   final PingmeeFeedService feedService;
+  /// v88: passed in from _FeedTabState so _MomentBody's
+  /// resolveMentions callback can look up the UserRef for each
+  /// mention UID. The card is a StatelessWidget, so it can't
+  /// instantiate CommentService on its own; the parent passes it
+  /// down. (Same pattern MomentCommentTile uses in the comments
+  /// flow — see v66.)
+  final CommentService commentService;
   /// Called when the user taps the avatar or display name. Receives
   /// the author's UID so the caller can navigate to that user's
   /// profile.
@@ -3298,6 +3309,7 @@ class _MomentCard extends StatelessWidget {
     required this.verifiedCache,
     required this.photoCache,
     required this.feedService,
+    required this.commentService,
     this.onAuthorTap,
   });
 
@@ -3662,7 +3674,10 @@ class _MomentCard extends StatelessWidget {
                     : (uid) => onAuthorTap!(uid),
                 resolveMentions: (uids) async {
                   if (uids.isEmpty) return const <String, UserRef>{};
-                  return _commentService.lookupManyByUids(uids);
+                  // v88: use widget.commentService (passed in from
+                  // _FeedTabState). _MomentCard is a StatelessWidget
+                  // and doesn't have its own _commentService.
+                  return widget.commentService.lookupManyByUids(uids);
                 },
               )
             else
@@ -3694,7 +3709,10 @@ class _MomentCard extends StatelessWidget {
                     : (uid) => onAuthorTap!(uid),
                 resolveMentions: (uids) async {
                   if (uids.isEmpty) return const <String, UserRef>{};
-                  return _commentService.lookupManyByUids(uids);
+                  // v88: use widget.commentService (passed in from
+                  // _FeedTabState). _MomentCard is a StatelessWidget
+                  // and doesn't have its own _commentService.
+                  return widget.commentService.lookupManyByUids(uids);
                 },
               ),
             const SizedBox(height: 8),
