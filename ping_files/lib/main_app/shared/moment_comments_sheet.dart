@@ -2656,7 +2656,7 @@ class _CommentComposerState extends State<CommentComposer> {
         showEmojis: false,
       );
       if (gif == null) return;
-      final url = _bestGiphyUrl(gif);
+      final url = bestGiphyUrl(gif);
       final previewUrl = _bestGiphyPreviewUrl(gif);
       if (url.isEmpty) {
         _toast("Couldn't load sticker.");
@@ -3005,7 +3005,11 @@ String _tryReadGiphyUrl(Object? Function() read) {
   return '';
 }
 
-String _bestGiphyUrl(GiphyGif gif) {
+// v85: made public so the create-moment composer can reuse the same
+// GIPHY URL resolution. Was private (_bestGiphyUrl) in v65 — only
+// CommentComposer used it, so private was fine. Now reused by
+// _CreateMomentSheetState in feed_tab.dart.
+String bestGiphyUrl(GiphyGif gif) {
   final dynamic g = gif;
   final candidates = [
     _tryReadGiphyUrl(() => g.images?.original?.url),
@@ -3032,5 +3036,5 @@ String _bestGiphyPreviewUrl(GiphyGif gif) {
   for (final url in candidates) {
     if (url.isNotEmpty) return url;
   }
-  return _bestGiphyUrl(gif);
+  return bestGiphyUrl(gif);
 }
