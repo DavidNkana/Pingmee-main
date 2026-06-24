@@ -3672,13 +3672,12 @@ class _MomentCard extends StatelessWidget {
                 onMentionTap: onAuthorTap == null
                     ? (_) {}
                     : (uid) => onAuthorTap!(uid),
-                resolveMentions: (uids) async {
-                  if (uids.isEmpty) return const <String, UserRef>{};
-                  // v88: use widget.commentService (passed in from
-                  // _FeedTabState). _MomentCard is a StatelessWidget
-                  // and doesn't have its own _commentService.
-                  return widget.commentService.lookupManyByUids(uids);
-                },
+                // v88: _MomentBody resolves mentions via its own
+                // widget.commentService (passed in below). Removes
+                // the inline resolveMentions callback that was
+                // referencing widget.commentService from inside
+                // _MomentBody.build() — the wrong `widget` scope.
+                commentService: commentService,
               )
             else
               _MomentBody(
@@ -3707,13 +3706,12 @@ class _MomentCard extends StatelessWidget {
                 onMentionTap: onAuthorTap == null
                     ? (_) {}
                     : (uid) => onAuthorTap!(uid),
-                resolveMentions: (uids) async {
-                  if (uids.isEmpty) return const <String, UserRef>{};
-                  // v88: use widget.commentService (passed in from
-                  // _FeedTabState). _MomentCard is a StatelessWidget
-                  // and doesn't have its own _commentService.
-                  return widget.commentService.lookupManyByUids(uids);
-                },
+                // v88: _MomentBody resolves mentions via its own
+                // widget.commentService (passed in below). Removes
+                // the inline resolveMentions callback that was
+                // referencing widget.commentService from inside
+                // _MomentBody.build() — the wrong `widget` scope.
+                commentService: commentService,
               ),
             const SizedBox(height: 8),
           ],
@@ -6118,6 +6116,13 @@ class _MomentBody extends StatelessWidget {
   final ValueChanged<String> onMentionTap;
   final Future<Map<String, UserRef>> Function(List<String> uids)?
       resolveMentions;
+  // v88: optional CommentService for the default mention resolver.
+  // When `resolveMentions` is null AND `commentService` is non-null,
+  // _MomentBody will resolve mentions via `commentService.lookupManyByUids`.
+  // This is the default path used by the moment card — the parent
+  // (_MomentCard) passes its own commentService down so the closure
+  // captures a stable reference.
+  final CommentService? commentService;
 
   const _MomentBody({
     required this.text,
@@ -6126,6 +6131,7 @@ class _MomentBody extends StatelessWidget {
     this.baseStyle,
     this.mentionStyle,
     this.resolveMentions,
+    this.commentService,
   });
 
   // Pattern: @-token not at a word boundary. Same as _CommentBody
@@ -6160,14 +6166,29 @@ class _MomentBody extends StatelessWidget {
     }
 
     return FutureBuilder<Map<String, UserRef>>(
-      future: resolveMentions != null
-          ? resolveMentions!(mentions)
-          : Future.value(<String, UserRef>{}),
+      future: _resolveMentions(mentions),
       builder: (context, snapshot) {
         final cache = snapshot.data ?? <String, UserRef>{};
         return _buildRichText(text, matches, cache, base, mention);
       },
     );
+  }
+
+  // v88: resolve mention UIDs to UserRefs. Uses the parent's
+  // resolveMentions callback if provided, else falls back to the
+  // widget's own commentService. The fallback path is what _MomentCard
+  // uses — the card passes its commentService down, and the body
+  // resolves the UIDs directly. The explicit callback path is
+  // available for tests or alternate data sources.
+  Future<Map<String, UserRef>> _resolveMentions(List<String> uids) async {
+    if (uids.isEmpty) return const <String, UserRef>{};
+    if (resolveMentions != null) {
+      return resolveMentions!(uids);
+    }
+    if (commentService != null) {
+      return commentService!.lookupManyByUids(uids);
+    }
+    return const <String, UserRef>{};
   }
 
   Widget _buildRichText(
