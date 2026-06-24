@@ -83,6 +83,17 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   /// MomentCommentsSheet and the connection picker.
   final CommentService _commentService = CommentService();
 
+  /// v90: my-connections cache. Used as a client-side fallback for
+  /// the @-mention resolver on moment cards when the backend's
+  /// `mentions[]` field is missing (pre-v87a deploy) or empty. The
+  /// cache maps the friend's `mentionTag` (lowercased no-spaces
+  /// display name) to the UserRef so the renderer can match
+  /// @-tags out of the moment text and route the tap to the
+  /// right profile. Populated once in initState's post-frame
+  /// tick. Capped at 25 entries to keep the lookup cheap.
+  final Map<String, UserRef> _myConnectionsByTag = <String, UserRef>{};
+  bool _myConnectionsLoaded = false;
+
   /// Convenience getter for the parent-supplied onOpenUserProfile
   /// callback. Used by the feed's moment cards to navigate to a
   /// tapped user's profile.
@@ -306,6 +317,11 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       // 'Share what's happening around you' card shows
       // the in-app avatar (not the Google OAuth one).
       _initMyPhoto();
+      // v90: load the current user's connections so moment
+      // cards can resolve @-mentions client-side (when the
+      // backend's mentions[] is empty or before the v87a
+      // deploy lands).
+      _loadMyConnections();
     });
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -705,6 +721,38 @@ Future<void> _toggleMomentBookmark(int index) async {
       if (_myPhotoUrl == next) return;
       setState(() => _myPhotoUrl = next);
     });
+  }
+
+  /// v90: client-side fallback for @-mentions on moment cards. When
+  /// the backend's `mentions[]` field is empty (pre-v87a deploy, or
+  /// the mentioned person is a stranger to the viewer), this cache
+  /// lets the renderer still resolve @-tags by matching the
+  /// lowercased-no-spaces display name against the current viewer's
+  /// friends list. Limited to 25 entries. The cache is built once
+  /// on init; we don't subscribe to friends-list changes because
+  /// the @-tag in the moment text would still match an updated
+  /// display name on a per-card rebuild.
+  Future<void> _loadMyConnections() async {
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+    if (myUid.isEmpty) return;
+    try {
+      final friends = await _commentService.searchConnections(
+        myUid,
+        limit: 25,
+      );
+      if (!mounted) return;
+      setState(() {
+        _myConnectionsByTag.clear();
+        for (final u in friends) {
+          final tag = u.mentionTag;
+          if (tag.isNotEmpty) _myConnectionsByTag[tag] = u;
+        }
+        _myConnectionsLoaded = true;
+      });
+      debugPrint("v90 _loadMyConnections: ${friends.length} friends cached");
+    } catch (e) {
+      debugPrint("🔥 v90 _loadMyConnections failed: $e");
+    }
   }
 
   Future<void> _bootstrapFeed({
@@ -1532,6 +1580,12 @@ Future<void> _toggleMomentBookmark(int index) async {
             // resolve @-mention UIDs to UserRefs (same pattern as
             // the comment composer in MomentCommentTile).
             commentService: _commentService,
+            // v90: pass the current viewer's connections cache
+            // down so _MomentBody can fall back to client-side
+            // @-tag resolution when the backend's `mentions[]`
+            // field is empty (pre-v87a deploy or mention is of
+            // a stranger to the viewer).
+            myConnectionsByTag: _myConnectionsByTag,
             onAuthorTap: _onOpenUserProfile,
           );
         },
@@ -3292,6 +3346,13 @@ class _MomentCard extends StatelessWidget {
   /// down. (Same pattern MomentCommentTile uses in the comments
   /// flow — see v66.)
   final CommentService commentService;
+  /// v90: client-side @-mention fallback. The current viewer's
+  /// connections cached by `mentionTag` (lowercased display name).
+  /// Used by `_MomentBody` when the backend's `mentions[]` field
+  /// is empty (pre-v87a deploy) so the @-tag in the moment text
+  /// can still resolve to a tap target. Pass-through from
+  /// `_FeedTabState` to keep the rendering path pure.
+  final Map<String, UserRef>? myConnectionsByTag;
   /// Called when the user taps the avatar or display name. Receives
   /// the author's UID so the caller can navigate to that user's
   /// profile.
@@ -3310,6 +3371,7 @@ class _MomentCard extends StatelessWidget {
     required this.photoCache,
     required this.feedService,
     required this.commentService,
+    this.myConnectionsByTag,
     this.onAuthorTap,
   });
 
@@ -3678,6 +3740,11 @@ class _MomentCard extends StatelessWidget {
                 // referencing widget.commentService from inside
                 // _MomentBody.build() — the wrong `widget` scope.
                 commentService: commentService,
+                // v90: client-side @-tag fallback so unresolved
+                // mentions (backend mentions[] is empty) still
+                // resolve when the @-tag matches a friend of the
+                // current viewer.
+                myConnectionsByTag: myConnectionsByTag,
               )
             else
               _MomentBody(
@@ -3712,6 +3779,11 @@ class _MomentCard extends StatelessWidget {
                 // referencing widget.commentService from inside
                 // _MomentBody.build() — the wrong `widget` scope.
                 commentService: commentService,
+                // v90: client-side @-tag fallback so unresolved
+                // mentions (backend mentions[] is empty) still
+                // resolve when the @-tag matches a friend of the
+                // current viewer.
+                myConnectionsByTag: myConnectionsByTag,
               ),
             const SizedBox(height: 8),
           ],
@@ -6123,6 +6195,14 @@ class _MomentBody extends StatelessWidget {
   // (_MomentCard) passes its own commentService down so the closure
   // captures a stable reference.
   final CommentService? commentService;
+  // v90: optional client-side connections cache, keyed by the
+  // friend's mentionTag (lowercased no-spaces display name). When
+  // the backend `mentions[]` field is empty (pre-v87a deploy) AND
+  // the @-tag in the moment text matches a friend of the current
+  // viewer, the renderer can still resolve the mention to a
+  // tappable span. The card passes this down from
+  // _FeedTabState's _myConnectionsByTag.
+  final Map<String, UserRef>? myConnectionsByTag;
 
   const _MomentBody({
     required this.text,
@@ -6132,6 +6212,7 @@ class _MomentBody extends StatelessWidget {
     this.mentionStyle,
     this.resolveMentions,
     this.commentService,
+    this.myConnectionsByTag,
   });
 
   // Pattern: @-token not at a word boundary. Same as _CommentBody
@@ -6225,7 +6306,14 @@ class _MomentBody extends StatelessWidget {
       }
       final raw = m.group(1) ?? "";
       final tag = raw.toLowerCase();
-      final resolvedUid = tagToUid[tag];
+      String? resolvedUid = tagToUid[tag];
+      // v90: client-side fallback. If the backend's `mentions[]`
+      // didn't include this @-tag (pre-v87a deploy, or the mentioned
+      // person is a stranger to the viewer) and the @-tag matches
+      // the current viewer's connections cache, use that UID.
+      // This keeps the @-mention tappable even before the backend
+      // has the mentions field round-tripping.
+      resolvedUid ??= myConnectionsByTag?[tag]?.uid;
       if (resolvedUid == null) {
         // Cache miss for this mention tag — render as a non-tappable
         // blue span so the user still sees it's a mention, but no
@@ -6234,7 +6322,7 @@ class _MomentBody extends StatelessWidget {
         spans.add(TextSpan(text: "@$raw", style: mention));
       } else {
         final recognizer = TapGestureRecognizer()
-          ..onTap = () => onMentionTap(resolvedUid);
+          ..onTap = () => onMentionTap(resolvedUid!);
         spans.add(TextSpan(
           text: "@$raw",
           style: mention,
