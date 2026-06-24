@@ -1055,11 +1055,6 @@ exports.createMomentV2 = onCall(
               thumbUrl,
               name,
               contentType,
-              // v85: 'sticker' for animated GIF stickers from GIPHY
-              // (uploaded by the v63 uploadCommentImage cloud function).
-              // Card renderers use this to keep the URL (animated) instead
-              // of falling back to a still thumb frame.
-              kind: cleanString(data.kind),
             };
           })
           .filter((item) => {
@@ -2071,12 +2066,32 @@ exports.createMomentRepost = onCall(
         );
       }
 
+      // v86: relaxed the "Missing original Moment content" check.
+      // The original v50/v63 validation was too strict — a repost
+      // of a moment whose text/media didn't reach the timeline
+      // response (or whose originalForeignId is the only source of
+      // truth) was being rejected. The v85b consumer flow hits
+      // this when reposting from a moment card that was loaded
+      // before text/media passthrough was deployed. We now warn
+      // + continue; the original can still be located via
+      // originalActivityId + originalForeignId.
       if (!originalText && originalMedia.length === 0) {
-        throw new HttpsError(
-            "invalid-argument",
-            "Missing original Moment content.",
+        console.warn(
+            "v86 createRepost: empty originalText + empty originalMedia; " +
+            "proceeding anyway. quoteText=" + quoteText,
         );
       }
+
+      // v86: log the raw request payload so we can see what the
+      // consumer is actually sending. Helps diagnose future
+      // "Missing X" errors without having to guess.
+      console.log(
+          "v86 createRepost: keys=" +
+          JSON.stringify(Object.keys(request.data || {})) +
+          " originalText=" + JSON.stringify(originalText) +
+          " originalMediaCount=" + originalMedia.length +
+          " originalActivityId=" + JSON.stringify(originalActivityId),
+      );
 
       if (quoteText.length > 300) {
         throw new HttpsError(
