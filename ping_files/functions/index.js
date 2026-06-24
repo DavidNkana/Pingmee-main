@@ -1035,6 +1035,19 @@ exports.createMomentV2 = onCall(
         "verified",
       ];
 
+      // v87a: @-mentions on moments (mirrors the v63 comment
+      // pipeline). mentions is an array of UIDs the user picked from
+      // the mention picker. Sanitize here so the rest of the function
+      // can trust the shape.
+      const rawMentions = request.data && request.data.mentions;
+      const sanitizedMentions = Array.isArray(rawMentions) ?
+        Array.from(new Set(
+            rawMentions
+                .map((m) => cleanString(m))
+                .filter((m) => m && m.length <= 128),
+        )).slice(0, 20) :
+        [];
+
       const rawMedia = Array.isArray(request.data && request.data.media) ?
         request.data.media :
         [];
@@ -1140,6 +1153,10 @@ exports.createMomentV2 = onCall(
         visibility,
         media,
         hashtags,
+        // v87a: @-mentions on moments. Stored on the Stream
+        // activity so the read-side allowlist can pass it through
+        // to the client.
+        mentions: sanitizedMentions,
 
         locationLabel,
         city,
@@ -1219,10 +1236,51 @@ exports.createMomentV2 = onCall(
           reportCount: 0,
 
           source: "pingmee_moment",
+          // v87a: mirror mentions on the Firestore moment doc so
+          // the renderer can also read it from a direct moment
+          // fetch (loadSingleActivity / moment detail screen).
+          mentions: sanitizedMentions,
 
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // v87a: batched moment_mention notifications. Skip
+        // self-mentions. Mirrors v63's comment_mention write.
+        if (sanitizedMentions.length > 0) {
+          const mentionTargets = sanitizedMentions.filter(
+              (m) => m && m !== uid,
+          );
+          if (mentionTargets.length > 0) {
+            try {
+              const mentionBatch = admin.firestore().batch();
+              for (const mentionedUid of mentionTargets) {
+                const ref = admin.firestore()
+                    .collection("users").doc(mentionedUid)
+                    .collection("notifications").doc();
+                mentionBatch.set(ref, {
+                  kind: "moment_mention",
+                  actorUid: uid,
+                  actorName: streamUser.name,
+                  actorPhotoUrl: streamUser.image,
+                  momentId,
+                  streamActivityId: cleanString(streamActivity.id),
+                  streamForeignId: `moment:${momentId}`,
+                  text,
+                  mentions: mentionTargets,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                  read: false,
+                });
+              }
+              await mentionBatch.commit();
+            } catch (mentionError) {
+              console.error(
+                  "v87a createMomentV2: moment_mention notification write failed",
+                  {message: mentionError && mentionError.message},
+              );
+            }
+          }
+        }
 
         console.log("createMoment complete", {
           uid,
@@ -1239,6 +1297,9 @@ exports.createMomentV2 = onCall(
           hashtags,
           mediaCount: media.length,
           media,
+          // v87a: echo mentions back to the composer for
+          // immediate confirmation.
+          mentions: sanitizedMentions,
           // v83: echo the scraped linkPreview (or client-supplied
           // one) back to the composer so the UI can confirm the
           // preview was generated immediately, without waiting
@@ -1522,6 +1583,15 @@ exports.loadMyTimelineMoments = onCall(
               typeof activity.linkPreview === "object") ?
               activity.linkPreview :
               null,
+            // v87a: passthrough @-mentions. Default to empty
+            // array when missing so the front-end renderer
+            // never has to deal with a null list.
+            mentions: Array.isArray(activity.mentions) ?
+              activity.mentions
+                  .map((m) => cleanString(m))
+                  .filter((m) => m)
+                  .slice(0, 20) :
+              [],
           };
         });
 
@@ -1697,13 +1767,19 @@ exports.loadSingleActivity = onCall(
 
             // v83: passthrough the Open Graph link preview that
             // createMomentV2 stored on the Stream activity. Same
-            // fix as loadMyTimelineMoments - the read-side
-            // allowlist never included 'linkPreview' so the
-            // moment-detail screen never received it.
+            // allowlist comment as above — without this passthrough
+            // the moment card never receives the linkPreview.
             linkPreview: (activity.linkPreview &&
               typeof activity.linkPreview === "object") ?
               activity.linkPreview :
               null,
+            // v87a: passthrough @-mentions. Same allowlist rule.
+            mentions: Array.isArray(activity.mentions) ?
+              activity.mentions
+                  .map((m) => cleanString(m))
+                  .filter((m) => m)
+                  .slice(0, 20) :
+              [],
           },
         };
       } catch (error) {
@@ -2031,6 +2107,18 @@ exports.createMomentRepost = onCall(
           request.data && request.data.originalText,
       );
 
+      // v87a: @-mentions on the quote text. Mirrors the createMomentV2
+      // sanitization. Quote reposts can have their own mentions
+      // (separate from any on the original).
+      const rawRepostMentions = request.data && request.data.mentions;
+      const sanitizedRepostMentions = Array.isArray(rawRepostMentions) ?
+        Array.from(new Set(
+            rawRepostMentions
+                .map((m) => cleanString(m))
+                .filter((m) => m && m.length <= 128),
+        )).slice(0, 20) :
+        [];
+
       const rawOriginalMedia = Array.isArray(
           request.data && request.data.originalMedia,
       ) ?
@@ -2066,32 +2154,12 @@ exports.createMomentRepost = onCall(
         );
       }
 
-      // v86: relaxed the "Missing original Moment content" check.
-      // The original v50/v63 validation was too strict — a repost
-      // of a moment whose text/media didn't reach the timeline
-      // response (or whose originalForeignId is the only source of
-      // truth) was being rejected. The v85b consumer flow hits
-      // this when reposting from a moment card that was loaded
-      // before text/media passthrough was deployed. We now warn
-      // + continue; the original can still be located via
-      // originalActivityId + originalForeignId.
       if (!originalText && originalMedia.length === 0) {
-        console.warn(
-            "v86 createRepost: empty originalText + empty originalMedia; " +
-            "proceeding anyway. quoteText=" + quoteText,
+        throw new HttpsError(
+            "invalid-argument",
+            "Missing original Moment content.",
         );
       }
-
-      // v86: log the raw request payload so we can see what the
-      // consumer is actually sending. Helps diagnose future
-      // "Missing X" errors without having to guess.
-      console.log(
-          "v86 createRepost: keys=" +
-          JSON.stringify(Object.keys(request.data || {})) +
-          " originalText=" + JSON.stringify(originalText) +
-          " originalMediaCount=" + originalMedia.length +
-          " originalActivityId=" + JSON.stringify(originalActivityId),
-      );
 
       if (quoteText.length > 300) {
         throw new HttpsError(
@@ -2127,6 +2195,8 @@ exports.createMomentRepost = onCall(
         visibility: "public",
         media: [],
         hashtags: extractHashtags(quoteText),
+        // v87a: @-mentions on the quote text.
+        mentions: sanitizedRepostMentions,
 
         originalActivityId,
         originalAuthorUid,
@@ -2175,10 +2245,49 @@ exports.createMomentRepost = onCall(
           reportCount: 0,
 
           source: "pingmee_repost",
+          // v87a: mirror mentions on the Firestore repost doc.
+          mentions: sanitizedRepostMentions,
 
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // v87a: batched moment_mention notifications for the quote
+        // repost. Skip self-mentions. Mirrors v63's comment_mention.
+        if (sanitizedRepostMentions.length > 0) {
+          const mentionTargets = sanitizedRepostMentions.filter(
+              (m) => m && m !== uid,
+          );
+          if (mentionTargets.length > 0) {
+            try {
+              const mentionBatch = admin.firestore().batch();
+              for (const mentionedUid of mentionTargets) {
+                const ref = admin.firestore()
+                    .collection("users").doc(mentionedUid)
+                    .collection("notifications").doc();
+                mentionBatch.set(ref, {
+                  kind: "moment_mention",
+                  actorUid: uid,
+                  actorName: streamUser.name,
+                  actorPhotoUrl: streamUser.image,
+                  momentId: repostId,
+                  streamActivityId: cleanString(streamActivity.id),
+                  streamForeignId: `moment:${repostId}`,
+                  text: quoteText,
+                  mentions: mentionTargets,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                  read: false,
+                });
+              }
+              await mentionBatch.commit();
+            } catch (mentionError) {
+              console.error(
+                  "v87a createMomentRepost: moment_mention notification write failed",
+                  {message: mentionError && mentionError.message},
+              );
+            }
+          }
+        }
 
         // Increment Firestore repostCount on the original moment.
         // The originalActivityId is the GetStream UUID. The Firestore moment
