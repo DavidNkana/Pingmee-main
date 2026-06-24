@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:giphy_get/giphy_get.dart';
 import 'package:http/http.dart' as http;
@@ -516,6 +517,8 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       await _feedService.createMomentRepost(
         originalMoment: moment,
         quoteText: action.quoteText,
+        // v87a: forward @-mentions on the quote text.
+        mentions: action.mentions,
       );
 
       await _loadTimelineMoments(reason: "after repost");
@@ -969,12 +972,18 @@ Future<void> _toggleMomentBookmark(int index) async {
     await _createAndReloadMoment(
       cleaned,
       pickedMedia: draft.media,
+      // v87a: forward the @-mentions captured by the composer.
+      mentions: draft.mentions,
     );
   }
 
   Future<void> _createAndReloadMoment(
     String text, {
     List<_MomentPickedMedia> pickedMedia = const [],
+    // v87a: @-mention UIDs the user picked in the create-moment
+    // composer. Forwarded to createMomentV2 (which stores on
+    // activity + moment doc + sends moment_mention notifications).
+    List<String> mentions = const [],
   }) async {
     if (_creatingMoment) return;
 
@@ -1077,6 +1086,8 @@ Future<void> _toggleMomentBookmark(int index) async {
       final createResult = await _feedService.createMoment(
         text: text,
         media: media,
+        // v87a: forward @-mentions to the backend.
+        mentions: mentions,
       );
 
       debugPrint("🧪 createMoment result mediaCount=${createResult["mediaCount"]}");
@@ -3610,17 +3621,27 @@ class _MomentCard extends StatelessWidget {
               ),
             ],
           ),
-          if (text.isNotEmpty) ...[
+           if (text.isNotEmpty) ...[
             const SizedBox(height: 14),
             // Quote repost: the user is commenting on the source, so the
     // body is rendered as a quote (italic + lighter + curly quotes) to set
     // it apart from a regular post. Plain reposts are skipped entirely
     // (text is empty for them) and show only the mini-card. Regular
     // moments keep the normal post styling.
+    // v87: @-mentions on the body text are rendered as blue
+    // clickable TextSpans via _MomentBody. Quote reposts get the
+    // same treatment (mentions on the quote text are tappable).
             if (isRepost)
-              Text(
-                '“$text”',
-                style: TextStyle(
+              _MomentBody(
+                text: '"$text"',
+                mentions: data["mentions"] is List
+                    ? List<String>.from(
+                        (data["mentions"] as List)
+                            .whereType<String>()
+                            .where((s) => s.isNotEmpty),
+                      )
+                    : const <String>[],
+                baseStyle: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 14.5,
                   fontStyle: FontStyle.italic,
@@ -3628,17 +3649,53 @@ class _MomentCard extends StatelessWidget {
                   height: 1.32,
                   color: Colors.black.withOpacity(.62),
                 ),
+                mentionStyle: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 14.5,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w600,
+                  height: 1.32,
+                  color: const Color(0xFF1D9BF0),
+                ),
+                onMentionTap: onAuthorTap == null
+                    ? (_) {}
+                    : (uid) => onAuthorTap!(uid),
+                resolveMentions: (uids) async {
+                  if (uids.isEmpty) return const <String, UserRef>{};
+                  return _commentService.lookupManyByUids(uids);
+                },
               )
             else
-              Text(
-                text,
-                style: TextStyle(
+              _MomentBody(
+                text: text,
+                mentions: data["mentions"] is List
+                    ? List<String>.from(
+                        (data["mentions"] as List)
+                            .whereType<String>()
+                            .where((s) => s.isNotEmpty),
+                      )
+                    : const <String>[],
+                baseStyle: TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                   height: 1.32,
                   color: Colors.black.withOpacity(.82),
                 ),
+                mentionStyle: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.32,
+                  color: const Color(0xFF1D9BF0),
+                ),
+                onMentionTap: onAuthorTap == null
+                    ? (_) {}
+                    : (uid) => onAuthorTap!(uid),
+                resolveMentions: (uids) async {
+                  if (uids.isEmpty) return const <String, UserRef>{};
+                  return _commentService.lookupManyByUids(uids);
+                },
               ),
             const SizedBox(height: 8),
           ],
@@ -6009,6 +6066,156 @@ class _StickerInline extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+// ============================================================================
+// v87: _MomentBody - renders the moment text body with @-mentions as
+// blue clickable TextSpans. Mirrors _CommentBody from comment_widgets.dart
+// (v66). The mentions are resolved client-side via a per-card
+// Map<uid, UserRef> cache; the renderer walks the text for the canonical
+// @tag style (lowercased no-spaces) and matches each one against the
+// resolved users' mentionTag. On tap, calls widget.onMentionTap(uid)
+// which the card's parent wires to widget.onAuthorTap to open the
+// profile (same as the avatar/name tap on the card header).
+//
+// If mentions is empty (the v85b composer captured UIDs but the backend
+// didn't ship them — pre-v87a), the renderer falls back to the
+// existing plain Text render with NO behavior change.
+//
+// Resolving the @tag back to a uid is per-render. The card calls
+// widget.resolveMentions(mentions) once on first build, caches the
+// result, and the body uses it. If a mention tag is missing from
+// the cache (e.g. the viewer isn't friends with the mentioned user),
+// the span renders as a non-tappable blue (matches the v68 comment
+// convention) so the user still sees it's a mention.
+// ============================================================================
+
+class _MomentBody extends StatelessWidget {
+  final String text;
+  final List<String> mentions; // UIDs the backend stored
+  final TextStyle? baseStyle;
+  final TextStyle? mentionStyle;
+  final ValueChanged<String> onMentionTap;
+  final Future<Map<String, UserRef>> Function(List<String> uids)?
+      resolveMentions;
+
+  const _MomentBody({
+    required this.text,
+    required this.mentions,
+    required this.onMentionTap,
+    this.baseStyle,
+    this.mentionStyle,
+    this.resolveMentions,
+  });
+
+  // Pattern: @-token not at a word boundary. Same as _CommentBody
+  // (v66) so the @-tag matching is consistent across surfaces.
+  static final RegExp _mentionRe =
+      RegExp(r"\B@([a-z0-9_.]+)", caseSensitive: false);
+
+  @override
+  Widget build(BuildContext context) {
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    final defaultBase = const TextStyle(
+      fontFamily: "Nunito",
+      fontSize: 15,
+      fontWeight: FontWeight.w500,
+      height: 1.32,
+      color: Color(0xFF1A1A1A), // Colors.black87 with full opacity
+    );
+    final defaultMention = defaultBase.copyWith(
+      color: const Color(0xFF1D9BF0), // X-blue (matches comment mentions)
+      fontWeight: FontWeight.w600,
+    );
+    final base = baseStyle ?? defaultBase;
+    final mention = mentionStyle ?? defaultMention;
+
+    // Fast path: no mentions AND no @-tag patterns in the text. Render
+    // as plain Text. This is the most common case (most moments don't
+    // have @mentions) so we keep it fast and free of async work.
+    final matches = _mentionRe.allMatches(text).toList();
+    if (mentions.isEmpty && matches.isEmpty) {
+      return Text(text, style: base);
+    }
+
+    return FutureBuilder<Map<String, UserRef>>(
+      future: resolveMentions != null
+          ? resolveMentions!(mentions)
+          : Future.value(<String, UserRef>{}),
+      builder: (context, snapshot) {
+        final cache = snapshot.data ?? <String, UserRef>{};
+        return _buildRichText(text, matches, cache, base, mention);
+      },
+    );
+  }
+
+  Widget _buildRichText(
+    String text,
+    List<RegExpMatch> matches,
+    Map<String, UserRef> cache,
+    TextStyle base,
+    TextStyle mention,
+  ) {
+    if (matches.isEmpty) {
+      // Has mentions but no @-tags in the visible text. Render as
+      // plain Text — the renderer will just show the text without
+      // any blue spans. This shouldn't normally happen but is a
+      // safe fallback.
+      return Text(text, style: base);
+    }
+
+    // Build a reverse-lookup: mentionTag (lowercased no-spaces) -> uid.
+    final tagToUid = <String, String>{};
+    for (final entry in cache.entries) {
+      final tag = entry.value.mentionTag;
+      if (tag.isNotEmpty) {
+        tagToUid[tag] = entry.key;
+      }
+    }
+
+    final spans = <InlineSpan>[];
+    int cursor = 0;
+    for (final m in matches) {
+      if (m.start > cursor) {
+        spans.add(
+          TextSpan(text: text.substring(cursor, m.start), style: base),
+        );
+      }
+      final raw = m.group(1) ?? "";
+      final tag = raw.toLowerCase();
+      final resolvedUid = tagToUid[tag];
+      if (resolvedUid == null) {
+        // Cache miss for this mention tag — render as a non-tappable
+        // blue span so the user still sees it's a mention, but no
+        // nav happens (we don't have a uid to navigate to).
+        // Same convention as _CommentBody v68.
+        spans.add(TextSpan(text: "@$raw", style: mention));
+      } else {
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () => onMentionTap(resolvedUid);
+        spans.add(TextSpan(
+          text: "@$raw",
+          style: mention,
+          recognizer: recognizer,
+        ));
+      }
+      cursor = m.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor), style: base));
+    }
+    // v68 convention: wrap the Text.rich in a no-op GestureDetector so
+    // the inner TextSpan recognizer wins the gesture arena over any
+    // parent GestureDetector (e.g. the card-level onLike/onComment
+    // taps). Without this wrapper, the outer GestureDetector's onTap
+    // fires and the mention tap is silently swallowed.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: Text.rich(TextSpan(children: spans)),
     );
   }
 }
