@@ -1055,6 +1055,11 @@ exports.createMomentV2 = onCall(
               thumbUrl,
               name,
               contentType,
+              // v85: 'sticker' for animated GIF stickers from GIPHY
+              // (uploaded by the v63 uploadCommentImage cloud function).
+              // Card renderers use this to keep the URL (animated) instead
+              // of falling back to a still thumb frame.
+              kind: cleanString(data.kind),
             };
           })
           .filter((item) => {
