@@ -3,8 +3,11 @@ import 'dart:ui';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:giphy_get/giphy_get.dart';
+import 'package:http/http.dart' as http;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:ping_files/main_app/shared/comment_widgets.dart';
 import 'package:ping_files/main_app/shared/connection_picker_sheet.dart';
@@ -982,6 +985,24 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       for (int i = 0; i < pickedMedia.length; i++) {
         final item = pickedMedia[i];
+
+        // v85: sticker items are already uploaded to Firebase Storage
+        // by the v85b composer (via the v63 uploadCommentImage cloud
+        // function). Skip the putFile path and forward the existing
+        // remoteUrl + kind directly.
+        if (item.kind == "sticker" &&
+            item.remoteUrl != null &&
+            item.remoteUrl!.isNotEmpty) {
+          media.add({
+            "type": "image",
+            "kind": "sticker",
+            "url": item.remoteUrl!,
+            "thumbUrl": item.remoteUrl!,
+            "name": item.name ?? "sticker_${i}",
+            "contentType": "image/gif",
+          });
+          continue;
+        }
 
         File? file = item.file;
 
@@ -2330,20 +2351,41 @@ class _FeedComingSoonState extends StatelessWidget {
 class _CreateMomentDraft {
   final String text;
   final List<_MomentPickedMedia> media;
+  // v85: @mention UIDs the user picked in the composer. v85b
+  // captures them client-side and forwards to the backend on submit.
+  // The backend createMomentV2 already accepts a `mentions` field
+  // (v85c writes it through to the activity + moment doc) but the
+  // v85b push does NOT change the cloud function — v85c will.
+  // Until v85c is deployed, mentions are sent but silently dropped
+  // on the server. The composer UX is identical to comments.
+  final List<String> mentions;
 
   const _CreateMomentDraft({
     required this.text,
     required this.media,
+    this.mentions = const <String>[],
   });
 }
 
 class _MomentPickedMedia {
   final String id;
-  final String type; // image | video
+  // type: image | video | sticker. Stickers are GIFs uploaded to
+  // Firebase Storage via the v63 uploadCommentImage cloud function.
+  final String type;
   final AssetEntity? asset;
   final File? file;
   final String? name;
   final Uint8List? previewBytes;
+  // v85: kind is a more explicit discriminator ("sticker" for animated
+  // GIFs, null for image/video). The backend preserves it through
+  // createMomentV2 so the moment card can render the animated URL.
+  final String? kind;
+  // v85: for sticker items the GIF bytes have already been uploaded to
+  // Firebase Storage by the time they land here — remoteUrl is the
+  // public download URL. The draft consumer forwards it as the media
+  // item's url (no second upload needed). Null for image/video items
+  // (which still go through the existing Firebase Storage upload path).
+  final String? remoteUrl;
 
   const _MomentPickedMedia({
     required this.id,
@@ -2352,6 +2394,8 @@ class _MomentPickedMedia {
     this.file,
     this.name,
     this.previewBytes,
+    this.kind,
+    this.remoteUrl,
   });
 }
 
@@ -2364,25 +2408,212 @@ class _CreateMomentSheet extends StatefulWidget {
 
 class _CreateMomentSheetState extends State<_CreateMomentSheet> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
 
   static const int _maxChars = 500;
 
+  // v85: _media now also holds sticker items. The existing image/video
+  // fields (asset, file, previewBytes) are still used for those items.
+  // Stickers carry a non-null `kind` and `remoteUrl` (the already-uploaded
+  // animated GIF URL).
   final List<_MomentPickedMedia> _media = [];
+
+  // v85: mention picker state. Mirrors _CommentComposerState.
+  final List<String> _mentionUids = <String>[];
+  final Map<String, UserRef> _mentionedUsersCache = <String, UserRef>{};
+  final CommentService _commentService = CommentService();
+  bool _emojiOpen = false;
+  bool _mentionPickerVisible = false;
+  bool _uploadingImage = false;
 
   bool get _mediaFull => _media.length >= 4;
 
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    if (!_focusNode.hasFocus) {
+      if (_emojiOpen) setState(() => _emojiOpen = false);
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Mention picker — same logic as CommentComposer.
+  // -----------------------------------------------------------------
+
+  void _onTextChanged() {
+    if (!mounted) return;
+    final text = _controller.text;
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final cursor = selection.baseOffset;
+    if (cursor <= 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final before = text.substring(0, cursor);
+    final atIndex = before.lastIndexOf("@");
+    if (atIndex < 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final between = before.substring(atIndex + 1);
+    if (between.contains(" ") || between.contains("\n")) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (between.length > 32) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (!_mentionPickerVisible) {
+      setState(() => _mentionPickerVisible = true);
+    }
+  }
+
+  void _insertAtCursor(String s) {
+    final ctrl = _controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      final newText = ctrl.text + s;
+      ctrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+      return;
+    }
+    final newText = ctrl.text.replaceRange(sel.start, sel.end, s);
+    final newCursor = sel.start + s.length;
+    ctrl.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+  }
+
+  void _onPickMention(UserRef u) {
+    final tag = "@${u.mentionTag} ";
+    final ctrl = _controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      _insertAtCursor(tag);
+    } else {
+      final text = ctrl.text;
+      final atIndex = text.lastIndexOf("@", sel.start - 1);
+      if (atIndex >= 0) {
+        final newText = text.replaceRange(atIndex, sel.start, tag);
+        ctrl.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: atIndex + tag.length),
+        );
+      } else {
+        _insertAtCursor(tag);
+      }
+    }
+    if (!_mentionUids.contains(u.uid)) {
+      _mentionUids.add(u.uid);
+      _mentionedUsersCache[u.uid] = u;
+    }
+    setState(() => _mentionPickerVisible = false);
+    _focusNode.requestFocus();
+  }
+
+  // -----------------------------------------------------------------
+  // Image source sheet (camera or library) — same shape as
+  // CommentComposer._showImageSourceSheet. Replaces the two separate
+  // "Gallery" and "Camera" text buttons.
+  // -----------------------------------------------------------------
+
+  Future<void> _onTapImageButton() async {
+    if (_mediaFull) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text(
+                  "Take photo",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("camera"),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text(
+                  "Choose from library",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("library"),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (picked == "camera") {
+      await _pickMediaFromCamera();
+    } else if (picked == "library") {
+      await _pickMediaFromGallery();
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Image/video pickers — same as before, image/video items still go
+  // through the Firebase Storage upload path in _createAndReloadMoment.
+  // -----------------------------------------------------------------
+
   Future<void> _pickMediaFromGallery() async {
     if (_mediaFull) return;
-
     try {
       final maxPick = 4 - _media.length;
-
       final PermissionState permission =
           await PhotoManager.requestPermissionExtend();
-
-      if (!permission.isAuth) {
-        return;
-      }
+      if (!permission.isAuth) return;
 
       final assets = await AssetPicker.pickAssets(
         context,
@@ -2395,17 +2626,13 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
               .toList(),
         ),
       );
-
       if (assets == null || assets.isEmpty) return;
 
       final existingIds = _media.map((m) => m.id).toSet();
-
       for (final asset in assets) {
         if (_media.length >= 4) break;
-
         final id = "asset_${asset.id}";
         if (existingIds.contains(id)) continue;
-
         _media.add(
           _MomentPickedMedia(
             id: id,
@@ -2415,7 +2642,6 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
           ),
         );
       }
-
       if (!mounted) return;
       setState(() {});
     } catch (e) {
@@ -2425,11 +2651,9 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
 
   Future<void> _pickMediaFromCamera() async {
     if (_mediaFull) return;
-
     try {
       XFile? captured;
       CameraPickerViewType? capturedType;
-
       await CameraPicker.pickFromCamera(
         context,
         pickerConfig: CameraPickerConfig(
@@ -2441,38 +2665,25 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
           ) {
             captured = file;
             capturedType = viewType;
-
             Navigator.of(context).pop();
             return true;
           },
         ),
       );
-
       if (captured == null) return;
 
       final file = File(captured!.path);
-
       if (!await file.exists()) return;
 
       final id = "cam_${DateTime.now().millisecondsSinceEpoch}";
       final ext = p.extension(file.path).toLowerCase();
-
       final isVideo =
           capturedType == CameraPickerViewType.video ||
-          [
-            ".mp4",
-            ".mov",
-            ".m4v",
-            ".webm",
-            ".mkv",
-            ".avi",
-          ].contains(ext);
+          [".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"].contains(ext);
 
       Uint8List? previewBytes;
-
       if (isVideo) {
-        previewBytes =
-            await video_thumb.VideoThumbnail.thumbnailData(
+        previewBytes = await video_thumb.VideoThumbnail.thumbnailData(
           video: file.path,
           imageFormat: video_thumb.ImageFormat.JPEG,
           quality: 75,
@@ -2495,21 +2706,113 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
     }
   }
 
+  // -----------------------------------------------------------------
+  // Sticker picker — same GIPHY key, same showStickers:true,
+  // showGIFs:false. Picks the best original-animated URL.
+  // -----------------------------------------------------------------
+
+  Future<void> _onPickSticker() async {
+    if (kPingmeeGiphyApiKey.contains("PASTE_")) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Sticker library is not set up yet.")),
+      );
+      return;
+    }
+    if (_mediaFull) return;
+    try {
+      final gif = await GiphyGet.getGif(
+        context: context,
+        apiKey: kPingmeeGiphyApiKey,
+        lang: GiphyLanguage.english,
+        tabColor: Colors.black,
+        debounceTimeInMilliseconds: 350,
+        showGIFs: false,
+        showStickers: true,
+        showEmojis: false,
+      );
+      if (gif == null) return;
+
+      final url = bestGiphyUrl(gif);
+      if (url.isEmpty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn't load sticker.")),
+        );
+        return;
+      }
+      if (!mounted) return;
+      // Download the bytes + upload via the v63 uploadCommentImage cloud
+      // function (which is auth-gated + world-readable + returns a
+      // public URL). Storage rules (storage.rules) allow
+      // read/write on all paths so this works without rule changes.
+      setState(() => _uploadingImage = true);
+      try {
+        final resp = await http.get(Uri.parse(url));
+        if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
+          throw Exception("GIPHY fetch failed: ${resp.statusCode}");
+        }
+        // The localId is a placeholder — the cloud function uses it to
+        // scope the storage path. The composer treats each picked
+        // sticker as a draft of the current moment; the storage path
+        // will be remapped to a moment-scoped path on submit in a
+        // future push. For v85 we accept the slightly leaky
+        // comments/-prefixed path because storage rules allow it.
+        final localId =
+            "sticker-${DateTime.now().millisecondsSinceEpoch}";
+        final uploadedUrl = await _commentService.uploadCommentImage(
+          activityId: "create-moment",
+          commentIdLocal: localId,
+          bytes: resp.bodyBytes,
+          contentType: "image/gif",
+        );
+        if (!mounted) return;
+        final id =
+            (gif.id ?? "").toString().isNotEmpty ? gif.id!.toString() : localId;
+        setState(() {
+          _media.add(
+            _MomentPickedMedia(
+              id: "sticker_$id",
+              type: "sticker",
+              name: "sticker_$id.gif",
+              kind: "sticker",
+              remoteUrl: uploadedUrl,
+            ),
+          );
+          _uploadingImage = false;
+        });
+      } catch (e) {
+        debugPrint("❌ Sticker upload failed: $e");
+        if (!mounted) return;
+        setState(() => _uploadingImage = false);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn't upload sticker.")),
+        );
+      }
+    } catch (e) {
+      debugPrint("❌ GIPHY sticker picker error: $e");
+    }
+  }
+
   void _removeMedia(_MomentPickedMedia item) {
     setState(() {
       _media.removeWhere((m) => m.id == item.id);
     });
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
   bool get _canPost {
     final text = _controller.text.trim();
     return (text.isNotEmpty || _media.isNotEmpty) && text.length <= _maxChars;
+  }
+
+  void _onTapPost() {
+    if (!_canPost) return;
+    Navigator.pop(
+      context,
+      _CreateMomentDraft(
+        text: _controller.text.trim(),
+        media: List<_MomentPickedMedia>.from(_media),
+        mentions: List<String>.from(_mentionUids),
+      ),
+    );
   }
 
   @override
@@ -2545,6 +2848,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Sheet handle
                       Container(
                         width: 44,
                         height: 5,
@@ -2554,6 +2858,8 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                         ),
                       ),
                       const SizedBox(height: 16),
+
+                      // Header row: title + Post button
                       Row(
                         children: [
                           const Expanded(
@@ -2568,22 +2874,12 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                             ),
                           ),
                           TextButton(
-                            onPressed: _canPost
-                                ? () {
-                                    Navigator.pop(
-                                      context,
-                                      _CreateMomentDraft(
-                                        text: _controller.text.trim(),
-                                        media: List<_MomentPickedMedia>.from(_media),
-                                      ),
-                                    );
-                                  }
-                                : null,
+                            onPressed: _canPost ? _onTapPost : null,
                             child: Text(
                               "Post",
                               style: TextStyle(
                                 fontFamily: "Nunito",
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                                 color: _canPost
                                     ? AppColors.brandGreen
                                     : Colors.black.withOpacity(.25),
@@ -2593,18 +2889,21 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                         ],
                       ),
                       const SizedBox(height: 8),
+
+                      // TextField
                       TextField(
                         controller: _controller,
+                        focusNode: _focusNode,
                         autofocus: true,
                         maxLines: 7,
                         minLines: 4,
                         maxLength: _maxChars + 20,
                         onChanged: (_) => setLocalState(() {}),
                         decoration: InputDecoration(
-                          hintText: "What’s happening around you?",
+                          hintText: "What's happening around you?",
                           hintStyle: TextStyle(
                             fontFamily: "Nunito",
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                             color: Colors.black.withOpacity(.38),
                           ),
                           filled: true,
@@ -2626,53 +2925,40 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                       ),
                       const SizedBox(height: 10),
 
-                      Row(
-                        children: [
-                          _MomentComposerMediaButton(
-                            icon: PhosphorIcons.image(PhosphorIconsStyle.bold),
-                            label: "Gallery",
-                            onTap: _mediaFull ? null : _pickMediaFromGallery,
-                          ),
-                          const SizedBox(width: 10),
-                          _MomentComposerMediaButton(
-                            icon: PhosphorIcons.camera(PhosphorIconsStyle.bold),
-                            label: "Camera",
-                            onTap: _mediaFull ? null : _pickMediaFromCamera,
-                          ),
-                          const Spacer(),
-                          Text(
-                            "${_media.length}/4",
-                            style: TextStyle(
-                              fontFamily: "Nunito",
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black.withOpacity(.42),
-                            ),
-                          ),
-                        ],
+                      // v85: icon-only AttachmentBar matching the comment
+                      // composer. @ | emoji | image | sticker.
+                      AttachmentBar(
+                        onTapMention: () {
+                          setState(() {
+                            _mentionPickerVisible = !_mentionPickerVisible;
+                            if (_mentionPickerVisible) _emojiOpen = false;
+                          });
+                          if (_mentionPickerVisible) {
+                            _insertAtCursor("@");
+                            _focusNode.requestFocus();
+                          }
+                        },
+                        onTapEmoji: () {
+                          setState(() {
+                            _emojiOpen = !_emojiOpen;
+                            if (_emojiOpen) _mentionPickerVisible = false;
+                          });
+                          if (_emojiOpen) {
+                            _focusNode.unfocus();
+                          } else {
+                            _focusNode.requestFocus();
+                          }
+                        },
+                        onTapImage: _mediaFull ? () {} : _onTapImageButton,
+                        onTapSticker: _mediaFull ? () {} : _onPickSticker,
+                        mentionOpen: _mentionPickerVisible,
+                        emojiOpen: _emojiOpen,
+                        uploading: _uploadingImage,
                       ),
 
-                      if (_media.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 96,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _media.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 10),
-                            itemBuilder: (context, index) {
-                              final item = _media[index];
+                      const SizedBox(height: 6),
 
-                              return _MomentComposerMediaPreview(
-                                item: item,
-                                onRemove: () => _removeMedia(item),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 10),
+                      // Hashtags hint + char count row
                       Row(
                         children: [
                           Icon(
@@ -2687,7 +2973,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                               style: TextStyle(
                                 fontFamily: "Nunito",
                                 fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w500,
                                 color: Colors.black.withOpacity(.45),
                               ),
                             ),
@@ -2697,7 +2983,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                             style: TextStyle(
                               fontFamily: "Nunito",
                               fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w500,
                               color: overLimit
                                   ? const Color(0xFFB42318)
                                   : Colors.black.withOpacity(.42),
@@ -2705,6 +2991,80 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                           ),
                         ],
                       ),
+
+                      // v85: media preview strip (existing + sticker).
+                      if (_media.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 96,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _media.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 10),
+                            itemBuilder: (context, index) {
+                              final item = _media[index];
+                              return _MomentComposerMediaPreview(
+                                item: item,
+                                onRemove: () => _removeMedia(item),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+
+                      // v85: mention picker panel (same widget as comments)
+                      if (_mentionPickerVisible)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: MentionPicker(
+                            myUid:
+                                FirebaseAuth.instance.currentUser?.uid ?? "",
+                            commentService: _commentService,
+                            onPickMention: _onPickMention,
+                          ),
+                        ),
+
+                      // v85: emoji picker panel (same widget as comments)
+                      if (_emojiOpen)
+                        SizedBox(
+                          height: 280,
+                          child: EmojiPicker(
+                            textEditingController: _controller,
+                            config: Config(
+                              height: 280,
+                              checkPlatformCompatibility: true,
+                              emojiViewConfig: const EmojiViewConfig(
+                                columns: 7,
+                                emojiSizeMax: 30,
+                                backgroundColor: Colors.white,
+                                verticalSpacing: 0,
+                                horizontalSpacing: 0,
+                              ),
+                              viewOrderConfig: const ViewOrderConfig(
+                                top: EmojiPickerItem.categoryBar,
+                                middle: EmojiPickerItem.emojiView,
+                                bottom: EmojiPickerItem.searchBar,
+                              ),
+                              categoryViewConfig: const CategoryViewConfig(
+                                backgroundColor: Colors.white,
+                                indicatorColor: Colors.black,
+                                iconColor: Color(0xFF9CA3AF),
+                                iconColorSelected: Colors.black,
+                                dividerColor: Colors.transparent,
+                              ),
+                              bottomActionBarConfig: const BottomActionBarConfig(
+                                backgroundColor: Colors.white,
+                                buttonIconColor: Colors.black,
+                              ),
+                              searchViewConfig: const SearchViewConfig(
+                                backgroundColor: Color(0xFFF3F4F6),
+                                buttonIconColor: Colors.black,
+                                hintText: "Search emoji",
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -3077,9 +3437,25 @@ class _MomentCard extends StatelessWidget {
           )
         : <Map<String, dynamic>>[];
 
+    // v85: stickers are rendered separately from visualMedia. The
+    // existing visualMedia filter treats kind == "sticker" as a still
+    // image (it'd render the animated URL fine, but tile dimensions
+    // for visualMedia assume photo aspect ratios). Pulling them out
+    // here keeps the SharedMediaItem carousel a tidy row of photos
+    // while stickers animate at their natural shape.
+    final stickerMedia = media.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return kind == "sticker" && url.isNotEmpty;
+    }).toList();
+
     final visualMedia = media.where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
       final type = (item["type"] ?? "").toString().trim();
       final url = (item["url"] ?? "").toString().trim();
+
+      // Skip stickers — they're rendered above the visual carousel.
+      if (kind == "sticker") return false;
 
       return url.isNotEmpty && (type == "image" || type == "video");
     }).toList();
@@ -3305,6 +3681,21 @@ class _MomentCard extends StatelessWidget {
                   ),
                 );
               }).toList(),
+            ),
+          ],
+
+          // v85: sticker inline render — animated GIF at natural shape
+          if (stickerMedia.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final item in stickerMedia)
+                  _StickerInline(
+                    url: (item["url"] ?? "").toString(),
+                  ),
+              ],
             ),
           ],
 
@@ -3794,14 +4185,26 @@ class _OriginalMomentMiniCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // v85: stickers get their own inline render path. The carousel
+    // filter excludes them (they animate at natural shape, not as
+    // a still photo tile).
+    final stickerItems = (originalMedia as List).whereType<Map>().where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
+      final url = (item["url"] ?? "").toString().trim();
+      return kind == "sticker" && url.isNotEmpty;
+    }).toList();
+
     // Build media list for carousel (image/video only)
     final mediaItems = (originalMedia as List).whereType<Map>().where((item) {
+      final kind = (item["kind"] ?? "").toString().trim();
       final type = (item["type"] ?? "").toString().trim();
       final url = (item["url"] ?? "").toString().trim();
+      if (kind == "sticker") return false;
       return url.isNotEmpty && (type == "image" || type == "video");
     }).toList();
 
     final hasMedia = mediaItems.isNotEmpty;
+    final hasSticker = stickerItems.isNotEmpty;
 
     return GestureDetector(
       onTap: onOriginalTap,
@@ -3868,6 +4271,21 @@ class _OriginalMomentMiniCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
           ],
+          // v85: sticker inline render (animated, no carousel, no viewer)
+          if (hasSticker) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in stickerItems)
+                  _StickerInline(
+                    url: (item["url"] ?? "").toString(),
+                  ),
+              ],
+            ),
+          ],
+
           // Horizontal media carousel
           if (hasMedia) ...[
             const SizedBox(height: 8),
@@ -3949,9 +4367,15 @@ class _OriginalMomentMiniCard extends StatelessWidget {
 
 class _RepostAction {
   final String quoteText;
+  // v85: quote-repost can carry media (image/video/sticker) +
+  // @mentions. The plain-repost path passes empty lists here.
+  final List<_MomentPickedMedia> media;
+  final List<String> mentions;
 
   const _RepostAction({
     required this.quoteText,
+    this.media = const <_MomentPickedMedia>[],
+    this.mentions = const <String>[],
   });
 }
 
@@ -3968,20 +4392,386 @@ class _RepostMomentSheet extends StatefulWidget {
 
 class _RepostMomentSheetState extends State<_RepostMomentSheet> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
 
   static const int _maxChars = 300;
 
-  String _text(String key) => (widget.moment[key] ?? "").toString().trim();
+  // v85: staged media for the repost — same model as create moment.
+  // Stickers land here with kind: "sticker" + remoteUrl: <uploaded URL>.
+  final List<_MomentPickedMedia> _media = [];
+  final List<String> _mentionUids = <String>[];
+  final Map<String, UserRef> _mentionedUsersCache = <String, UserRef>{};
+  final CommentService _commentService = CommentService();
+
+  bool _emojiOpen = false;
+  bool _mentionPickerVisible = false;
+  bool _uploadingImage = false;
+
+  String _text(String key) =>
+      (widget.moment[key] ?? "").toString().trim();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
 
   @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    if (!_focusNode.hasFocus) {
+      if (_emojiOpen) setState(() => _emojiOpen = false);
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+    }
+  }
+
+  void _onTextChanged() {
+    if (!mounted) return;
+    final text = _controller.text;
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final cursor = selection.baseOffset;
+    if (cursor <= 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final before = text.substring(0, cursor);
+    final atIndex = before.lastIndexOf("@");
+    if (atIndex < 0) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    final between = before.substring(atIndex + 1);
+    if (between.contains(" ") || between.contains("\n")) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (between.length > 32) {
+      if (_mentionPickerVisible) {
+        setState(() => _mentionPickerVisible = false);
+      }
+      return;
+    }
+    if (!_mentionPickerVisible) {
+      setState(() => _mentionPickerVisible = true);
+    }
+  }
+
+  void _insertAtCursor(String s) {
+    final ctrl = _controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      final newText = ctrl.text + s;
+      ctrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+      return;
+    }
+    final newText = ctrl.text.replaceRange(sel.start, sel.end, s);
+    final newCursor = sel.start + s.length;
+    ctrl.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+  }
+
+  void _onPickMention(UserRef u) {
+    final tag = "@${u.mentionTag} ";
+    final ctrl = _controller;
+    final sel = ctrl.selection;
+    if (!sel.isValid) {
+      _insertAtCursor(tag);
+    } else {
+      final text = ctrl.text;
+      final atIndex = text.lastIndexOf("@", sel.start - 1);
+      if (atIndex >= 0) {
+        final newText = text.replaceRange(atIndex, sel.start, tag);
+        ctrl.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: atIndex + tag.length),
+        );
+      } else {
+        _insertAtCursor(tag);
+      }
+    }
+    if (!_mentionUids.contains(u.uid)) {
+      _mentionUids.add(u.uid);
+      _mentionedUsersCache[u.uid] = u;
+    }
+    setState(() => _mentionPickerVisible = false);
+    _focusNode.requestFocus();
+  }
+
+  bool get _mediaFull => _media.length >= 4;
+
+  Future<void> _onTapImageButton() async {
+    if (_mediaFull) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text(
+                  "Take photo",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("camera"),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text(
+                  "Choose from library",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () => Navigator.of(ctx).pop("library"),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (picked == "camera") {
+      await _pickMediaFromCamera();
+    } else if (picked == "library") {
+      await _pickMediaFromGallery();
+    }
+  }
+
+  Future<void> _pickMediaFromGallery() async {
+    if (_mediaFull) return;
+    try {
+      final maxPick = 4 - _media.length;
+      final PermissionState permission =
+          await PhotoManager.requestPermissionExtend();
+      if (!permission.isAuth) return;
+      final assets = await AssetPicker.pickAssets(
+        context,
+        pickerConfig: AssetPickerConfig(
+          maxAssets: maxPick,
+          requestType: RequestType.common,
+          selectedAssets: _media
+              .where((m) => m.asset != null)
+              .map((m) => m.asset!)
+              .toList(),
+        ),
+      );
+      if (assets == null || assets.isEmpty) return;
+      final existingIds = _media.map((m) => m.id).toSet();
+      for (final asset in assets) {
+        if (_media.length >= 4) break;
+        final id = "asset_${asset.id}";
+        if (existingIds.contains(id)) continue;
+        _media.add(
+          _MomentPickedMedia(
+            id: id,
+            type: asset.type == AssetType.video ? "video" : "image",
+            asset: asset,
+            name: asset.title,
+          ),
+        );
+      }
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      debugPrint("❌ Repost gallery pick error: $e");
+    }
+  }
+
+  Future<void> _pickMediaFromCamera() async {
+    if (_mediaFull) return;
+    try {
+      XFile? captured;
+      CameraPickerViewType? capturedType;
+      await CameraPicker.pickFromCamera(
+        context,
+        pickerConfig: CameraPickerConfig(
+          enableRecording: true,
+          textDelegate: const EnglishCameraPickerTextDelegate(),
+          onXFileCaptured: (
+            XFile file,
+            CameraPickerViewType viewType,
+          ) {
+            captured = file;
+            capturedType = viewType;
+            Navigator.of(context).pop();
+            return true;
+          },
+        ),
+      );
+      if (captured == null) return;
+      final file = File(captured!.path);
+      if (!await file.exists()) return;
+      final id = "cam_${DateTime.now().millisecondsSinceEpoch}";
+      final ext = p.extension(file.path).toLowerCase();
+      final isVideo =
+          capturedType == CameraPickerViewType.video ||
+          [".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"].contains(ext);
+      Uint8List? previewBytes;
+      if (isVideo) {
+        previewBytes = await video_thumb.VideoThumbnail.thumbnailData(
+          video: file.path,
+          imageFormat: video_thumb.ImageFormat.JPEG,
+          quality: 75,
+        );
+      }
+      setState(() {
+        _media.add(
+          _MomentPickedMedia(
+            id: id,
+            type: isVideo ? "video" : "image",
+            file: file,
+            name: p.basename(file.path),
+            previewBytes: previewBytes,
+          ),
+        );
+      });
+    } catch (e) {
+      debugPrint("❌ Repost camera pick error: $e");
+    }
+  }
+
+  Future<void> _onPickSticker() async {
+    if (kPingmeeGiphyApiKey.contains("PASTE_")) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Sticker library is not set up yet.")),
+      );
+      return;
+    }
+    if (_mediaFull) return;
+    try {
+      final gif = await GiphyGet.getGif(
+        context: context,
+        apiKey: kPingmeeGiphyApiKey,
+        lang: GiphyLanguage.english,
+        tabColor: Colors.black,
+        debounceTimeInMilliseconds: 350,
+        showGIFs: false,
+        showStickers: true,
+        showEmojis: false,
+      );
+      if (gif == null) return;
+      final url = bestGiphyUrl(gif);
+      if (url.isEmpty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn't load sticker.")),
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _uploadingImage = true);
+      try {
+        final resp = await http.get(Uri.parse(url));
+        if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
+          throw Exception("GIPHY fetch failed: ${resp.statusCode}");
+        }
+        final localId =
+            "repost-sticker-${DateTime.now().millisecondsSinceEpoch}";
+        final uploadedUrl = await _commentService.uploadCommentImage(
+          activityId: "create-repost",
+          commentIdLocal: localId,
+          bytes: resp.bodyBytes,
+          contentType: "image/gif",
+        );
+        if (!mounted) return;
+        final id = (gif.id ?? "").toString().isNotEmpty
+            ? gif.id!.toString()
+            : localId;
+        setState(() {
+          _media.add(
+            _MomentPickedMedia(
+              id: "sticker_$id",
+              type: "sticker",
+              name: "sticker_$id.gif",
+              kind: "sticker",
+              remoteUrl: uploadedUrl,
+            ),
+          );
+          _uploadingImage = false;
+        });
+      } catch (e) {
+        debugPrint("❌ Repost sticker upload failed: $e");
+        if (!mounted) return;
+        setState(() => _uploadingImage = false);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn't upload sticker.")),
+        );
+      }
+    } catch (e) {
+      debugPrint("❌ Repost GIPHY picker error: $e");
+    }
+  }
+
+  void _removeMedia(_MomentPickedMedia item) {
+    setState(() {
+      _media.removeWhere((m) => m.id == item.id);
+    });
   }
 
   bool get _canQuote {
     final text = _controller.text.trim();
     return text.isNotEmpty && text.length <= _maxChars;
+  }
+
+  bool get _canRepost => true; // Plain repost needs no text
+
+  void _onTapRepost() {
+    // Plain repost (no quote text, no media). Forwards the original
+    // moment data unchanged.
+    Navigator.pop(
+      context,
+      _RepostAction(quoteText: "", media: const [], mentions: const []),
+    );
+  }
+
+  void _onTapQuote() {
+    if (!_canQuote) return;
+    Navigator.pop(
+      context,
+      _RepostAction(
+        quoteText: _controller.text.trim(),
+        media: List<_MomentPickedMedia>.from(_media),
+        mentions: List<String>.from(_mentionUids),
+      ),
+    );
   }
 
   @override
@@ -4018,6 +4808,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Sheet handle
                       Container(
                         width: 44,
                         height: 5,
@@ -4027,6 +4818,10 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                         ),
                       ),
                       const SizedBox(height: 16),
+
+                      // Header: "Repost Moment" title + "repost" button
+                      // (lowercase per Chris: 'the text for repost should
+                      // say repost only')
                       Row(
                         children: [
                           const Expanded(
@@ -4041,17 +4836,12 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                             ),
                           ),
                           TextButton(
-                            onPressed: () {
-                              Navigator.pop(
-                                context,
-                                const _RepostAction(quoteText: ""),
-                              );
-                            },
+                            onPressed: _canRepost ? _onTapRepost : null,
                             child: const Text(
-                              "Repost",
+                              "repost",
                               style: TextStyle(
                                 fontFamily: "Nunito",
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                                 color: AppColors.brandGreen,
                               ),
                             ),
@@ -4064,8 +4854,43 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                         text: text,
                       ),
                       const SizedBox(height: 12),
+
+                      // v85: icon-only AttachmentBar matching comments +
+                      // create-moment composer. @ | emoji | image | sticker
+                      AttachmentBar(
+                        onTapMention: () {
+                          setState(() {
+                            _mentionPickerVisible = !_mentionPickerVisible;
+                            if (_mentionPickerVisible) _emojiOpen = false;
+                          });
+                          if (_mentionPickerVisible) {
+                            _insertAtCursor("@");
+                            _focusNode.requestFocus();
+                          }
+                        },
+                        onTapEmoji: () {
+                          setState(() {
+                            _emojiOpen = !_emojiOpen;
+                            if (_emojiOpen) _mentionPickerVisible = false;
+                          });
+                          if (_emojiOpen) {
+                            _focusNode.unfocus();
+                          } else {
+                            _focusNode.requestFocus();
+                          }
+                        },
+                        onTapImage: _mediaFull ? () {} : _onTapImageButton,
+                        onTapSticker: _mediaFull ? () {} : _onPickSticker,
+                        mentionOpen: _mentionPickerVisible,
+                        emojiOpen: _emojiOpen,
+                        uploading: _uploadingImage,
+                      ),
+                      const SizedBox(height: 6),
+
+                      // TextField
                       TextField(
                         controller: _controller,
+                        focusNode: _focusNode,
                         maxLines: 5,
                         minLines: 3,
                         maxLength: _maxChars + 20,
@@ -4074,7 +4899,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                           hintText: "Add your thoughts...",
                           hintStyle: TextStyle(
                             fontFamily: "Nunito",
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                             color: Colors.black.withOpacity(.38),
                           ),
                           filled: true,
@@ -4094,7 +4919,9 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                           height: 1.35,
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
+
+                      // Char count + media count
                       Row(
                         children: [
                           Expanded(
@@ -4103,7 +4930,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                               style: TextStyle(
                                 fontFamily: "Nunito",
                                 fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w500,
                                 color: Colors.black.withOpacity(.45),
                               ),
                             ),
@@ -4113,7 +4940,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                             style: TextStyle(
                               fontFamily: "Nunito",
                               fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w500,
                               color: overLimit
                                   ? const Color(0xFFB42318)
                                   : Colors.black.withOpacity(.42),
@@ -4121,20 +4948,88 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 14),
+
+                      // v85: media preview strip
+                      if (_media.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 96,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _media.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 10),
+                            itemBuilder: (context, index) {
+                              final item = _media[index];
+                              return _MomentComposerMediaPreview(
+                                item: item,
+                                onRemove: () => _removeMedia(item),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+
+                      // v85: mention picker panel
+                      if (_mentionPickerVisible)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: MentionPicker(
+                            myUid:
+                                FirebaseAuth.instance.currentUser?.uid ?? "",
+                            commentService: _commentService,
+                            onPickMention: _onPickMention,
+                          ),
+                        ),
+
+                      // v85: emoji picker panel
+                      if (_emojiOpen)
+                        SizedBox(
+                          height: 280,
+                          child: EmojiPicker(
+                            textEditingController: _controller,
+                            config: Config(
+                              height: 280,
+                              checkPlatformCompatibility: true,
+                              emojiViewConfig: const EmojiViewConfig(
+                                columns: 7,
+                                emojiSizeMax: 30,
+                                backgroundColor: Colors.white,
+                                verticalSpacing: 0,
+                                horizontalSpacing: 0,
+                              ),
+                              viewOrderConfig: const ViewOrderConfig(
+                                top: EmojiPickerItem.categoryBar,
+                                middle: EmojiPickerItem.emojiView,
+                                bottom: EmojiPickerItem.searchBar,
+                              ),
+                              categoryViewConfig: const CategoryViewConfig(
+                                backgroundColor: Colors.white,
+                                indicatorColor: Colors.black,
+                                iconColor: Color(0xFF9CA3AF),
+                                iconColorSelected: Colors.black,
+                                dividerColor: Colors.transparent,
+                              ),
+                              bottomActionBarConfig: const BottomActionBarConfig(
+                                backgroundColor: Colors.white,
+                                buttonIconColor: Colors.black,
+                              ),
+                              searchViewConfig: const SearchViewConfig(
+                                backgroundColor: Color(0xFFF3F4F6),
+                                buttonIconColor: Colors.black,
+                                hintText: "Search emoji",
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // "Quote Moment" big button (per Chris: 'Quote
+                      // moment as is' — the title stays as before)
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _canQuote
-                              ? () {
-                                  Navigator.pop(
-                                    context,
-                                    _RepostAction(
-                                      quoteText: _controller.text.trim(),
-                                    ),
-                                  );
-                                }
-                              : null,
+                          onPressed: _canQuote ? _onTapQuote : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.black,
                             foregroundColor: Colors.white,
@@ -4150,7 +5045,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
                             "Quote Moment",
                             style: TextStyle(
                               fontFamily: "Nunito",
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -5055,6 +5950,63 @@ class _LinkPreviewCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// v85: _StickerInline - renders an animated GIF sticker (kind == "sticker")
+// inline in the moment body block. Stickers are NOT tappable (matches the
+// v72 comments convention - stickers animate inline, image attachments are
+// the tappable ones for the full-screen viewer). BoxFit.contain keeps
+// transparent backgrounds readable.
+// ============================================================================
+class _StickerInline extends StatelessWidget {
+  final String url;
+
+  const _StickerInline({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        constraints: const BoxConstraints(
+          maxWidth: 220,
+          maxHeight: 220,
+        ),
+        color: Colors.transparent,
+        child: Image.network(
+          url,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Container(
+            width: 96,
+            height: 96,
+            color: Colors.black.withOpacity(.06),
+            alignment: Alignment.center,
+            child: Icon(
+              PhosphorIcons.sticker(PhosphorIconsStyle.regular),
+              size: 28,
+              color: Colors.black38,
+            ),
+          ),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              width: 96,
+              height: 96,
+              color: Colors.black.withOpacity(.04),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
         ),
       ),
     );
