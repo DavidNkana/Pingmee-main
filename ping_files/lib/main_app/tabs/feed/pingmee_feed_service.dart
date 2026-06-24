@@ -240,6 +240,10 @@ class PingmeeFeedService {
     String visibility = "public",
     Map<String, dynamic>? location,
     List<Map<String, dynamic>> media = const [],
+    // v87a: @-mention UIDs the user picked in the composer. The
+    // backend createMomentV2 (v87a) accepts this and stores it on
+    // the activity + moment doc + sends moment_mention notifications.
+    List<String> mentions = const [],
   }) async {
     debugPrint("🟢 Calling createMoment function...");
 
@@ -251,6 +255,9 @@ class PingmeeFeedService {
         "visibility": visibility,
         "location": location ?? {},
         "media": media,
+        // v87a: forward mentions[] to the cloud function. Backend
+        // sanitizes + stores + sends notifications.
+        "mentions": mentions,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -430,6 +437,12 @@ class PingmeeFeedService {
   Future<Map<String, dynamic>> createMomentRepost({
     required Map<String, dynamic> originalMoment,
     String quoteText = "",
+    // v87a: quote-repost can carry @-mentions on the quote text.
+    // Backend (v87a createMomentV2) accepts them but createMomentRepost
+    // doesn't yet — this is for v87b (separate push). For now
+    // mentions are silently dropped on the server for the repost
+    // path. Same forward-compat pattern as the v85b sticker work.
+    List<String> mentions = const [],
   }) async {
     debugPrint("🟢 Calling createMomentRepost function...");
 
@@ -502,6 +515,8 @@ class PingmeeFeedService {
         "originalAuthorPhotoUrl": originalAuthorPhotoUrl,
         "originalText": originalText,
         "originalMedia": originalMedia,
+        // v87a: forward mentions on the quote text.
+        "mentions": mentions,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
