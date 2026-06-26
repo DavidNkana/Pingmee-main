@@ -1170,6 +1170,15 @@ exports.createMomentV2 = onCall(
         source: "pingmee_moment",
       };
 
+      // v92b: optional poll id from createFeedPoll. If present, attach
+      // it to the activity and the Firestore doc so the frontend can
+      // render the poll widget inline in the feed card. Mirrors the
+      // way mentions and linkPreview travel with the activity.
+      const pollId = cleanString(request.data && request.data.pollId);
+      if (pollId) {
+        activity.poll = { id: pollId };
+      }
+
       // v78: detect the first http(s) URL in the moment text
       // and scrape its Open Graph metadata. Stored on BOTH the
       // Stream activity (so the OG preview travels with the
@@ -1240,6 +1249,12 @@ exports.createMomentV2 = onCall(
           // the renderer can also read it from a direct moment
           // fetch (loadSingleActivity / moment detail screen).
           mentions: sanitizedMentions,
+
+          // v92b: mirror pollId so the renderer can read it from
+          // a direct moment fetch. The full poll object lives
+          // on the Stream activity; this is just the id for
+          // fast lookup / single-activity loading.
+          pollId: pollId || null,
 
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1821,6 +1836,21 @@ exports.loadMyTimelineMoments = onCall(
                   .filter((m) => m)
                   .slice(0, 20) :
               [],
+            // v92b: passthrough the poll object that v92a/v92b
+            // stored on the activity. The full poll (id, name,
+            // options, vote counts, own_votes) comes back from
+            // Stream Feeds when you GET an activity that has a
+            // poll. Pass it through as an object, or null when
+            // the activity has no poll. The frontend's `is Map`
+            // guard handles both shapes.
+            poll: (activity.poll && typeof activity.poll === "object") ?
+              activity.poll :
+              null,
+            // v92b: pollId for fast lookup on the read side.
+            // Mirrors the v87a mentions passthrough above.
+            pollId: cleanString(activity.poll && activity.poll.id) ||
+              cleanString(activity.pollId) ||
+              "",
           };
         });
 
@@ -2009,6 +2039,18 @@ exports.loadSingleActivity = onCall(
                   .filter((m) => m)
                   .slice(0, 20) :
               [],
+            // v92b: passthrough the poll object (same shape as in
+            // loadMyTimelineMoments). The Stream Feeds response
+            // already includes the full poll when you GET an
+            // activity that references one. Default to null
+            // when absent so the frontend `is Map` guard skips
+            // rendering the poll widget.
+            poll: (activity.poll && typeof activity.poll === "object") ?
+              activity.poll :
+              null,
+            pollId: cleanString(activity.poll && activity.poll.id) ||
+              cleanString(activity.pollId) ||
+              "",
           },
         };
       } catch (error) {
@@ -2348,6 +2390,12 @@ exports.createMomentRepost = onCall(
         )).slice(0, 20) :
         [];
 
+      // v92b: optional poll id from createFeedPoll. Same shape as
+      // createMomentV2 — stored on both the activity and the
+      // repost Firestore doc so the frontend can render the poll
+      // widget on quote reposts too.
+      const repostPollId = cleanString(request.data && request.data.pollId);
+
       const rawOriginalMedia = Array.isArray(
           request.data && request.data.originalMedia,
       ) ?
@@ -2427,6 +2475,9 @@ exports.createMomentRepost = onCall(
         // v87a: @-mentions on the quote text.
         mentions: sanitizedRepostMentions,
 
+        // v92b: attach poll to quote repost.
+        ...(repostPollId ? { poll: { id: repostPollId } } : {}),
+
         originalActivityId,
         originalAuthorUid,
         originalAuthorName,
@@ -2463,6 +2514,8 @@ exports.createMomentRepost = onCall(
           media: [],
           hashtags: extractHashtags(quoteText),
 
+          // v92b: mirror pollId on the Firestore repost doc.
+          pollId: repostPollId || null,
           visibility: "public",
           status: "active",
 
