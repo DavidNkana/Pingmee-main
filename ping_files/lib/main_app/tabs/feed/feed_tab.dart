@@ -3959,6 +3959,19 @@ class _MomentCard extends StatelessWidget {
                   Map<String, dynamic>.from(data["linkPreview"] as Map),
             ),
           ],
+          // v92e: inline poll widget on the feed card. Rendered
+          // when data["poll"] is a Map (the poll object from
+          // Stream Feeds, v92b allowlist). Tapping an option calls
+          // _feedService.castFeedPollVote (v92a cloud function)
+          // and updates the local state with the fresh vote list.
+          if (data["poll"] is Map) ...[
+            const SizedBox(height: 8),
+            _FeedPollWidget(
+              activityId: activityId,
+              poll: Map<String, dynamic>.from(data["poll"] as Map),
+              feedService: feedService,
+            ),
+          ],
           
           if (hashtags.isNotEmpty) ...[
             const SizedBox(height: 3),
@@ -6851,6 +6864,254 @@ class _FeedPollChip extends StatelessWidget {
             visualDensity: VisualDensity.compact,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// v92e: inline poll widget on the feed card. Mirrors the structure
+// of _CommentAttachmentThumb / _LinkPreviewCard — a self-contained
+// card rendered below the moment body. Reads the poll object that
+// v92b allowlists on each activity (id, name, options, vote_count,
+// vote_counts_by_option, latest_votes_by_option, own_votes). Tapping
+// an option calls _feedService.castFeedPollVote (v92a) and rebuilds
+// the local counts optimistically.
+class _FeedPollWidget extends StatefulWidget {
+  final String activityId;
+  final Map<String, dynamic> poll;
+  final PingmeeFeedService feedService;
+
+  const _FeedPollWidget({
+    super.key,
+    required this.activityId,
+    required this.poll,
+    required this.feedService,
+  });
+
+  @override
+  State<_FeedPollWidget> createState() => _FeedPollWidgetState();
+}
+
+class _FeedPollWidgetState extends State<_FeedPollWidget> {
+  bool _casting = false;
+  String? _selectedOptionId;
+  // Local counts so the UI reflects the user's last tap immediately
+  // before the server response comes back. Falls back to the poll's
+  // own vote_counts_by_option on first render.
+  late Map<String, int> _localCounts;
+  late int _localTotal;
+
+  @override
+  void initState() {
+    super.initState();
+    _localCounts = _initialCounts(widget.poll);
+    _localTotal = _localCounts.values.fold(0, (s, n) => s + n);
+    // Pre-select the option the user already voted for (Stream
+    // returns own_votes on GET).
+    final ownVotes = widget.poll["own_votes"];
+    if (ownVotes is List && ownVotes.isNotEmpty) {
+      final first = ownVotes.first;
+      if (first is Map && first["option_id"] is String) {
+        _selectedOptionId = first["option_id"] as String;
+      }
+    }
+  }
+
+  Map<String, int> _initialCounts(Map<String, dynamic> poll) {
+    final options = poll["options"];
+    final byOption = poll["vote_counts_by_option"];
+    if (options is! List) return <String, int>{};
+    final out = <String, int>{};
+    for (final opt in options) {
+      if (opt is Map && opt["id"] is String) {
+        final id = opt["id"] as String;
+        int count = 0;
+        if (byOption is Map && byOption[id] is num) {
+          count = (byOption[id] as num).toInt();
+        } else if (opt["vote_count"] is num) {
+          count = (opt["vote_count"] as num).toInt();
+        }
+        out[id] = count;
+      }
+    }
+    return out;
+  }
+
+  Future<void> _onVote(String optionId) async {
+    if (_casting) return;
+    if (widget.poll["is_closed"] == true) return;
+
+    final previous = _selectedOptionId;
+    setState(() {
+      _casting = true;
+      // Optimistic update: subtract from previous, add to new.
+      if (previous != null && _localCounts.containsKey(previous)) {
+        _localCounts[previous] = (_localCounts[previous] ?? 0) - 1;
+      }
+      _localCounts[optionId] = (_localCounts[optionId] ?? 0) + 1;
+      _localTotal = _localCounts.values.fold(0, (s, n) => s + n);
+      _selectedOptionId = optionId;
+    });
+
+    try {
+      final pollId = (widget.poll["id"] ?? "").toString();
+      if (pollId.isEmpty) return;
+      await widget.feedService.castFeedPollVote(
+        activityId: widget.activityId,
+        pollId: pollId,
+        optionId: optionId,
+      );
+    } catch (e) {
+      // Roll back the optimistic update on failure.
+      if (mounted) {
+        setState(() {
+          if (previous != null && _localCounts.containsKey(previous)) {
+            _localCounts[previous] = (_localCounts[previous] ?? 0) + 1;
+          }
+          _localCounts[optionId] = (_localCounts[optionId] ?? 0) - 1;
+          _localTotal = _localCounts.values.fold(0, (s, n) => s + n);
+          _selectedOptionId = previous;
+        });
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text("Couldn't cast vote: $e")),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _casting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (widget.poll["name"] ?? "Poll").toString();
+    final options = widget.poll["options"];
+    final isClosed = widget.poll["is_closed"] == true;
+    final total = _localTotal == 0 ? 1 : _localTotal;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F8),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                PhosphorIcons.chartBar(PhosphorIconsStyle.bold),
+                size: 16,
+                color: Colors.black.withOpacity(.7),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isClosed ? "Poll (closed)" : "Poll",
+                style: TextStyle(
+                  fontFamily: "Nunito",
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black.withOpacity(.6),
+                ),
+              ),
+              const Spacer(),
+              if (_casting)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            name,
+            style: const TextStyle(
+              fontFamily: "Nunito",
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (options is List)
+            for (final opt in options)
+              _buildOption(opt is Map ? opt : const {}),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOption(Map<String, dynamic> opt) {
+    final id = (opt["id"] ?? "").toString();
+    final text = (opt["text"] ?? "").toString();
+    final count = _localCounts[id] ?? 0;
+    final pct = ((count / total) * 100).round();
+    final isSelected = _selectedOptionId == id;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _onVote(id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.black.withOpacity(.08)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.black.withOpacity(.25)
+                    : Colors.black.withOpacity(.08),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                if (count > 0 || isSelected) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    "$pct%",
+                    style: TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black.withOpacity(.55),
+                    ),
+                  ),
+                ],
+                if (isSelected) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    PhosphorIcons.check(PhosphorIconsStyle.bold),
+                    size: 14,
+                    color: Colors.black.withOpacity(.75),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
