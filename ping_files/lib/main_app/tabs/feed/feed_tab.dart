@@ -7039,17 +7039,25 @@ class _FeedPollWidgetState extends State<_FeedPollWidget> {
           const SizedBox(height: 8),
           if (options is List)
             for (final opt in options)
-              _buildOption(opt is Map ? opt : const {}),
+              _buildOption(
+                opt is Map
+                    ? Map<String, dynamic>.from(opt as Map)
+                    : <String, dynamic>{},
+                total: total,
+              ),
         ],
       ),
     );
   }
 
-  Widget _buildOption(Map<String, dynamic> opt) {
+  Widget _buildOption(
+    Map<String, dynamic> opt, {
+    required int total,
+  }) {
     final id = (opt["id"] ?? "").toString();
     final text = (opt["text"] ?? "").toString();
     final count = _localCounts[id] ?? 0;
-    final pct = ((count / total) * 100).round();
+    final pct = ((count / (total == 0 ? 1 : total)) * 100).round();
     final isSelected = _selectedOptionId == id;
 
     return Padding(
