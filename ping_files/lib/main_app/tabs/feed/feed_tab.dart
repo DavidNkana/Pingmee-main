@@ -2479,7 +2479,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
-  static const int _maxChars = 500;
+  static const int _maxChars = 1000; // v91: was 500
 
   // v85: _media now also holds sticker items. The existing image/video
   // fields (asset, file, previewBytes) are still used for those items.
@@ -4539,7 +4539,7 @@ class _RepostMomentSheetState extends State<_RepostMomentSheet> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
-  static const int _maxChars = 300;
+  static const int _maxChars = 1000; // v91: was 300
 
   // v85: staged media for the repost — same model as create moment.
   // Stickers land here with kind: "sticker" + remoteUrl: <uploaded URL>.
