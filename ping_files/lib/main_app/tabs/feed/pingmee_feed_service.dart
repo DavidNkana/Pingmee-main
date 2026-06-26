@@ -244,6 +244,11 @@ class PingmeeFeedService {
     // backend createMomentV2 (v87a) accepts this and stores it on
     // the activity + moment doc + sends moment_mention notifications.
     List<String> mentions = const [],
+    // v92b: optional poll id from createFeedPoll. The backend
+    // stores it on the activity as activity.poll = { id: pollId }
+    // and on the Firestore moment doc as pollId. The frontend
+    // reads it back via loadMyTimelineMoments' new `poll` field.
+    String? pollId,
   }) async {
     debugPrint("🟢 Calling createMoment function...");
 
@@ -258,6 +263,8 @@ class PingmeeFeedService {
         // v87a: forward mentions[] to the cloud function. Backend
         // sanitizes + stores + sends notifications.
         "mentions": mentions,
+        // v92b: forward pollId when the composer attached a poll.
+        if (pollId != null && pollId.isNotEmpty) "pollId": pollId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -443,6 +450,8 @@ class PingmeeFeedService {
     // mentions are silently dropped on the server for the repost
     // path. Same forward-compat pattern as the v85b sticker work.
     List<String> mentions = const [],
+    // v92b: optional poll id attached to the quote repost.
+    String? pollId,
   }) async {
     debugPrint("🟢 Calling createMomentRepost function...");
 
@@ -517,6 +526,8 @@ class PingmeeFeedService {
         "originalMedia": originalMedia,
         // v87a: forward mentions on the quote text.
         "mentions": mentions,
+        // v92b: forward pollId for poll-attached quote reposts.
+        if (pollId != null && pollId.isNotEmpty) "pollId": pollId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -704,5 +715,125 @@ class PingmeeFeedService {
 
     final all = await loadMyTimelineMoments();
     return all.moments.where((m) => m["savedByMe"] == true).toList();
+  }
+
+
+  /// v92c: Create a Stream Feeds poll and return the new poll id.
+  /// Mirrors the chat-side poll composer's contract. The poll is
+  /// owned by Stream Feeds; the caller then passes the returned
+  /// pollId to [createMoment] (or [createMomentRepost]) which
+  /// attaches it to the activity via the `poll` field.
+  ///
+  /// 2-8 unique non-empty options, max 200 chars each. Server
+  /// enforces the same limits and returns a `invalid-argument`
+  /// HttpsError if violated.
+  Future<String> createFeedPoll({
+    required String name,
+    required List<String> options,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable("createFeedPoll");
+      final result = await callable.call({
+        "name": name,
+        "options": options,
+      });
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final pollId = (data["pollId"] ?? "").toString();
+      if (pollId.isEmpty) {
+        throw Exception("createFeedPoll: empty pollId in response");
+      }
+      return pollId;
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("🔥 createFeedPoll failed: code=${e.code} message=${e.message}");
+      rethrow;
+    } catch (e, st) {
+      debugPrint("🔥 createFeedPoll unknown failure: $e");
+      debugPrintStack(stackTrace: st);
+      rethrow;
+    }
+  }
+
+  /// v92c: Cast a vote on a poll attached to a feed activity. Stream
+  /// replaces the previous vote on enforce_unique_vote polls, so
+  /// calling this again with a different optionId is how the user
+  /// changes their vote. Returns the fresh vote list from the API
+  /// so the caller can update counts.
+  Future<Map<String, dynamic>> castFeedPollVote({
+    required String activityId,
+    required String pollId,
+    String? optionId,
+    String? answerText,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable("castFeedPollVote");
+      final payload = <String, dynamic>{
+        "activityId": activityId,
+        "pollId": pollId,
+      };
+      if (optionId != null && optionId.isNotEmpty) {
+        payload["optionId"] = optionId;
+      }
+      if (answerText != null && answerText.isNotEmpty) {
+        payload["answerText"] = answerText;
+      }
+      final result = await callable.call(payload);
+      final data = result.data;
+      if (data is Map) {
+        return Map<String, dynamic>.from(data);
+      }
+      return <String, dynamic>{};
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("🔥 castFeedPollVote failed: code=${e.code} message=${e.message}");
+      rethrow;
+    } catch (e, st) {
+      debugPrint("🔥 castFeedPollVote unknown failure: $e");
+      debugPrintStack(stackTrace: st);
+      rethrow;
+    }
+  }
+
+  /// v92c: Remove a previously-cast vote from a feed poll.
+  Future<void> deleteFeedPollVote({
+    required String activityId,
+    required String pollId,
+    required String voteId,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable("deleteFeedPollVote");
+      await callable.call({
+        "activityId": activityId,
+        "pollId": pollId,
+        "voteId": voteId,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("🔥 deleteFeedPollVote failed: code=${e.code} message=${e.message}");
+      rethrow;
+    } catch (e, st) {
+      debugPrint("🔥 deleteFeedPollVote unknown failure: $e");
+      debugPrintStack(stackTrace: st);
+      rethrow;
+    }
+  }
+
+  /// v92c: Convenience wrapper around [createMoment] that
+  /// forwards the v92b pollId through. The composer side
+  /// (v92d) calls this instead of createMoment so it doesn't
+  /// have to know which optional params apply to the poll path.
+  Future<Map<String, dynamic>> createMomentWithPoll({
+    required String text,
+    String visibility = "public",
+    Map<String, dynamic>? location,
+    List<Map<String, dynamic>> media = const [],
+    List<String> mentions = const [],
+    required String pollId,
+  }) async {
+    return createMoment(
+      text: text,
+      visibility: visibility,
+      location: location,
+      media: media,
+      mentions: mentions,
+      pollId: pollId,
+    );
   }
 }
