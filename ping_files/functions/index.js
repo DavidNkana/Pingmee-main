@@ -1410,16 +1410,43 @@ exports.createFeedPoll = onCall(
       }
 
       try {
-        const client = getStreamFeedsClient();
-        const result = await client.feeds.createPoll({
-          name,
-          user_id: uid,
-          options: cleanOptions.map((text) => ({ text })),
-          enforce_unique_vote: true,
-          voting_visibility: "public",
-        });
+        // v92g: the getstream@8.x SDK (legacy v1 feeds) does NOT
+        // have a polls API. Hit the v3 polls REST endpoint
+        // directly using the same api_key + user JWT pattern.
+        // The polls feature is part of the v3 activity feeds
+        // product; Stream hosts it at the api.stream-io-api.com
+        // base under the /poll/ path.
+        const userToken = getStreamFeedsClient().createUserToken(uid);
+        const apiKey = STREAM_API_KEY.value();
+        const res = await fetch(
+            "https://api.stream-io-api.com/api/v1.0/poll/?api_key=" +
+            encodeURIComponent(apiKey),
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Stream-Auth-Type": "jwt",
+                "Authorization": userToken,
+              },
+              body: JSON.stringify({
+                name: name,
+                user_id: uid,
+                options: cleanOptions.map((text) => ({ text })),
+                enforce_unique_vote: true,
+                voting_visibility: "public",
+              }),
+            },
+        );
 
-        const pollData = result && result.data ? result.data : result;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(
+              "createFeedPoll REST " + res.status + ": " + errText,
+          );
+        }
+
+        const body = await res.json();
+        const pollData = body && body.data ? body.data : body;
         const pollId = pollData && pollData.poll && pollData.poll.id ?
           cleanString(pollData.poll.id) :
           (pollData && pollData.id ? cleanString(pollData.id) : "");
@@ -1428,22 +1455,18 @@ exports.createFeedPoll = onCall(
           throw new Error("createFeedPoll: no poll id in response");
         }
 
-        console.log("v92a createFeedPoll ok uid=" + uid + " pollId=" + pollId);
+        console.log("v92g createFeedPoll ok uid=" + uid + " pollId=" + pollId);
         return { pollId };
       } catch (error) {
         console.error("createFeedPoll failed", {
           uid,
           message: error && error.message,
-          code: error && error.code,
-          statusCode: error && error.statusCode,
         });
         throw new HttpsError(
             "internal",
             "Could not create poll.",
             {
               message: error && error.message,
-              code: error && error.code,
-              statusCode: error && error.statusCode,
             },
         );
       }
@@ -1492,33 +1515,49 @@ exports.castFeedPollVote = onCall(
       if (answerText) vote.answer_text = answerText;
 
       try {
-        const client = getStreamFeedsClient();
-        const result = await client.feeds.castPollVote(
-            activityId,
-            pollId,
+        // v92g: direct REST (getstream@8.x has no polls API).
+        const userToken = getStreamFeedsClient().createUserToken(uid);
+        const apiKey = STREAM_API_KEY.value();
+        const res = await fetch(
+            "https://api.stream-io-api.com/api/v1.0/activity/" +
+            encodeURIComponent(activityId) +
+            "/poll/" + encodeURIComponent(pollId) +
+            "/vote/?api_key=" + encodeURIComponent(apiKey),
             {
-              user_id: uid,
-              vote,
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Stream-Auth-Type": "jwt",
+                "Authorization": userToken,
+              },
+              body: JSON.stringify({
+                user_id: uid,
+                vote: vote,
+              }),
             },
         );
 
-        return result && result.data ? result.data : result;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(
+              "castFeedPollVote REST " + res.status + ": " + errText,
+          );
+        }
+
+        const body = await res.json();
+        return body && body.data ? body.data : body;
       } catch (error) {
         console.error("castFeedPollVote failed", {
           uid,
           activityId,
           pollId,
           message: error && error.message,
-          code: error && error.code,
-          statusCode: error && error.statusCode,
         });
         throw new HttpsError(
             "internal",
             "Could not cast vote.",
             {
               message: error && error.message,
-              code: error && error.code,
-              statusCode: error && error.statusCode,
             },
         );
       }
@@ -1553,14 +1592,33 @@ exports.deleteFeedPollVote = onCall(
       }
 
       try {
-        const client = getStreamFeedsClient();
-        const result = await client.feeds.deletePollVote(
-            activityId,
-            pollId,
-            voteId,
-            uid,
+        // v92g: direct REST (getstream@8.x has no polls API).
+        const userToken = getStreamFeedsClient().createUserToken(uid);
+        const apiKey = STREAM_API_KEY.value();
+        const res = await fetch(
+            "https://api.stream-io-api.com/api/v1.0/activity/" +
+            encodeURIComponent(activityId) +
+            "/poll/" + encodeURIComponent(pollId) +
+            "/vote/" + encodeURIComponent(voteId) +
+            "/?api_key=" + encodeURIComponent(apiKey),
+            {
+              method: "DELETE",
+              headers: {
+                "Stream-Auth-Type": "jwt",
+                "Authorization": userToken,
+              },
+            },
         );
-        return result && result.data ? result.data : result;
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(
+              "deleteFeedPollVote REST " + res.status + ": " + errText,
+          );
+        }
+
+        const body = await res.json().catch(() => ({}));
+        return body && body.data ? body.data : body;
       } catch (error) {
         console.error("deleteFeedPollVote failed", {
           uid,
