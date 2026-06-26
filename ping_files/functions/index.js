@@ -1089,7 +1089,7 @@ exports.createMomentV2 = onCall(
         );
       }
 
-      if (text.length > 500) {
+      if (text.length > 1000) { // v91: was 500
         throw new HttpsError(
             "invalid-argument",
             "Moment text is too long.",
@@ -2161,7 +2161,7 @@ exports.createMomentRepost = onCall(
         );
       }
 
-      if (quoteText.length > 300) {
+      if (quoteText.length > 1000) { // v91: was 300
         throw new HttpsError(
             "invalid-argument",
             "Quote text is too long.",
