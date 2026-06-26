@@ -1336,6 +1336,235 @@ exports.createMomentV2 = onCall(
     },
 );
 
+// v92a: Feed polls. Creates a poll via Stream Feeds and returns the
+// poll id. The caller (frontend composer) then passes that pollId to
+// createMomentV2 (or createMomentRepost) which attaches the poll to
+// the activity via the `poll` field. Mirrors the Stream Feeds
+// "create a poll, then add an activity with poll_id" pattern from
+// https://getstream.io/activity-feeds/docs/flutter/polls/ .
+//
+// Allow at most 8 options and 200 chars per option (matches the chat
+// poll composer's max). Min 2 options, max 8 (matches the chat limit).
+exports.createFeedPoll = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const name = cleanString(request.data && request.data.name);
+      if (!name) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Poll name is required.",
+        );
+      }
+      if (name.length > 200) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Poll name is too long (max 200 chars).",
+        );
+      }
+
+      const rawOptions = request.data && request.data.options;
+      if (!Array.isArray(rawOptions)) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Poll options must be an array.",
+        );
+      }
+
+      const cleanOptions = Array.from(new Set(
+          rawOptions
+              .map((o) => cleanString(o))
+              .filter((o) => o && o.length <= 200),
+      )).slice(0, 8);
+
+      if (cleanOptions.length < 2) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Add at least two unique poll options.",
+        );
+      }
+
+      try {
+        const client = getStreamFeedsClient();
+        const result = await client.feeds.createPoll({
+          name,
+          user_id: uid,
+          options: cleanOptions.map((text) => ({ text })),
+          enforce_unique_vote: true,
+          voting_visibility: "public",
+        });
+
+        const pollData = result && result.data ? result.data : result;
+        const pollId = pollData && pollData.poll && pollData.poll.id ?
+          cleanString(pollData.poll.id) :
+          (pollData && pollData.id ? cleanString(pollData.id) : "");
+
+        if (!pollId) {
+          throw new Error("createFeedPoll: no poll id in response");
+        }
+
+        console.log("v92a createFeedPoll ok uid=" + uid + " pollId=" + pollId);
+        return { pollId };
+      } catch (error) {
+        console.error("createFeedPoll failed", {
+          uid,
+          message: error && error.message,
+          code: error && error.code,
+          statusCode: error && error.statusCode,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not create poll.",
+            {
+              message: error && error.message,
+              code: error && error.code,
+              statusCode: error && error.statusCode,
+            },
+        );
+      }
+    },
+);
+
+// v92a: Cast (or change) a vote on a poll attached to a feed
+// activity. Stream's castPollVote replaces the previous vote on
+// enforce_unique_vote polls, so calling this twice with different
+// optionId is how users change their mind. Returns the fresh vote
+// list from the API so the frontend can update counts immediately.
+exports.castFeedPollVote = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const activityId = cleanString(request.data && request.data.activityId);
+      const pollId = cleanString(request.data && request.data.pollId);
+      const optionId = cleanString(request.data && request.data.optionId);
+      const answerText = cleanString(request.data && request.data.answerText);
+
+      if (!activityId || !pollId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "activityId and pollId are required.",
+        );
+      }
+      if (!optionId && !answerText) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Either optionId or answerText is required.",
+        );
+      }
+
+      const vote = {};
+      if (optionId) vote.option_id = optionId;
+      if (answerText) vote.answer_text = answerText;
+
+      try {
+        const client = getStreamFeedsClient();
+        const result = await client.feeds.castPollVote(
+            activityId,
+            pollId,
+            {
+              user_id: uid,
+              vote,
+            },
+        );
+
+        return result && result.data ? result.data : result;
+      } catch (error) {
+        console.error("castFeedPollVote failed", {
+          uid,
+          activityId,
+          pollId,
+          message: error && error.message,
+          code: error && error.code,
+          statusCode: error && error.statusCode,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not cast vote.",
+            {
+              message: error && error.message,
+              code: error && error.code,
+              statusCode: error && error.statusCode,
+            },
+        );
+      }
+    },
+);
+
+// v92a: Delete a vote the user previously cast on a feed poll. Same
+// shape as castFeedPollVote but calls deletePollVote.
+exports.deleteFeedPollVote = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be logged in.",
+        );
+      }
+
+      const activityId = cleanString(request.data && request.data.activityId);
+      const pollId = cleanString(request.data && request.data.pollId);
+      const voteId = cleanString(request.data && request.data.voteId);
+
+      if (!activityId || !pollId || !voteId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "activityId, pollId and voteId are required.",
+        );
+      }
+
+      try {
+        const client = getStreamFeedsClient();
+        const result = await client.feeds.deletePollVote(
+            activityId,
+            pollId,
+            voteId,
+            uid,
+        );
+        return result && result.data ? result.data : result;
+      } catch (error) {
+        console.error("deleteFeedPollVote failed", {
+          uid,
+          activityId,
+          pollId,
+          voteId,
+          message: error && error.message,
+        });
+        throw new HttpsError(
+            "internal",
+            "Could not remove vote.",
+            {
+              message: error && error.message,
+            },
+        );
+      }
+    },
+);
+
 exports.loadMyTimelineMoments = onCall(
     {
       region: REGION,
