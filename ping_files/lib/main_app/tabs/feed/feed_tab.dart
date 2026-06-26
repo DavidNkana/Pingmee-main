@@ -1022,6 +1022,10 @@ Future<void> _toggleMomentBookmark(int index) async {
       pickedMedia: draft.media,
       // v87a: forward the @-mentions captured by the composer.
       mentions: draft.mentions,
+      // v92d: forward the poll id captured by the composer
+      // (only present if the user opened the poll composer
+      // and submitted a poll).
+      pollId: draft.pollId,
     );
   }
 
@@ -1032,6 +1036,10 @@ Future<void> _toggleMomentBookmark(int index) async {
     // composer. Forwarded to createMomentV2 (which stores on
     // activity + moment doc + sends moment_mention notifications).
     List<String> mentions = const [],
+    // v92d: optional poll id from the composer. Forwarded to
+    // createMomentV2 which attaches it to the activity + moment
+    // doc as activity.poll = { id: pollId } / moments/{id}.pollId.
+    String? pollId,
   }) async {
     if (_creatingMoment) return;
 
@@ -1136,6 +1144,8 @@ Future<void> _toggleMomentBookmark(int index) async {
         media: media,
         // v87a: forward @-mentions to the backend.
         mentions: mentions,
+        // v92d: forward pollId when the user attached a poll.
+        pollId: pollId,
       );
 
       debugPrint("🧪 createMoment result mediaCount=${createResult["mediaCount"]}");
@@ -2428,11 +2438,19 @@ class _CreateMomentDraft {
   // Until v85c is deployed, mentions are sent but silently dropped
   // on the server. The composer UX is identical to comments.
   final List<String> mentions;
+  // v92d: optional poll id from createFeedPoll. Set when the user
+  // opens the poll composer, fills in the question + options, and
+  // submits. The cloud function createMomentV2 stores it on the
+  // activity + moment doc (v92b). Frontend reads it back via the
+  // `poll` field in loadMyTimelineMoments and renders the inline
+  // poll widget in the feed card (v92e).
+  final String? pollId;
 
   const _CreateMomentDraft({
     required this.text,
     required this.media,
     this.mentions = const <String>[],
+    this.pollId,
   });
 }
 
@@ -2495,6 +2513,23 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
   bool _mentionPickerVisible = false;
   bool _uploadingImage = false;
 
+  // v92d: poll composer state. Mirrors the chat poll composer's
+  // contract (see chat_channel_page.dart _PingmeePollDraft). When
+  // the user opens the poll composer and submits, we call
+  // _feedService.createFeedPoll(...) to get a pollId, stash it on
+  // _pollId, and the post handler forwards it via _CreateMomentDraft.
+  // The question/options are kept for the post text (so the user
+  // still sees what they asked) but the canonical poll lives on
+  // Stream Feeds.
+  String? _pollId;
+  String _pollQuestion = "";
+  final List<TextEditingController> _pollOptionCtrls = [
+    TextEditingController(),
+    TextEditingController(),
+  ];
+  final PingmeeFeedService _feedService = PingmeeFeedService();
+  bool _creatingPoll = false;
+
   bool get _mediaFull => _media.length >= 4;
 
   @override
@@ -2510,6 +2545,11 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
     _controller.dispose();
+    // v92d: clean up the poll option controllers so we don't leak
+    // TextEditingController state across composer opens.
+    for (final c in _pollOptionCtrls) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -2880,8 +2920,83 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
         text: _controller.text.trim(),
         media: List<_MomentPickedMedia>.from(_media),
         mentions: List<String>.from(_mentionUids),
+        // v92d: pass pollId through to the caller. The poll was
+        // already created via _openPollComposer on submit, and the
+        // resulting pollId is stashed on _pollId.
+        pollId: _pollId,
       ),
     );
+  }
+
+  // v92d: open the poll composer. Mirrors _PingmeeCreatePollSheet
+  // from chat_channel_page.dart. On submit, calls createFeedPoll
+  // on the backend (v92a) to get a pollId, stashes it on _pollId,
+  // and renders a small chip below the AttachmentBar so the user
+  // can see the poll is attached. Tapping the chip removes it.
+  Future<void> _openPollComposer() async {
+    if (_creatingPoll) return;
+
+    final draft = await showModalBottomSheet<_PollComposerDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _FeedPollComposerSheet(
+        initialQuestion: "",
+        initialOptions: null,
+      ),
+    );
+
+    if (draft == null) return;
+    if (!mounted) return;
+
+    setState(() => _creatingPoll = true);
+    try {
+      final pollId = await _feedService.createFeedPoll(
+        name: draft.question,
+        options: draft.options,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pollId = pollId;
+        _pollQuestion = draft.question;
+        // Refresh the option ctrls with the final values so the chip
+        // can render a preview.
+        for (final c in _pollOptionCtrls) {
+          c.dispose();
+        }
+        _pollOptionCtrls
+          ..clear()
+          ..addAll(draft.options.map((o) => TextEditingController(text: o)));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text("Couldn't create poll: $e"),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _creatingPoll = false);
+      }
+    }
+  }
+
+  void _removePoll() {
+    setState(() {
+      _pollId = null;
+      _pollQuestion = "";
+      for (final c in _pollOptionCtrls) {
+        c.dispose();
+      }
+      _pollOptionCtrls
+        ..clear()
+        ..addAll([
+          TextEditingController(),
+          TextEditingController(),
+        ]);
+    });
   }
 
   @override
@@ -3023,6 +3138,53 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                         mentionOpen: _mentionPickerVisible,
                         emojiOpen: _emojiOpen,
                         uploading: _uploadingImage,
+                      ),
+
+                      // v92d: poll button + (when attached) the
+                      // _FeedPollChip showing the active poll. Sits in
+                      // its own row under the AttachmentBar so the
+                      // chip can stretch full-width when the user
+                      // attaches a poll.
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Row(
+                          children: [
+                            if (_pollId == null)
+                              InkWell(
+                                onTap: _creatingPoll
+                                    ? null
+                                    : _openPollComposer,
+                                borderRadius: BorderRadius.circular(20),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: _creatingPoll
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : Icon(
+                                          PhosphorIcons.chartBar(
+                                              PhosphorIconsStyle.bold),
+                                          size: 22,
+                                          color: Colors.black.withOpacity(.7),
+                                        ),
+                                ),
+                              ),
+                            if (_pollId != null)
+                              Expanded(
+                                child: _FeedPollChip(
+                                  question: _pollQuestion,
+                                  options: _pollOptionCtrls
+                                      .map((c) => c.text.trim())
+                                      .where((t) => t.isNotEmpty)
+                                      .toList(),
+                                  onRemove: _removePoll,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
 
                       const SizedBox(height: 6),
@@ -6343,6 +6505,353 @@ class _MomentBody extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: () {},
       child: Text.rich(TextSpan(children: spans)),
+    );
+  }
+}
+
+// v92d: data class for the poll composer bottom-sheet result.
+// Mirrors the chat's _PingmeePollDraft.
+class _PollComposerDraft {
+  final String question;
+  final List<String> options;
+
+  const _PollComposerDraft({
+    required this.question,
+    required this.options,
+  });
+}
+
+// v92d: poll composer bottom sheet. Mirrors _PingmeeCreatePollSheet
+// from chat_channel_page.dart but is scoped to the feed composer.
+// Returns a _PollComposerDraft via Navigator.pop on submit.
+class _FeedPollComposerSheet extends StatefulWidget {
+  final String initialQuestion;
+  final List<String>? initialOptions;
+
+  const _FeedPollComposerSheet({
+    super.key,
+    this.initialQuestion = "",
+    this.initialOptions,
+  });
+
+  @override
+  State<_FeedPollComposerSheet> createState() =>
+      _FeedPollComposerSheetState();
+}
+
+class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
+  late final TextEditingController _questionCtrl;
+  late final List<TextEditingController> _optionCtrls;
+
+  @override
+  void initState() {
+    super.initState();
+    _questionCtrl = TextEditingController(text: widget.initialQuestion);
+    final opts = widget.initialOptions ?? const ["", ""];
+    _optionCtrls = opts.map((o) => TextEditingController(text: o)).toList();
+  }
+
+  @override
+  void dispose() {
+    _questionCtrl.dispose();
+    for (final c in _optionCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addOption() {
+    if (_optionCtrls.length >= 8) return;
+    setState(() {
+      _optionCtrls.add(TextEditingController());
+    });
+  }
+
+  void _removeOption(int index) {
+    if (_optionCtrls.length <= 2) return;
+    setState(() {
+      final c = _optionCtrls.removeAt(index);
+      c.dispose();
+    });
+  }
+
+  void _submit() {
+    final question = _questionCtrl.text.trim();
+    final options = _optionCtrls
+        .map((c) => c.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (question.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Poll question is required.")),
+      );
+      return;
+    }
+    if (options.length < 2) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text("Add at least two poll options.")),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _PollComposerDraft(question: question, options: options),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.all(14),
+          constraints: BoxConstraints(
+            maxHeight: media.size.height * .82,
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.12),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+                child: Text(
+                  "Create poll",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withOpacity(.85),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: TextField(
+                  controller: _questionCtrl,
+                  maxLength: 200,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: "Ask a question...",
+                    filled: true,
+                    fillColor: const Color(0xFFF3F4F6),
+                    counterText: "",
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.all(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (int i = 0; i < _optionCtrls.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 4,
+                            horizontal: 4,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _optionCtrls[i],
+                                  maxLength: 200,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  style: const TextStyle(
+                                    fontFamily: "Nunito",
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: "Option ${i + 1}",
+                                    filled: true,
+                                    fillColor: const Color(0xFFF3F4F6),
+                                    counterText: "",
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    contentPadding: const EdgeInsets.all(14),
+                                  ),
+                                ),
+                              ),
+                              if (_optionCtrls.length > 2)
+                                IconButton(
+                                  icon: Icon(
+                                    PhosphorIcons.x(PhosphorIconsStyle.bold),
+                                    size: 18,
+                                    color: Colors.black.withOpacity(.55),
+                                  ),
+                                  onPressed: () => _removeOption(i),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (_optionCtrls.length < 8)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: TextButton.icon(
+                    onPressed: _addOption,
+                    icon: Icon(
+                      PhosphorIcons.plus(PhosphorIconsStyle.bold),
+                      size: 16,
+                    ),
+                    label: const Text("Add option"),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.black.withOpacity(.7),
+                      textStyle: const TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text("Cancel"),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      child: const Text("Create poll"),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// v92d: small chip below the AttachmentBar that shows the
+// attached poll and lets the user remove it. Mirrors how the
+// comment composer surfaces the active @-mentions.
+class _FeedPollChip extends StatelessWidget {
+  final String question;
+  final List<String> options;
+  final VoidCallback onRemove;
+
+  const _FeedPollChip({
+    super.key,
+    required this.question,
+    required this.options,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            PhosphorIcons.chartBar(PhosphorIconsStyle.bold),
+            size: 18,
+            color: Colors.black.withOpacity(.7),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  question.isEmpty ? "Poll" : question,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withOpacity(.85),
+                  ),
+                ),
+                if (options.isNotEmpty)
+                  Text(
+                    "${options.length} options",
+                    style: TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black.withOpacity(.55),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              PhosphorIcons.x(PhosphorIconsStyle.bold),
+              size: 16,
+              color: Colors.black.withOpacity(.55),
+            ),
+            onPressed: onRemove,
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
     );
   }
 }
