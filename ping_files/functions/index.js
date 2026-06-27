@@ -1410,13 +1410,17 @@ exports.createFeedPoll = onCall(
       }
 
       try {
-        // v92g: the getstream@8.x SDK (legacy v1 feeds) does NOT
-        // have a polls API. Hit the v3 polls REST endpoint
-        // directly using the same api_key + user JWT pattern.
-        // The polls feature is part of the v3 activity feeds
-        // product; Stream hosts it at the api.stream-io-api.com
-        // base under the /poll/ path.
-        const userToken = getStreamFeedsClient().createUserToken(uid);
+        // v92h: switch to SERVER-SIDE auth. v92g used the user
+        // JWT (createUserToken) but Stream's v3 polls endpoint
+        // requires server-side auth with the API secret, plus
+        // the user_id in the body. The server token is cached on
+        // the client instance — getOrCreateToken() returns the
+        // JWTScopeToken(apiSecret, '*', '*', { feedId: '*' }) if
+        // the client was constructed with a secret, which it
+        // always is in this backend. The 'user_id' field in the
+        // body is what identifies the actor creating the poll.
+        const client = getStreamFeedsClient();
+        const serverToken = client.getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
             "https://api.stream-io-api.com/api/v1.0/poll/?api_key=" +
@@ -1426,7 +1430,7 @@ exports.createFeedPoll = onCall(
               headers: {
                 "Content-Type": "application/json",
                 "Stream-Auth-Type": "jwt",
-                "Authorization": userToken,
+                "Authorization": serverToken,
               },
               body: JSON.stringify({
                 name: name,
@@ -1440,6 +1444,9 @@ exports.createFeedPoll = onCall(
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
+          console.error(
+              "v92h createFeedPoll REST " + res.status + ": " + errText,
+          );
           throw new Error(
               "createFeedPoll REST " + res.status + ": " + errText,
           );
@@ -1455,7 +1462,7 @@ exports.createFeedPoll = onCall(
           throw new Error("createFeedPoll: no poll id in response");
         }
 
-        console.log("v92g createFeedPoll ok uid=" + uid + " pollId=" + pollId);
+        console.log("v92h createFeedPoll ok uid=" + uid + " pollId=" + pollId);
         return { pollId };
       } catch (error) {
         console.error("createFeedPoll failed", {
@@ -1515,8 +1522,8 @@ exports.castFeedPollVote = onCall(
       if (answerText) vote.answer_text = answerText;
 
       try {
-        // v92g: direct REST (getstream@8.x has no polls API).
-        const userToken = getStreamFeedsClient().createUserToken(uid);
+        // v92h: server-side auth (same as createFeedPoll).
+        const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
             "https://api.stream-io-api.com/api/v1.0/activity/" +
@@ -1528,7 +1535,7 @@ exports.castFeedPollVote = onCall(
               headers: {
                 "Content-Type": "application/json",
                 "Stream-Auth-Type": "jwt",
-                "Authorization": userToken,
+                "Authorization": serverToken,
               },
               body: JSON.stringify({
                 user_id: uid,
@@ -1539,6 +1546,9 @@ exports.castFeedPollVote = onCall(
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
+          console.error(
+              "v92h castFeedPollVote REST " + res.status + ": " + errText,
+          );
           throw new Error(
               "castFeedPollVote REST " + res.status + ": " + errText,
           );
@@ -1592,8 +1602,8 @@ exports.deleteFeedPollVote = onCall(
       }
 
       try {
-        // v92g: direct REST (getstream@8.x has no polls API).
-        const userToken = getStreamFeedsClient().createUserToken(uid);
+        // v92h: server-side auth (same as createFeedPoll).
+        const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
             "https://api.stream-io-api.com/api/v1.0/activity/" +
@@ -1605,13 +1615,16 @@ exports.deleteFeedPollVote = onCall(
               method: "DELETE",
               headers: {
                 "Stream-Auth-Type": "jwt",
-                "Authorization": userToken,
+                "Authorization": serverToken,
               },
             },
         );
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
+          console.error(
+              "v92h deleteFeedPollVote REST " + res.status + ": " + errText,
+          );
           throw new Error(
               "deleteFeedPollVote REST " + res.status + ": " + errText,
           );
