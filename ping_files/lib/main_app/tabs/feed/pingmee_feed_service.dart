@@ -744,7 +744,7 @@ class PingmeeFeedService {
       }
       return pollId;
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("🔥 createFeedPoll failed: code=${e.code} message=${e.message}");
+      debugPrint("🔥 createFeedPoll failed: code=${e.code} message=${e.message} details=${e.details}");
       rethrow;
     } catch (e, st) {
       debugPrint("🔥 createFeedPoll unknown failure: $e");
@@ -783,7 +783,7 @@ class PingmeeFeedService {
       }
       return <String, dynamic>{};
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("🔥 castFeedPollVote failed: code=${e.code} message=${e.message}");
+      debugPrint("🔥 castFeedPollVote failed: code=${e.code} message=${e.message} details=${e.details}");
       rethrow;
     } catch (e, st) {
       debugPrint("🔥 castFeedPollVote unknown failure: $e");
@@ -806,7 +806,7 @@ class PingmeeFeedService {
         "voteId": voteId,
       });
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("🔥 deleteFeedPollVote failed: code=${e.code} message=${e.message}");
+      debugPrint("🔥 deleteFeedPollVote failed: code=${e.code} message=${e.message} details=${e.details}");
       rethrow;
     } catch (e, st) {
       debugPrint("🔥 deleteFeedPollVote unknown failure: $e");
