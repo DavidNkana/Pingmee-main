@@ -6595,13 +6595,6 @@ class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
 
   void _submit() {
     final question = _questionCtrl.text.trim();
-    // v92m: was .toSet().toList() which silently collapsed
-    // duplicate options (e.g. two "Yes" fields become one) and
-    // passed the wrong count to validation, causing the
-    // "Add at least two poll options" SnackBar to fire even
-    // when the user typed two distinct options. Just trim+filter
-    // empty; the backend's createFeedPoll already enforces
-    // unique options and a 2-8 cap server-side.
     final options = _optionCtrls
         .map((c) => c.text.trim())
         .where((t) => t.isNotEmpty)
@@ -6619,6 +6612,29 @@ class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
         SnackBar(
           content: Text(
             "Add at least two poll options (you have ${options.length}).",
+          ),
+        ),
+      );
+      return;
+    }
+    // v92p: Stream Chat polls reject duplicate option text. The
+    // user might leave both options empty or accidentally type
+    // the same thing twice. Catch it client-side so they get a
+    // useful message instead of a 400 from the server.
+    final seen = <String>{};
+    String? duplicate;
+    for (final o in options) {
+      if (seen.contains(o)) {
+        duplicate = o;
+        break;
+      }
+      seen.add(o);
+    }
+    if (duplicate != null) {
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            "Poll options must be unique. "${duplicate}" is used twice.",
           ),
         ),
       );
