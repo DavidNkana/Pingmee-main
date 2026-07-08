@@ -1423,7 +1423,7 @@ exports.createFeedPoll = onCall(
         const serverToken = client.getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
-            "https://api.stream-io-api.com/api/v3.0/poll/?api_key=" +
+            "https://us-east-api.stream-io-api.com/api/v3.0/poll/?api_key=" +
             encodeURIComponent(apiKey),
             {
               method: "POST",
@@ -1526,7 +1526,7 @@ exports.castFeedPollVote = onCall(
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
-            "https://api.stream-io-api.com/api/v3.0/activity/" +
+            "https://us-east-api.stream-io-api.com/api/v3.0/activity/" +
             encodeURIComponent(activityId) +
             "/poll/" + encodeURIComponent(pollId) +
             "/vote/?api_key=" + encodeURIComponent(apiKey),
@@ -1606,7 +1606,7 @@ exports.deleteFeedPollVote = onCall(
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
-            "https://api.stream-io-api.com/api/v3.0/activity/" +
+            "https://us-east-api.stream-io-api.com/api/v3.0/activity/" +
             encodeURIComponent(activityId) +
             "/poll/" + encodeURIComponent(pollId) +
             "/vote/" + encodeURIComponent(voteId) +
