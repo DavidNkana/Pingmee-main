@@ -3967,7 +3967,7 @@ class _MomentCard extends StatelessWidget {
           // v92r: diagnostic — what is the poll field on each card?
           debugPrint("v92r _MomentCard.build: data keys=" +
               data.keys.toList().join(",") +
-              " poll=" + data["poll"].toString());
+              " poll=" + (data["poll"]?.toString() ?? "null"));
           // v92e: inline poll widget on the feed card. Rendered
           // when data["poll"] is a Map (the poll object from
           // Stream Feeds, v92b allowlist). Tapping an option calls
