@@ -2934,6 +2934,7 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
   // and renders a small chip below the AttachmentBar so the user
   // can see the poll is attached. Tapping the chip removes it.
   Future<void> _openPollComposer() async {
+    debugPrint("v92l _openPollComposer: invoked, _creatingPoll=$_creatingPoll");
     if (_creatingPoll) return;
 
     final draft = await showModalBottomSheet<_PollComposerDraft>(
@@ -2947,15 +2948,19 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
       ),
     );
 
+    debugPrint("v92l _openPollComposer: sheet returned, draft=" +
+        (draft == null ? "null" : "non-null(\${draft.question}, \${draft.options.length} opts)"));
     if (draft == null) return;
     if (!mounted) return;
 
     setState(() => _creatingPoll = true);
     try {
+      debugPrint("v92l _openPollComposer: calling createFeedPoll...");
       final pollId = await _feedService.createFeedPoll(
         name: draft.question,
         options: draft.options,
       );
+      debugPrint("v92l _openPollComposer: createFeedPoll returned pollId=$pollId");
       if (!mounted) return;
       setState(() {
         _pollId = pollId;
