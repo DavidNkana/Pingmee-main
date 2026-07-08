@@ -6634,7 +6634,7 @@ class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            "Poll options must be unique. "${duplicate}" is used twice.",
+            'Poll options must be unique. "$duplicate" is used twice.',
           ),
         ),
       );
