@@ -1396,11 +1396,18 @@ exports.createFeedPoll = onCall(
         );
       }
 
-      const cleanOptions = Array.from(new Set(
-          rawOptions
-              .map((o) => cleanString(o))
-              .filter((o) => o && o.length <= 200),
-      )).slice(0, 8);
+      // v92n: removed the .new Set() dedup. The user might type
+      // two options with the same text by mistake; instead of
+      // silently dropping the second one (which produced the
+      // "Add at least two unique poll options" error after the
+      // client already validated 2 options), trim+filter and let
+      // the user's intent pass through. Stream's createPoll will
+      // dedup server-side anyway if it enforces unique options,
+      // and the 2-8 cap is still enforced.
+      const cleanOptions = rawOptions
+          .map((o) => cleanString(o))
+          .filter((o) => o && o.length <= 200)
+          .slice(0, 8);
 
       if (cleanOptions.length < 2) {
         throw new HttpsError(
