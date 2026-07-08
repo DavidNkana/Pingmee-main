@@ -1410,42 +1410,82 @@ exports.createFeedPoll = onCall(
       }
 
       try {
-        // v92h: switch to SERVER-SIDE auth. v92g used the user
-        // JWT (createUserToken) but Stream's v3 polls endpoint
-        // requires server-side auth with the API secret, plus
-        // the user_id in the body. The server token is cached on
-        // the client instance — getOrCreateToken() returns the
-        // JWTScopeToken(apiSecret, '*', '*', { feedId: '*' }) if
-        // the client was constructed with a secret, which it
-        // always is in this backend. The 'user_id' field in the
-        // body is what identifies the actor creating the poll.
+        // v92k: probe multiple candidate URLs. The v3 Feeds
+        // poll REST path is not publicly documented; we hit each
+        // candidate and use the first non-404. The v92h/v92i/v92j
+        // pushes all came back as 404 / DoesNotExistException so
+        // the path is wrong. The candidates below are ordered by
+        // likelihood based on the v3 docs' REST path conventions
+        // and the v2 SDK's existing endpoint shape. If all of
+        // them 404, the actual path lives somewhere we haven't
+        // guessed — the v92k error message will list what we
+        // tried so the next fix is straightforward.
         const client = getStreamFeedsClient();
         const serverToken = client.getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
-        const res = await fetch(
-            "https://us-east-api.stream-io-api.com/api/v3.0/poll/?api_key=" +
-            encodeURIComponent(apiKey),
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Stream-Auth-Type": "jwt",
-                "Authorization": serverToken,
-              },
-              body: JSON.stringify({
-                name: name,
-                user_id: uid,
-                options: cleanOptions.map((text) => ({ text })),
-                enforce_unique_vote: true,
-                voting_visibility: "public",
-              }),
+        const pollBody = JSON.stringify({
+          name: name,
+          user_id: uid,
+          options: cleanOptions.map((text) => ({ text })),
+          enforce_unique_vote: true,
+          voting_visibility: "public",
+        });
+
+        const host = "https://us-east-api.stream-io-api.com";
+        const createPaths = [
+          // v3 polls (the version Stream's docs page is for)
+          "/api/v3.0/poll/",
+          "/api/v3.0/polls/",
+          // v1 polls (legacy)
+          "/api/v1.0/polls/",
+          // V3 Feeds SDK uses 'unspecified' as the default group.
+          // Maybe Stream put polls at the root of the feeds
+          // product, not under /api/.
+          "/feeds/v1.0/poll/",
+          "/feeds/v3.0/polls/",
+        ];
+
+        let res = null;
+        let lastErr = "";
+        for (const path of createPaths) {
+          const url = host + path + "?api_key=" + encodeURIComponent(apiKey);
+          const r = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Stream-Auth-Type": "jwt",
+              "Authorization": serverToken,
             },
-        );
+            body: pollBody,
+          });
+          if (r.ok) {
+            res = r;
+            console.log("v92k createFeedPoll: hit " + path);
+            break;
+          }
+          const body = await r.text().catch(() => "");
+          lastErr = path + " -> " + r.status + " " + body;
+          console.error("v92k createFeedPoll: " + lastErr);
+          // If it's not a 404, the request was processed but failed
+          // for another reason (e.g. 401 auth, 400 bad payload).
+          // Stop probing and surface that — the path is right.
+          if (r.status !== 404) {
+            res = r;
+            break;
+          }
+        }
+
+        if (!res) {
+          throw new Error(
+              "createFeedPoll: all paths returned 404. Tried: " +
+              createPaths.join(", "),
+          );
+        }
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
           console.error(
-              "v92h createFeedPoll REST " + res.status + ": " + errText,
+              "v92k createFeedPoll REST " + res.status + ": " + errText,
           );
           throw new Error(
               "createFeedPoll REST " + res.status + ": " + errText,
@@ -1522,7 +1562,7 @@ exports.castFeedPollVote = onCall(
       if (answerText) vote.answer_text = answerText;
 
       try {
-        // v92h: server-side auth (same as createFeedPoll).
+        // v92k: server-side auth, v3.0 base, vote endpoint.
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
@@ -1602,7 +1642,7 @@ exports.deleteFeedPollVote = onCall(
       }
 
       try {
-        // v92h: server-side auth (same as createFeedPoll).
+        // v92k: server-side auth, v3.0 base, vote endpoint DELETE.
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
