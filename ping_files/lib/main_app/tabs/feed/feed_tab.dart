@@ -6595,21 +6595,32 @@ class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
 
   void _submit() {
     final question = _questionCtrl.text.trim();
+    // v92m: was .toSet().toList() which silently collapsed
+    // duplicate options (e.g. two "Yes" fields become one) and
+    // passed the wrong count to validation, causing the
+    // "Add at least two poll options" SnackBar to fire even
+    // when the user typed two distinct options. Just trim+filter
+    // empty; the backend's createFeedPoll already enforces
+    // unique options and a 2-8 cap server-side.
     final options = _optionCtrls
         .map((c) => c.text.trim())
         .where((t) => t.isNotEmpty)
-        .toSet()
         .toList();
 
+    final messenger = ScaffoldMessenger.maybeOf(context);
     if (question.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(content: Text("Poll question is required.")),
       );
       return;
     }
     if (options.length < 2) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text("Add at least two poll options.")),
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            "Add at least two poll options (you have ${options.length}).",
+          ),
+        ),
       );
       return;
     }
