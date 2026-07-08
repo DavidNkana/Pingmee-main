@@ -3970,7 +3970,7 @@ class _MomentCard extends StatelessWidget {
           debugPrint("v92r _MomentCard.build: data keys=" +
               data.keys.toList().join(",") +
               " poll=" + pollStr);
-// v92e: inline poll widget on the feed card. Rendered
+          // v92e: inline poll widget on the feed card. Rendered
           // when data["poll"] is a Map (the poll object from
           // Stream Feeds, v92b allowlist). Tapping an option calls
           // _feedService.castFeedPollVote (v92a cloud function)
