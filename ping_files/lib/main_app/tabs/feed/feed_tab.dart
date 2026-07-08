@@ -6617,22 +6617,26 @@ class _FeedPollComposerSheetState extends State<_FeedPollComposerSheet> {
       );
       return;
     }
-    // v92p: Stream Chat polls reject duplicate option text. The
-    // user might leave both options empty or accidentally type
-    // the same thing twice. Catch it client-side so they get a
-    // useful message instead of a 400 from the server.
+    // v92q: case-insensitive dedup. The user might type "7" and "7"
+    // (same) or "Yes" and "yes" (semantically same) or " 7 " and "7"
+    // (whitespace). Stream's createPoll rejects duplicates by
+    // exact text match; case matters for them but not for the user.
+    // Lowercase the comparison so the SnackBar fires for both
+    // forms. Whitespace is already trimmed above.
     final seen = <String>{};
     String? duplicate;
     for (final o in options) {
-      if (seen.contains(o)) {
+      final key = o.toLowerCase();
+      if (seen.contains(key)) {
         duplicate = o;
         break;
       }
-      seen.add(o);
+      seen.add(key);
     }
     if (duplicate != null) {
       messenger?.showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 5),
           content: Text(
             'Poll options must be unique. "$duplicate" is used twice.',
           ),
