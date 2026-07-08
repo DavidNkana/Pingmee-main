@@ -1438,61 +1438,31 @@ exports.createFeedPoll = onCall(
           voting_visibility: "public",
         });
 
-        const host = "https://us-east-api.stream-io-api.com";
-        const createPaths = [
-          // v3 polls (the version Stream's docs page is for)
-          "/api/v3.0/poll/",
-          "/api/v3.0/polls/",
-          // v1 polls (legacy)
-          "/api/v1.0/polls/",
-          // V3 Feeds SDK uses 'unspecified' as the default group.
-          // Maybe Stream put polls at the root of the feeds
-          // product, not under /api/.
-          "/feeds/v1.0/poll/",
-          "/feeds/v3.0/polls/",
-        ];
-
-        let res = null;
-        let lastErr = "";
-        for (const path of createPaths) {
-          const url = host + path + "?api_key=" + encodeURIComponent(apiKey);
-          const r = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Stream-Auth-Type": "jwt",
-              "Authorization": serverToken,
-            },
-            body: pollBody,
-          });
-          if (r.ok) {
-            res = r;
-            console.log("v92k createFeedPoll: hit " + path);
-            break;
-          }
-          const body = await r.text().catch(() => "");
-          lastErr = path + " -> " + r.status + " " + body;
-          console.error("v92k createFeedPoll: " + lastErr);
-          // If it's not a 404, the request was processed but failed
-          // for another reason (e.g. 401 auth, 400 bad payload).
-          // Stop probing and surface that — the path is right.
-          if (r.status !== 404) {
-            res = r;
-            break;
-          }
-        }
-
-        if (!res) {
-          throw new Error(
-              "createFeedPoll: all paths returned 404. Tried: " +
-              createPaths.join(", "),
-          );
-        }
+        // v92o: route through chat.stream-io-api.com, the only host
+        // we know works for polls (the existing chat composer uses
+        // it). The v3 Feeds poll URL space is undocumented and the
+        // 5 candidate paths in v92k all returned 404 on this
+        // account. The poll object Stream returns is the same
+        // shape regardless of which product created it, so we can
+        // attach the chat.pollId to a feed activity and render it
+        // in the same _FeedPollWidget.
+        const url = "https://chat.stream-io-api.com/polls?api_key=" +
+            encodeURIComponent(apiKey);
+        console.log("v92o createFeedPoll: hitting " + url);
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Stream-Auth-Type": "jwt",
+            "Authorization": serverToken,
+          },
+          body: pollBody,
+        });
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
           console.error(
-              "v92k createFeedPoll REST " + res.status + ": " + errText,
+              "v92o createFeedPoll REST " + res.status + ": " + errText,
           );
           throw new Error(
               "createFeedPoll REST " + res.status + ": " + errText,
@@ -1573,7 +1543,7 @@ exports.castFeedPollVote = onCall(
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
-            "https://us-east-api.stream-io-api.com/api/v3.0/activity/" +
+            "https://chat.stream-io-api.com/messages/" +
             encodeURIComponent(activityId) +
             "/poll/" + encodeURIComponent(pollId) +
             "/vote/?api_key=" + encodeURIComponent(apiKey),
@@ -1653,7 +1623,7 @@ exports.deleteFeedPollVote = onCall(
         const serverToken = getStreamFeedsClient().getOrCreateToken();
         const apiKey = STREAM_API_KEY.value();
         const res = await fetch(
-            "https://us-east-api.stream-io-api.com/api/v3.0/activity/" +
+            "https://chat.stream-io-api.com/messages/" +
             encodeURIComponent(activityId) +
             "/poll/" + encodeURIComponent(pollId) +
             "/vote/" + encodeURIComponent(voteId) +
