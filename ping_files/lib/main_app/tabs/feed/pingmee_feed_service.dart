@@ -244,16 +244,28 @@ class PingmeeFeedService {
     // backend createMomentV2 (v87a) accepts this and stores it on
     // the activity + moment doc + sends moment_mention notifications.
     List<String> mentions = const [],
-    // v92b: optional poll id from createFeedPoll. The backend
-    // stores it on the activity as activity.poll = { id: pollId }
-    // and on the Firestore moment doc as pollId. The frontend
-    // reads it back via loadMyTimelineMoments' new `poll` field.
+    // v92b: optional poll id from createFeedPoll (legacy path).
     String? pollId,
+    // v94c: poll question + options from the composer. When set,
+    // the backend (createMomentV2) creates the chat-hosted poll
+    // itself and embeds the full poll object on the activity so the
+    // legacy v2 feed returns it verbatim. Required because the v2
+    // feed doesn't hydrate poll id -> poll object like the v3 SDK
+    // would. Takes precedence over pollId if both are set.
+    String? pollQuestion,
+    List<String>? pollOptions,
   }) async {
     debugPrint("🟢 Calling createMoment function...");
 
     try {
       final callable = _functions.httpsCallable("createMomentV2");
+
+      // v94c: only include pollId when we don't have the full
+      // question+options (the latter is the new preferred path).
+      final useFullPoll = pollQuestion != null &&
+          pollQuestion.trim().isNotEmpty &&
+          pollOptions != null &&
+          pollOptions.length >= 2;
 
       final result = await callable.call({
         "text": text,
@@ -263,8 +275,17 @@ class PingmeeFeedService {
         // v87a: forward mentions[] to the cloud function. Backend
         // sanitizes + stores + sends notifications.
         "mentions": mentions,
-        // v92b: forward pollId when the composer attached a poll.
-        if (pollId != null && pollId.isNotEmpty) "pollId": pollId,
+        // v92b/v94c: legacy path is pollId-only; new path is
+        // pollName + pollOptions (backend creates the chat poll
+        // itself).
+        if (useFullPoll) ...{
+          "pollName": pollQuestion.trim(),
+          "pollOptions": pollOptions
+              .map((t) => t.trim())
+              .where((t) => t.isNotEmpty)
+              .toSet()
+              .toList(),
+        } else if (pollId != null && pollId.isNotEmpty) "pollId": pollId,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
