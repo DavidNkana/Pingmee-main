@@ -1022,22 +1022,14 @@ Future<void> _toggleMomentBookmark(int index) async {
       pickedMedia: draft.media,
       // v87a: forward the @-mentions captured by the composer.
       mentions: draft.mentions,
-      // v94c: prefer the full poll question+options path over pollId.
-      // If the user opened the composer and submitted a poll, the
-      // question + options are still in _pollQuestion /
-      // _pollOptionCtrls; we forward them so the backend creates
-      // the chat poll itself and embeds the full poll object on
-      // the activity (legacy v2 feed returns it verbatim).
-      pollId: _pollId,
-      pollQuestion: _pollId == null || _pollId!.isEmpty
-          ? _pollQuestion
-          : null,
-      pollOptions: _pollId == null || _pollId!.isEmpty
-          ? _pollOptionCtrls
-              .map((c) => c.text.trim())
-              .where((t) => t.isNotEmpty)
-              .toList()
-          : null,
+      // v94c: poll question + options from the draft. When set,
+      // createMomentV2 creates the chat poll itself and embeds
+      // the full poll object on the activity. The composer's
+      // _onTapPost populated these on the draft. Takes precedence
+      // over pollId when both are set.
+      pollId: draft.pollId,
+      pollQuestion: draft.pollQuestion,
+      pollOptions: draft.pollOptions,
     );
   }
 
@@ -2957,6 +2949,18 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
         // already created via _openPollComposer on submit, and the
         // resulting pollId is stashed on _pollId.
         pollId: _pollId,
+        // v94c: also pass the question + options from the local
+        // poll composer state. The backend (createMomentV2 v94a)
+        // will create the chat-hosted poll itself when pollName +
+        // pollOptions are present, embedding the full poll object
+        // on the activity. Takes precedence over pollId.
+        pollQuestion: _pollQuestion.trim().isEmpty ? null : _pollQuestion.trim(),
+        pollOptions: _pollOptionCtrls.isEmpty
+            ? null
+            : _pollOptionCtrls
+                .map((c) => c.text.trim())
+                .where((t) => t.isNotEmpty)
+                .toList(),
       ),
     );
   }
