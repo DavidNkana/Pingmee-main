@@ -2909,7 +2909,13 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
 
   bool get _canPost {
     final text = _controller.text.trim();
-    return (text.isNotEmpty || _media.isNotEmpty) && text.length <= _maxChars;
+    // v94a: poll-only moments are now allowed (text/media are no
+    // longer required when a poll is attached). The backend
+    // createMomentV2 reads the embedded poll and renders it on the
+    // activity's `poll` field.
+    final hasPoll = _pollId != null && _pollId!.isNotEmpty;
+    return (text.isNotEmpty || _media.isNotEmpty || hasPoll) &&
+        text.length <= _maxChars;
   }
 
   void _onTapPost() {
