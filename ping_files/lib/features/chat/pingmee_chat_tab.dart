@@ -598,7 +598,14 @@ class _PingmeeChatTabState extends State<PingmeeChatTab> {
                 _MoreAction(
                   icon: PhosphorIcons.gearSix(PhosphorIconsStyle.light),
                   title: 'Chat settings',
-                  onTap: () => Navigator.of(context).pop(),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PingmeeChatSettingsScreen(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -6644,6 +6651,445 @@ class _ChatErrorState extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// v93: Chat settings screen. Wired to the "Chat settings" row in
+// the more-menu sheet that was previously a no-op. Reads/writes per-
+// user chat preferences to Firestore under
+// users/{uid}/chatSettings (separate from the per-channel chatPrefs
+// collection which holds archive/mute per-channel state).
+//
+// v1 settings:
+// - Dark mode toggle for chat (Stream Chat uses light/dark themes)
+// - Sound notifications on/off
+// - Vibration on/off
+// - Read receipts on/off
+// - Typing indicators on/off
+// - "Archived chats" link (opens the existing _ArchivedChatsScreen)
+//
+// All toggles persist immediately on tap via Firestore set({...}, merge:true).
+// No backend changes, no firestore.rules changes needed (existing rules
+// for users/{uid}/ subcollections already allow owner write).
+// =============================================================================
+
+class PingmeeChatSettingsScreen extends StatefulWidget {
+  const PingmeeChatSettingsScreen({super.key});
+
+  @override
+  State<PingmeeChatSettingsScreen> createState() =>
+      _PingmeeChatSettingsScreenState();
+}
+
+class _PingmeeChatSettingsScreenState extends State<PingmeeChatSettingsScreen> {
+  // Local UI state - hydrated from Firestore on initState.
+  bool _darkMode = false;
+  bool _soundOn = true;
+  bool _vibrationOn = true;
+  bool _readReceipts = true;
+  bool _typingIndicators = true;
+  bool _hydrated = false;
+
+  firestore.DocumentReference<Map<String, dynamic>>? _settingsRefFor() {
+    final uid = fb.FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return null;
+    return firestore.FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('chatSettings')
+        .doc('preferences');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrate();
+  }
+
+  Future<void> _hydrate() async {
+    final ref = _settingsRefFor();
+    if (ref == null) return;
+    try {
+      final snap = await ref.get();
+      final data = snap.data() ?? const <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _darkMode = data['darkMode'] == true;
+        _soundOn = data['soundOn'] != false; // default true
+        _vibrationOn = data['vibrationOn'] != false; // default true
+        _readReceipts = data['readReceipts'] != false; // default true
+        _typingIndicators = data['typingIndicators'] != false; // default true
+        _hydrated = true;
+      });
+    } catch (e) {
+      debugPrint("🔥 v93 _hydrate chatSettings failed: $e");
+      if (!mounted) return;
+      setState(() => _hydrated = true);
+    }
+  }
+
+  Future<void> _set(String key, bool value) async {
+    final ref = _settingsRefFor();
+    if (ref == null) return;
+    try {
+      await ref.set(
+        <String, dynamic>{key: value, 'updatedAt': firestore.FieldValue.serverTimestamp()},
+        firestore.SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint("🔥 v93 _set($key=$value) failed: $e");
+      if (!mounted) return;
+      // Best-effort rollback so the toggle UI matches Firestore.
+      setState(() {
+        switch (key) {
+          case 'darkMode':
+            _darkMode = !value;
+            break;
+          case 'soundOn':
+            _soundOn = !value;
+            break;
+          case 'vibrationOn':
+            _vibrationOn = !value;
+            break;
+          case 'readReceipts':
+            _readReceipts = !value;
+            break;
+          case 'typingIndicators':
+            _typingIndicators = !value;
+            break;
+        }
+      });
+    }
+  }
+
+  void _showLoading() {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text("Loading chat settings..."),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_hydrated) {
+      // Show a minimal loading state while Firestore hydrates.
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: Icon(
+            PhosphorIcons.caretLeft(PhosphorIconsStyle.bold),
+            size: 22,
+            color: Colors.black.withOpacity(.78),
+          ),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+        title: const Text(
+          'Chat settings',
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        centerTitle: false,
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(0, 4, 0, 32),
+          children: [
+            _SectionHeader(label: "Appearance"),
+            _SettingTile(
+              icon: PhosphorIcons.moonStars(PhosphorIconsStyle.regular),
+              iconColor: const Color(0xFF6366F1),
+              title: "Dark mode",
+              subtitle: _darkMode
+                  ? "Chat uses dark theme"
+                  : "Chat uses light theme",
+              value: _darkMode,
+              onChanged: (v) {
+                setState(() => _darkMode = v);
+                _set('darkMode', v);
+              },
+            ),
+            const _DividerLine(),
+            _SectionHeader(label: "Notifications"),
+            _SettingTile(
+              icon: PhosphorIcons.bellSimple(PhosphorIconsStyle.regular),
+              iconColor: const Color(0xFFF59E0B),
+              title: "Sound",
+              subtitle: _soundOn
+                  ? "Play sound for new messages"
+                  : "No sound for new messages",
+              value: _soundOn,
+              onChanged: (v) {
+                setState(() => _soundOn = v);
+                _set('soundOn', v);
+              },
+            ),
+            _SettingTile(
+              icon: PhosphorIcons.vibrate(PhosphorIconsStyle.regular),
+              iconColor: const Color(0xFF8B5CF6),
+              title: "Vibration",
+              subtitle: _vibrationOn
+                  ? "Vibrate on new messages"
+                  : "No vibration on new messages",
+              value: _vibrationOn,
+              onChanged: (v) {
+                setState(() => _vibrationOn = v);
+                _set('vibrationOn', v);
+              },
+            ),
+            const _DividerLine(),
+            _SectionHeader(label: "Privacy"),
+            _SettingTile(
+              icon: PhosphorIcons.eye(PhosphorIconsStyle.regular),
+              iconColor: const Color(0xFF10B981),
+              title: "Read receipts",
+              subtitle: _readReceipts
+                  ? "Others can see when you've read their messages"
+                  : "Read receipts are hidden",
+              value: _readReceipts,
+              onChanged: (v) {
+                setState(() => _readReceipts = v);
+                _set('readReceipts', v);
+              },
+            ),
+            _SettingTile(
+              icon: PhosphorIcons.dotsThree(PhosphorIconsStyle.regular),
+              iconColor: const Color(0xFF3B82F6),
+              title: "Typing indicators",
+              subtitle: _typingIndicators
+                  ? "Others can see when you're typing"
+                  : "Typing indicators are hidden",
+              value: _typingIndicators,
+              onChanged: (v) {
+                setState(() => _typingIndicators = v);
+                _set('typingIndicators', v);
+              },
+            ),
+            const _DividerLine(),
+            _SectionHeader(label: "Storage"),
+            _SettingLinkTile(
+              icon: PhosphorIcons.archive(PhosphorIconsStyle.regular),
+              iconColor: Colors.black.withOpacity(.55),
+              title: "Archived chats",
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const _ArchivedChatsScreen(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Text(
+                "Settings are saved to your account and apply to all "
+                "chat conversations on this device.",
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.black.withOpacity(.45),
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontFamily: 'Nunito',
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: Colors.black.withOpacity(.42),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingTile extends StatelessWidget {
+  const _SettingTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                size: 18,
+                color: iconColor,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF111827),
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.black.withOpacity(.55),
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Switch(
+              value: value,
+              onChanged: onChanged,
+              activeThumbColor: Colors.white,
+              activeTrackColor: AppColors.brandGreen,
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: Colors.black.withOpacity(.18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingLinkTile extends StatelessWidget {
+  const _SettingLinkTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                size: 18,
+                color: iconColor,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ),
+            Icon(
+              PhosphorIcons.caretRight(PhosphorIconsStyle.bold),
+              size: 16,
+              color: Colors.black.withOpacity(.35),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DividerLine extends StatelessWidget {
+  const _DividerLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 18),
+      height: 1,
+      color: Colors.black.withOpacity(.06),
     );
   }
 }
