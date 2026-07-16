@@ -269,6 +269,10 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   bool _loadingMoments = false;
   bool _loadingMore = false;
   bool _creatingMoment = false;
+  // v94d: current upload stage for the progress bar. null when
+  // not posting. One of "uploading", "creatingPoll", "posting",
+  // "reloading".
+  String? _uploadStage;
 
   String? _momentsError;
   int _nextOffset = 0;
@@ -1051,7 +1055,10 @@ Future<void> _toggleMomentBookmark(int index) async {
   }) async {
     if (_creatingMoment) return;
 
-    setState(() => _creatingMoment = true);
+    setState(() {
+      _creatingMoment = true;
+      _uploadStage = pickedMedia.isNotEmpty ? "uploading" : null;
+    });
 
     try {
       final media = <Map<String, dynamic>>[];
@@ -1142,10 +1149,22 @@ Future<void> _toggleMomentBookmark(int index) async {
           "contentType": contentType,
         });
       }
+      // v94d: after media upload, advance to next stage
+      if (pickedMedia.isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _uploadStage =
+            pollQuestion != null ? "creatingPoll" : "posting");
+      }
       debugPrint("🧪 Moment media before create: count=${media.length}");
       for (final item in media) {
         debugPrint("🧪 Moment media item=$item");
       }
+
+      // v94d: ensure stage shows "Posting moment..." before
+      // the cloud call (covers the case where there's no media
+      // and no poll, so the stage would still be null).
+      if (!mounted) return;
+      setState(() => _uploadStage = "posting");
 
       final createResult = await _feedService.createMoment(
         text: text,
@@ -1161,6 +1180,8 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       debugPrint("🧪 createMoment result mediaCount=${createResult["mediaCount"]}");
       debugPrint("🧪 createMoment result media=${createResult["media"]}");
+      if (!mounted) return;
+      setState(() => _uploadStage = "reloading");
       await _loadTimelineMoments(reason: "after real moment create");
 
       if (!mounted) return;
@@ -1180,7 +1201,10 @@ Future<void> _toggleMomentBookmark(int index) async {
       );
     } finally {
       if (mounted) {
-        setState(() => _creatingMoment = false);
+        setState(() {
+          _creatingMoment = false;
+          _uploadStage = null;
+        });
       }
     }
   }
@@ -3112,6 +3136,14 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                               ),
                             ),
                           ),
+                          if (_uploadStage != null) ...[
+                            const SizedBox(height: 6),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14),
+                              child: _PostingProgressBar(stage: _uploadStage!),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -3349,6 +3381,100 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
     );
   }
 }
+
+// v94d: PostingProgressBar - shows the current stage of the
+// _createAndReloadMoment flow. Renders only when _uploadStage is
+// non-null. Animated progress bar + stage label.
+class _PostingProgressBar extends StatelessWidget {
+  const _PostingProgressBar({required this.stage});
+
+  final String stage;
+
+  String _label() {
+    switch (stage) {
+      case "uploading":
+        return "Uploading media...";
+      case "creatingPoll":
+        return "Creating poll...";
+      case "posting":
+        return "Posting moment...";
+      case "reloading":
+        return "Refreshing feed...";
+      default:
+        return "Working...";
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.brandGreen.withOpacity(.32),
+        ),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(.04),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                theme.colorScheme.brandGreen,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Posting",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withOpacity(.5),
+                    letterSpacing: 0.6,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _label(),
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _MomentComposerMediaButton extends StatelessWidget {
   final IconData icon;
