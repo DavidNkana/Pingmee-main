@@ -1022,10 +1022,22 @@ Future<void> _toggleMomentBookmark(int index) async {
       pickedMedia: draft.media,
       // v87a: forward the @-mentions captured by the composer.
       mentions: draft.mentions,
-      // v92d: forward the poll id captured by the composer
-      // (only present if the user opened the poll composer
-      // and submitted a poll).
-      pollId: draft.pollId,
+      // v94c: prefer the full poll question+options path over pollId.
+      // If the user opened the composer and submitted a poll, the
+      // question + options are still in _pollQuestion /
+      // _pollOptionCtrls; we forward them so the backend creates
+      // the chat poll itself and embeds the full poll object on
+      // the activity (legacy v2 feed returns it verbatim).
+      pollId: _pollId,
+      pollQuestion: _pollId == null || _pollId!.isEmpty
+          ? _pollQuestion
+          : null,
+      pollOptions: _pollId == null || _pollId!.isEmpty
+          ? _pollOptionCtrls
+              .map((c) => c.text.trim())
+              .where((t) => t.isNotEmpty)
+              .toList()
+          : null,
     );
   }
 
@@ -1036,10 +1048,14 @@ Future<void> _toggleMomentBookmark(int index) async {
     // composer. Forwarded to createMomentV2 (which stores on
     // activity + moment doc + sends moment_mention notifications).
     List<String> mentions = const [],
-    // v92d: optional poll id from the composer. Forwarded to
-    // createMomentV2 which attaches it to the activity + moment
-    // doc as activity.poll = { id: pollId } / moments/{id}.pollId.
+    // v92d: optional poll id from the composer.
     String? pollId,
+    // v94c: poll question + options from the composer. When set,
+    // createMomentV2 creates the chat-hosted poll itself and
+    // embeds the full poll object on the activity. Takes
+    // precedence over pollId when both are present.
+    String? pollQuestion,
+    List<String>? pollOptions,
   }) async {
     if (_creatingMoment) return;
 
@@ -1144,8 +1160,11 @@ Future<void> _toggleMomentBookmark(int index) async {
         media: media,
         // v87a: forward @-mentions to the backend.
         mentions: mentions,
-        // v92d: forward pollId when the user attached a poll.
+        // v92d: pollId-only legacy path.
         pollId: pollId,
+        // v94c: full poll path (backend creates the chat poll).
+        pollQuestion: pollQuestion,
+        pollOptions: pollOptions,
       );
 
       debugPrint("🧪 createMoment result mediaCount=${createResult["mediaCount"]}");
@@ -2445,12 +2464,20 @@ class _CreateMomentDraft {
   // `poll` field in loadMyTimelineMoments and renders the inline
   // poll widget in the feed card (v92e).
   final String? pollId;
+  // v94c: full poll question + options from the composer. When
+  // these are set (and pollId is null), createMomentV2 creates
+  // the chat poll itself on the backend and embeds the full poll
+  // object on the activity. Takes precedence over pollId.
+  final String? pollQuestion;
+  final List<String>? pollOptions;
 
   const _CreateMomentDraft({
     required this.text,
     required this.media,
     this.mentions = const <String>[],
     this.pollId,
+    this.pollQuestion,
+    this.pollOptions,
   });
 }
 
