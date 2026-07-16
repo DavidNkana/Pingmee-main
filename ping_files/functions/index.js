@@ -1082,10 +1082,12 @@ exports.createMomentV2 = onCall(
             return item.url && (isImage || isVideo);
           });
 
-      if (!text && media.length === 0) {
+      // v94a: a Moment is valid as long as it has SOME content.
+      // Text/media used to be the only options; polls are now too.
+      if (!text && media.length === 0 && !pollObject && !pollId) {
         throw new HttpsError(
             "invalid-argument",
-            "Moment text or media is required.",
+            "Moment text, media, or poll is required.",
         );
       }
 
@@ -1170,12 +1172,108 @@ exports.createMomentV2 = onCall(
         source: "pingmee_moment",
       };
 
-      // v92b: optional poll id from createFeedPoll. If present, attach
-      // it to the activity and the Firestore doc so the frontend can
-      // render the poll widget inline in the feed card. Mirrors the
-      // way mentions and linkPreview travel with the activity.
+      // v94a: two ways to attach a poll to a moment.
+      //
+      // Path A (legacy v92b): frontend already created the poll via
+      // the createFeedPoll callable and passes pollId here. We embed
+      // { id: pollId } so the activity carries a reference. The
+      // frontend widget then calls loadPoll separately to fetch the
+      // full poll object. Keep this path for back-compat with the v92
+      // frontend.
+      //
+      // Path B (v94a): frontend passes pollName + pollOptions
+      // directly. We create the chat-hosted poll server-side, then
+      // embed the FULL poll object on the activity's `poll` field.
+      // The legacy v2 feed returns whatever custom fields we put on
+      // the activity verbatim (no Stream-side hydration), so the
+      // widget can render the question + options + counts straight
+      // off the activity payload. Also mirrors the same shape onto
+      // the Firestore moment doc so direct moment reads also work.
       const pollId = cleanString(request.data && request.data.pollId);
-      if (pollId) {
+      const pollName = cleanString(request.data && request.data.pollName);
+      const pollOptionsRaw = request.data && request.data.pollOptions;
+      let pollObject = null;
+      if (pollName && Array.isArray(pollOptionsRaw) && pollOptionsRaw.length >= 2) {
+        const seenNames = new Set();
+        const cleanOptions = [];
+        for (const o of pollOptionsRaw) {
+          const t = cleanString(o);
+          if (t && t.length <= 200 && !seenNames.has(t)) {
+            seenNames.add(t);
+            cleanOptions.push({ text: t });
+            if (cleanOptions.length >= 8) break;
+          }
+        }
+        if (cleanOptions.length >= 2) {
+          try {
+            const serverToken = getStreamFeedsClient().getOrCreateToken();
+            const apiKey = STREAM_API_KEY.value();
+            const createRes = await fetch(
+                "https://chat.stream-io-api.com/polls?api_key=" +
+                    encodeURIComponent(apiKey),
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Stream-Auth-Type": "jwt",
+                    "Authorization": serverToken,
+                  },
+                  body: JSON.stringify({
+                    name: pollName,
+                    user_id: uid,
+                    options: cleanOptions,
+                    enforce_unique_vote: true,
+                    voting_visibility: "public",
+                  }),
+                },
+            );
+            if (createRes.ok) {
+              const body = await createRes.json();
+              const pollData = body && body.data ? body.data : body;
+              const createdId = pollData && pollData.poll && pollData.poll.id ?
+                cleanString(pollData.poll.id) :
+                (pollData && pollData.id ? cleanString(pollData.id) : "");
+              if (createdId) {
+                const opts = pollData.poll && pollData.poll.options ?
+                  pollData.poll.options : cleanOptions;
+                const optsWithIds = opts.map((o, idx) => ({
+                  id: (o && o.id) ? o.id : ("option_" + (idx + 1)),
+                  text: (o && o.text) ? o.text : (cleanOptions[idx] && cleanOptions[idx].text),
+                }));
+                pollObject = {
+                  id: createdId,
+                  name: pollName,
+                  options: optsWithIds,
+                  is_closed: false,
+                  enforce_unique_vote: true,
+                  voting_visibility: "public",
+                  vote_count: 0,
+                  vote_counts_by_option: {},
+                  own_votes: [],
+                };
+                console.log(
+                    "v94a createMomentV2: created chat poll " +
+                    createdId + " with " + optsWithIds.length + " options");
+              } else {
+                console.error(
+                    "v94a createMomentV2: chat poll response missing id");
+              }
+            } else {
+              const errText = await createRes.text().catch(() => "");
+              console.error(
+                  "v94a createMomentV2: chat poll create failed " +
+                  createRes.status + ": " + errText);
+            }
+          } catch (err) {
+            console.error(
+                "v94a createMomentV2: chat poll create exception: " +
+                (err && err.message));
+          }
+        }
+      }
+      if (pollObject) {
+        activity.poll = pollObject;
+      } else if (pollId) {
         activity.poll = { id: pollId };
       }
 
@@ -1250,11 +1348,14 @@ exports.createMomentV2 = onCall(
           // fetch (loadSingleActivity / moment detail screen).
           mentions: sanitizedMentions,
 
-          // v92b: mirror pollId so the renderer can read it from
-          // a direct moment fetch. The full poll object lives
-          // on the Stream activity; this is just the id for
-          // fast lookup / single-activity loading.
+          // v94a: mirror the full poll object on the Firestore moment
+          // doc (not just the id) so direct moment reads also have
+          // everything the widget needs. v92b only mirrored the id;
+          // we now mirror the same pollObject that's on the Stream
+          // activity so the loadSingleActivity path renders identically
+          // to the timeline path.
           pollId: pollId || null,
+          poll: pollObject || null,
 
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
