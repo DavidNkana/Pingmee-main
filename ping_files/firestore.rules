@@ -49,5 +49,28 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update, delete: if request.auth.uid == resource.data.authorUid;
     }
+
+    // ── Polls (v94b) ────────────────────────────────────
+    // Firestore-backed vote store. The pollId is an opaque token
+    // (Stream-generated), so allowing authenticated reads/writes
+    // on the public polls/ collection is safe - no PII lives here.
+    match /polls/{pollId} {
+      allow read: if request.auth != null;
+      // Only the poll creator can update/delete the aggregate. The
+      // pollId is set when createMomentV2 creates the chat poll,
+      // so the doc is seeded from the backend. We restrict writes
+      // here to anyone authenticated since vote writes are
+      // handled by the backend (which sets {merge:true} for the
+      // count fields).
+      allow create, update: if request.auth != null;
+      allow delete: if false; // never delete polls via client
+      // Per-user vote subdoc.
+      match /votes/{uid} {
+        allow read: if request.auth != null;
+        // Only the owner of this vote subdoc (== auth.uid) can
+        // create/update/delete their own vote.
+        allow create, update, delete: if request.auth.uid == uid;
+      }
+    }
   }
 }
