@@ -2537,6 +2537,11 @@ class _CreateMomentSheet extends StatefulWidget {
 }
 
 class _CreateMomentSheetState extends State<_CreateMomentSheet> {
+  // v94d-fix: local upload stage for the posting progress bar.
+  // Mirrored from _FeedTabState but lives on the state so the
+  // post-button row in this widget tree can read it directly.
+  String? _uploadStage = "uploading";
+
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
@@ -3416,7 +3421,7 @@ class _PostingProgressBar extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: theme.colorScheme.brandGreen.withOpacity(.32),
+          color: AppColors.brandGreen.withOpacity(.32),
         ),
         boxShadow: [
           BoxShadow(
@@ -3434,7 +3439,7 @@ class _PostingProgressBar extends StatelessWidget {
             child: CircularProgressIndicator(
               strokeWidth: 2,
               valueColor: AlwaysStoppedAnimation<Color>(
-                theme.colorScheme.brandGreen,
+                AppColors.brandGreen,
               ),
             ),
           ),
