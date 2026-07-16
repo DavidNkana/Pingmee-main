@@ -1273,6 +1273,17 @@ exports.createMomentV2 = onCall(
       }
       if (pollObject) {
         activity.poll = pollObject;
+        // v94b: seed the Firestore poll doc so vote writes can find it
+        try {
+          await admin.firestore().collection("polls").doc(pollObject.id)
+              .set(Object.assign({}, pollObject, {
+                created_at: admin.firestore.FieldValue.serverTimestamp(),
+                created_by: uid,
+                activity_id: momentId,
+                vote_count: 0,
+                vote_counts_by_option: pollObject.vote_counts_by_option || {},
+              }), { merge: true });
+        } catch (e) {}
       } else if (pollId) {
         activity.poll = { id: pollId };
       }
@@ -2052,7 +2063,17 @@ exports.loadMyTimelineMoments = onCall(
           nextOffset: hasMore ? nextOffset : null,
         });
 
+        // v94b: seed the poll docs (idempotent) and merge live
+        // Firestore vote counts into the activity's poll field
+        // before returning, so the Flutter widget sees up-to-date
+        // counts without an extra round-trip.
+        await Promise.all(activities.map(async (act) => {
+          try { await _v94bSeedPollDoc(act); } catch (_) {}
+          try { await _v94bMergePollCounts(act, uid); } catch (_) {}
+        }));
+
         return {
+
           ok: true,
           debugVersion: "moments-pagination-v3-offset",
           feed: `timeline:${uid}`,
@@ -2164,6 +2185,11 @@ exports.loadSingleActivity = onCall(
           console.warn("loadSingleActivity: failed to fetch repost count:",
               err && err.message);
         }
+
+    // v94b: seed + merge live vote counts into the returned activity
+    try { await _v94bSeedPollDoc(activity); } catch (_) {}
+    try { await _v94bMergePollCounts(activity, uid); } catch (_) {}
+
 
         return {
           ok: true,
@@ -2684,6 +2710,21 @@ exports.createMomentRepost = onCall(
         await safeFollowFeed(timelineFeed, "user", uid);
 
         const streamActivity = await userFeed.addActivity(activity);
+
+        // v94b: seed the Firestore poll doc for quote-reposts so
+        // vote writes can find it. Idempotent.
+        if (repostPollId) {
+          try {
+            await admin.firestore().collection("polls").doc(repostPollId)
+                .set({
+                  activity_id: repostId,
+                  created_by: uid,
+                  created_at: admin.firestore.FieldValue.serverTimestamp(),
+                  vote_count: 0,
+                  vote_counts_by_option: {},
+                }, { merge: true });
+          } catch (e) {}
+        }
 
         await repostRef.set({
           streamActivityId: cleanString(streamActivity.id),
