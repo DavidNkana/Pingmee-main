@@ -6187,7 +6187,45 @@ class _FeedSkeletonBar extends StatelessWidget {
 }
 
 // ============================================================================
-// v80: _LinkPreviewCard - Open Graph link preview. Same shape as
+// v97d: internal helper used by _MomentBody._buildRichText to
+// sort mention and URL matches into a single left-to-right list
+// of inline spans. Two kinds: mention (resolved through the
+// mentions cache + onMentionTap) and url (rendered tappable with
+// launchUrl).
+enum _InlineKind { mention, url }
+
+class _InlineSpan {
+  const _InlineSpan._({
+    required this.start,
+    required this.end,
+    required this.kind,
+    required this.raw,
+  });
+
+  factory _InlineSpan.mention({
+    required int start,
+    required int end,
+    required String raw,
+  }) =>
+      _InlineSpan._(start: start, end: end, kind: _InlineKind.mention, raw: raw);
+
+  factory _InlineSpan.url({
+    required int start,
+    required int end,
+    required String raw,
+  }) =>
+      _InlineSpan._(start: start, end: end, kind: _InlineKind.url, raw: raw);
+
+  final int start;
+  final int end;
+  final _InlineKind kind;
+  final String raw;
+
+  bool get isMention => kind == _InlineKind.mention;
+  bool get isUrl => kind == _InlineKind.url;
+}
+
+// // v80: _LinkPreviewCard - Open Graph link preview. Same shape as
 // the one in shared_moment_widgets.dart (v78), but local to
 // feed_tab.dart because _MomentCard lives here. The card
 // displays the image (16:9), site name, title, and description
@@ -6227,6 +6265,7 @@ class _LinkPreviewCard extends StatelessWidget {
     final description = _str("description");
     final image = _str("image");
     final siteName = _str("siteName");
+    final type = _str("type");
     if (url.isEmpty && title.isEmpty && description.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -6255,34 +6294,64 @@ class _LinkPreviewCard extends StatelessWidget {
               if (image.isNotEmpty)
                 AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: Image.network(
-                    image,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: const Color(0xFFF3F4F6),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        PhosphorIcons.link(PhosphorIconsStyle.regular),
-                        size: 28,
-                        color: Colors.black38,
-                      ),
-                    ),
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        color: const Color(0xFFF3F4F6),
-                        alignment: Alignment.center,
-                        child: const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.black54),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        image,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFF3F4F6),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            PhosphorIcons.link(PhosphorIconsStyle.regular),
+                            size: 28,
+                            color: Colors.black38,
                           ),
                         ),
-                      );
-                    },
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            color: const Color(0xFFF3F4F6),
+                            alignment: Alignment.center,
+                            child: const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.black54),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // v97d: Play overlay for video link previews.
+                      // The 'type' field comes from the backend's
+                      // _scrapeLinkPreview ("video" for YouTube /
+                      // Vimeo / Dailymotion or any page with
+                      // og:video / og:type=video.*).
+                      if (type == "video")
+                        IgnorePointer(
+                          child: Container(
+                            color: Colors.black.withOpacity(.25),
+                            alignment: Alignment.center,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: 32,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               Padding(
@@ -6464,6 +6533,15 @@ class _MomentBody extends StatelessWidget {
   static final RegExp _mentionRe =
       RegExp(r"\B@([a-z0-9_.]+)", caseSensitive: false);
 
+  // v97d: URL pattern. Same shape as the v97b tappable-URL
+  // helper in shared_moment_widgets.dart. Captures http(s)
+  // URLs up to the next whitespace; trailing punctuation is
+  // stripped back into plain text by the builder.
+  static final RegExp _urlRe =
+      RegExp(r'(https?://[^\\s]+)', caseSensitive: false);
+
+  static const String _urlTrailingPunct = '.,!?:;)]\"\\'';
+
   @override
   Widget build(BuildContext context) {
     if (text.isEmpty) return const SizedBox.shrink();
@@ -6586,8 +6664,19 @@ class _MomentBody extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {},
-      child: Text.rich(TextSpan(children: spans)),
+      child: Text.rich(TextSpan(children: out)),
     );
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // Silently ignore — the URL preview card is the primary
+      // tap target; the inline link is best-effort.
+    }
   }
 }
 
