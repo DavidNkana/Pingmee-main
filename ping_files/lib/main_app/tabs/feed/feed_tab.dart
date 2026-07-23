@@ -1013,7 +1013,10 @@ Future<void> _toggleMomentBookmark(int index) async {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const _CreateMomentSheet(),
+      builder: (_) => _CreateMomentSheet(
+              creating: _creatingMoment,
+              stage: _uploadStage,
+            ),
     );
 
     if (draft == null) return;
@@ -2634,10 +2637,17 @@ class _MomentPickedMedia {
 }
 
 class _CreateMomentSheet extends StatefulWidget {
-  const _CreateMomentSheet();
+  // v95d: forwarded from _FeedTabState so the bottom Post bar
+  // inside the sheet can show the live upload-stage + creating
+  // state. The sheet is purely a UI surface; the parent owns the
+  // actual post flow and pushes updates down each rebuild.
+  const _CreateMomentSheet({
+    this.creating = false,
+    this.stage,
+  });
 
-  @override
-  State<_CreateMomentSheet> createState() => _CreateMomentSheetState();
+  final bool creating;
+  final String? stage;
 }
 
 class _CreateMomentSheetState extends State<_CreateMomentSheet> {
@@ -3454,8 +3464,8 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                       const SizedBox(height: 12),
                       _PostButton(
                         canPost: _canPost,
-                        creating: _creatingMoment,
-                        creatingStage: _uploadStage,
+                        creating: widget.creating,
+                        creatingStage: widget.stage,
                         onTap: _onTapPost,
                       ),
                     ],
