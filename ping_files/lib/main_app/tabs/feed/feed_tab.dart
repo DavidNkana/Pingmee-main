@@ -2648,6 +2648,9 @@ class _CreateMomentSheet extends StatefulWidget {
 
   final bool creating;
   final String? stage;
+
+  @override
+  State<_CreateMomentSheet> createState() => _CreateMomentSheetState();
 }
 
 class _CreateMomentSheetState extends State<_CreateMomentSheet> {
