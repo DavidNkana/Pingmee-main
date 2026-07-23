@@ -54,20 +54,13 @@ enum _MapMarkerFilter {
 }
 
 class MapTabState extends State<MapTab> {
-  static const String _styleJson = '''
-  {
-    "version": 8,
-    "sources": {
-      "osm": {
-        "type": "raster",
-        "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-        "tileSize": 256,
-        "attribution": "© OpenStreetMap contributors"
-      }
-    },
-    "layers": [{ "id": "osm", "type": "raster", "source": "osm" }]
-  }
-  ''';
+  // v95k: switched from tile.openstreetmap.org to OpenFreeMap.
+  // OSM's volunteer tile server blocks apps that violate its
+  // Tile Usage Policy. OpenFreeMap is free, no API key, no rate
+  // limits, OSM-derived data, attribution added automatically by
+  // MapLibre. See https://openfreemap.org/quick_start/.
+  static const String _styleJson =
+      "https://tiles.openfreemap.org/styles/liberty";
 
   MaplibreMapController? _map;
   bool _mapReady = false;
