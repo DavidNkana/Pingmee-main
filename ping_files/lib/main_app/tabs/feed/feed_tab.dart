@@ -1013,10 +1013,7 @@ Future<void> _toggleMomentBookmark(int index) async {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CreateMomentSheet(
-              creating: _creatingMoment,
-              stage: _uploadStage,
-            ),
+      builder: (_) => const _CreateMomentSheet(),
     );
 
     if (draft == null) return;
@@ -1216,78 +1213,10 @@ Future<void> _toggleMomentBookmark(int index) async {
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
       builder: (overlayContext) {
-        final label = _stageLabel(_uploadStage);
-        return Positioned(
-          bottom: 100,
-          left: 24,
-          right: 24,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: AppColors.brandGreen.withOpacity(.35),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                    color: Colors.black.withOpacity(.10),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.brandGreen,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          "Posting",
-                          style: TextStyle(
-                            fontFamily: "Nunito",
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black.withOpacity(.5),
-                            letterSpacing: 0.6,
-                            height: 1.1,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          label,
-                          style: const TextStyle(
-                            fontFamily: "Nunito",
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                            height: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+        // v95f: full-width black-transparent bar with white text.
+        // Stage is passed through from _uploadStage; the widget
+        // picks a sensible fallback ("Posting your moment...").
+        return _PostingOverlay(stage: _uploadStage);
       },
     );
     _overlayEntry = entry;
@@ -1300,21 +1229,6 @@ Future<void> _toggleMomentBookmark(int index) async {
     _overlayEntry = null;
   }
 
-  /// v95a: stage label for the overlay.
-  String _stageLabel(String? stage) {
-    switch (stage) {
-      case "uploading":
-        return "Uploading media...";
-      case "creatingPoll":
-        return "Creating poll...";
-      case "posting":
-        return "Posting moment...";
-      case "reloading":
-        return "Refreshing feed...";
-      default:
-        return "Working...";
-    }
-  }
 
   /// Loads up to 20 people who share interests or skills with
   /// the viewer, excluding self and existing friends. Uses the
@@ -2637,17 +2551,7 @@ class _MomentPickedMedia {
 }
 
 class _CreateMomentSheet extends StatefulWidget {
-  // v95d: forwarded from _FeedTabState so the bottom Post bar
-  // inside the sheet can show the live upload-stage + creating
-  // state. The sheet is purely a UI surface; the parent owns the
-  // actual post flow and pushes updates down each rebuild.
-  const _CreateMomentSheet({
-    this.creating = false,
-    this.stage,
-  });
-
-  final bool creating;
-  final String? stage;
+  const _CreateMomentSheet();
 
   @override
   State<_CreateMomentSheet> createState() => _CreateMomentSheetState();
@@ -3226,16 +3130,34 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Header: title only. Post moved to a full-width
-                      // black bar at the bottom of the sheet.
-                      const Text(
-                        "Create Moment",
-                        style: TextStyle(
-                          fontFamily: "Nunito",
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
+                      // Header: title + Post button in the top right.
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              "Create Moment",
+                              style: TextStyle(
+                                fontFamily: "Nunito",
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _canPost ? _onTapPost : null,
+                            child: Text(
+                              "Post",
+                              style: TextStyle(
+                                fontFamily: "Nunito",
+                                fontWeight: FontWeight.w600,
+                                color: _canPost
+                                    ? AppColors.brandGreen
+                                    : Colors.black.withOpacity(.25),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
 
@@ -3461,16 +3383,6 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                             ),
                           ),
                         ),
-                      // v95c: full-width black post bar at the bottom
-                      // of the sheet. Replaces the small Post button
-                      // that used to live in the header row.
-                      const SizedBox(height: 12),
-                      _PostButton(
-                        canPost: _canPost,
-                        creating: widget.creating,
-                        creatingStage: widget.stage,
-                        onTap: _onTapPost,
-                      ),
                     ],
                   );
                 },
@@ -7338,81 +7250,68 @@ class _FeedPollWidgetState extends State<_FeedPollWidget> {
 // "Creating poll...", "Posting moment...", "Refreshing feed...")
 // + a small linear progress bar. Tapping dispatches onTap (called
 // only when canPost is true and creating is false).
-class _PostButton extends StatelessWidget {
-  const _PostButton({
-    required this.canPost,
-    required this.creating,
-    required this.creatingStage,
-    required this.onTap,
-  });
+// v95f: floating posting feedback overlay. The parent
+// (_FeedTabState) inserts an OverlayEntry into the screen overlay
+// while the post flow is running and removes it when done. The
+// bar is a black-transparent rectangle with white text, no
+// border, no rounded corners, full width, sitting at the bottom
+// of the screen above the keyboard. Shows a spinner + the current
+// upload stage label.
+class _PostingOverlay extends StatelessWidget {
+  const _PostingOverlay({required this.stage});
 
-  final bool canPost;
-  final bool creating;
-  final String? creatingStage;
-  final VoidCallback onTap;
+  final String? stage;
 
   @override
   Widget build(BuildContext context) {
-    final isEnabled = canPost && !creating;
-    // Bottom black bar at 0.85 alpha so the sheet chrome shows
-    // through subtly. Generous padding makes the bar feel like a
-    // deliberate bottom action strip.
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: isEnabled ? onTap : null,
+    final mq = MediaQuery.of(context);
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: mq.viewInsets.bottom + 16,
+      child: Material(
+        color: Colors.transparent,
         child: Container(
           width: double.infinity,
+          // Black with 0.75 alpha so the user can see the sheet
+          // behind it slightly. No border, no rounded corners.
           decoration: const BoxDecoration(
-            color: Color(0xD9000000), // 0.85 alpha black
+            color: Color(0xBF000000),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
-          child: SafeArea(
-            top: false,
-            child: creating
-                ? Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                              Colors.white),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          (creatingStage != null &&
-                                  creatingStage!.isNotEmpty)
-                              ? creatingStage!
-                              : "Posting your moment...",
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: "Nunito",
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : Center(
-                    child: Text(
-                      "Post",
-                      style: TextStyle(
-                        fontFamily: "Nunito",
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: isEnabled
-                            ? AppColors.brandGreen
-                            : Colors.white.withOpacity(.4),
-                      ),
-                    ),
+          padding: EdgeInsets.fromLTRB(
+            18,
+            14,
+            18,
+            14 + mq.padding.bottom,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  (stage != null && stage!.isNotEmpty)
+                      ? stage!
+                      : "Posting your moment...",
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
