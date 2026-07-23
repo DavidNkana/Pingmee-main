@@ -6540,7 +6540,7 @@ class _MomentBody extends StatelessWidget {
   static final RegExp _urlRe =
       RegExp(r'(https?://[^\\s]+)', caseSensitive: false);
 
-  static const String _urlTrailingPunct = ".,!?:;)]"'";
+  static const String _urlTrailingPunct = ".,!?:;)]\"'";
 
   @override
   Widget build(BuildContext context) {
