@@ -1234,10 +1234,12 @@ Future<void> _toggleMomentBookmark(int index) async {
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
       builder: (overlayContext) {
-        // v95f: full-width black-transparent bar with white text.
-        // Stage is passed through from _uploadStage; the widget
-        // picks a sensible fallback ("Posting your moment...").
-        return _PostingOverlay(stage: _uploadStage);
+        // v95h: small centered pill. isQuote=true makes the
+        // fallback text say "Quoting moment...".
+        return _PostingOverlay(
+          stage: _uploadStage,
+          isQuote: _isReposting,
+        );
       },
     );
     _overlayEntry = entry;
@@ -7279,9 +7281,16 @@ class _FeedPollWidgetState extends State<_FeedPollWidget> {
 // of the screen above the keyboard. Shows a spinner + the current
 // upload stage label.
 class _PostingOverlay extends StatelessWidget {
-  const _PostingOverlay({required this.stage});
+  // v95h: small centered rounded pill. Width 80, rounded borders
+  // (BorderRadius 20), 0.9 alpha black background. White spinner
+  // + white text. For new moments shows "Posting your moment...";
+  // for reposts shows "Quoting moment...". The parent
+  // (_FeedTabState) inserts/removes an OverlayEntry wrapping this
+  // widget while the post flow is running.
+  const _PostingOverlay({required this.stage, this.isQuote = false});
 
   final String? stage;
+  final bool isQuote;
 
   @override
   Widget build(BuildContext context) {
@@ -7289,50 +7298,52 @@ class _PostingOverlay extends StatelessWidget {
     return Positioned(
       left: 0,
       right: 0,
-      bottom: mq.viewInsets.bottom + 16,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: double.infinity,
-          // Black with 0.75 alpha so the user can see the sheet
-          // behind it slightly. No border, no rounded corners.
-          decoration: const BoxDecoration(
-            color: Color(0xBF000000),
-          ),
-          padding: EdgeInsets.fromLTRB(
-            18,
-            14,
-            18,
-            14 + mq.padding.bottom,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
+      bottom: mq.viewInsets.bottom + 32,
+      child: IgnorePointer(
+        child: Align(
+          alignment: Alignment.center,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 80,
+              decoration: BoxDecoration(
+                color: const Color(0xE6000000), // 0.9 alpha black
+                borderRadius: BorderRadius.circular(20),
               ),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Text(
-                  (stage != null && stage!.isNotEmpty)
-                      ? stage!
-                      : "Posting your moment...",
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Text(
+                    (stage != null && stage!.isNotEmpty)
+                        ? stage!
+                        : (isQuote
+                            ? "Quoting moment..."
+                            : "Posting your moment..."),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
