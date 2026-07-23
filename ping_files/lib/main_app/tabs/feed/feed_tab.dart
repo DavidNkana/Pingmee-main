@@ -3250,52 +3250,11 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                         uploading: _uploadingImage,
                       ),
 
-                      // v92d: poll button + (when attached) the
-                      // _FeedPollChip showing the active poll. Sits in
-                      // its own row under the AttachmentBar so the
-                      // chip can stretch full-width when the user
-                      // attaches a poll.
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          children: [
-                            if (_pollId == null)
-                              InkWell(
-                                onTap: _creatingPoll
-                                    ? null
-                                    : _openPollComposer,
-                                borderRadius: BorderRadius.circular(20),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: _creatingPoll
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2),
-                                        )
-                                      : Icon(
-                                          PhosphorIcons.chartBar(
-                                              PhosphorIconsStyle.bold),
-                                          size: 22,
-                                          color: Colors.black.withOpacity(.7),
-                                        ),
-                                ),
-                              ),
-                            if (_pollId != null)
-                              Expanded(
-                                child: _FeedPollChip(
-                                  question: _pollQuestion,
-                                  options: _pollOptionCtrls
-                                      .map((c) => c.text.trim())
-                                      .where((t) => t.isNotEmpty)
-                                      .toList(),
-                                  onRemove: _removePoll,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                      // v96b: poll composer removed. _pollId, _pollQuestion,
+                      // _pollOptionCtrls, _openPollComposer, _FeedPollChip
+                      // are still in the file as inert state so the
+                      // build compiles, but no UI surfaces them.
+                      const SizedBox(height: 0),
 
                       const SizedBox(height: 6),
 
