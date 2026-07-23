@@ -847,7 +847,7 @@ exports.createTestMoment = onCall(
 // parses Open Graph + fallback meta tags, resolves relative
 // og:image URLs, and returns a compact preview object.
 // ============================================================================
-function _scrapeLinkPreview(rawUrl) {
+function _scrapeLinkPreview(rawUrl, timeoutMs = 30000) {
   return (async () => {
     const url = cleanString(rawUrl);
     if (!url) return null;
@@ -877,7 +877,7 @@ function _scrapeLinkPreview(rawUrl) {
     }
     // Fetch with 5s timeout, 1MB cap, follow up to 3 redirects.
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 5000);
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     let resp;
     try {
       resp = await fetch(url, {
@@ -972,6 +972,30 @@ function _scrapeLinkPreview(rawUrl) {
         image = rawImage;
       }
     }
+    // v97a: detect the attachment type. YouTube / Vimeo /
+    // Dailymotion share-URL hostnames, og:type starting with
+    // "video", or presence of og:video / og:video:url all
+    // signal a video card. Everything else is a generic link.
+    const host = (parsed.hostname || "").toLowerCase();
+    const isVideoHost = (
+      host === "youtu.be" ||
+      host === "youtube.com" ||
+      host === "www.youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "vimeo.com" ||
+      host === "www.vimeo.com" ||
+      host === "dailymotion.com" ||
+      host === "www.dailymotion.com"
+    );
+    const ogType = metaContent(body, { property: "og:type" });
+    const hasOgVideo = !!(
+      metaContent(body, { property: "og:video" }) ||
+      metaContent(body, { property: "og:video:url" })
+    );
+    const type = (isVideoHost ||
+      (ogType && ogType.toLowerCase().indexOf("video") === 0) ||
+      hasOgVideo) ? "video" : "link";
+
     if (!title && !description && !image) {
       return null;
     }
@@ -984,6 +1008,7 @@ function _scrapeLinkPreview(rawUrl) {
       description: trim(description, 400),
       image,
       siteName: trim(siteName, 80),
+      type,
     };
   })().catch((e) => {
     console.log("v78 _scrapeLinkPreview exception:", e && e.message);
@@ -1300,7 +1325,7 @@ exports.createMomentV2 = onCall(
       let linkPreview = null;
       if (urlMatch) {
         try {
-          linkPreview = await _scrapeLinkPreview(urlMatch[0]);
+const linkPreview = await _scrapeLinkPreview(urlMatch[0], 30000);
         } catch (e) {
           console.log("v78 createMomentV2 linkPreview failed:", e && e.message);
         }
