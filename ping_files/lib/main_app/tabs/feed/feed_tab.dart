@@ -6560,19 +6560,23 @@ class _MomentBody extends StatelessWidget {
     final base = baseStyle ?? defaultBase;
     final mention = mentionStyle ?? defaultMention;
 
-    // Fast path: no mentions AND no @-tag patterns in the text. Render
-    // as plain Text. This is the most common case (most moments don't
-    // have @mentions) so we keep it fast and free of async work.
-    final matches = _mentionRe.allMatches(text).toList();
-    if (mentions.isEmpty && matches.isEmpty) {
+    // v97d-fix: detect @-mentions AND URL links. We only run the
+    // async mention-resolution path when there are mentions to
+    // resolve. URLs are inlined tappable right next to the rest
+    // of the body text. The fast-path plain Text branch is only
+    // taken when the text has no mentions AND no URLs.
+    final mentionMatches = _mentionRe.allMatches(text).toList();
+    final urlMatches = _urlRe.allMatches(text).toList();
+    final hasUrl = urlMatches.isNotEmpty;
+    if (mentions.isEmpty && mentionMatches.isEmpty && !hasUrl) {
       return Text(text, style: base);
     }
-
+    final matches = mentionMatches;
     return FutureBuilder<Map<String, UserRef>>(
       future: _resolveMentions(mentions),
       builder: (context, snapshot) {
         final cache = snapshot.data ?? <String, UserRef>{};
-        return _buildRichText(text, matches, cache, base, mention);
+        return _buildRichText(text, hasUrl, cache, base, mention);
       },
     );
   }
@@ -6596,16 +6600,30 @@ class _MomentBody extends StatelessWidget {
 
   Widget _buildRichText(
     String text,
-    List<RegExpMatch> matches,
+    bool hasUrl,
     Map<String, UserRef> cache,
     TextStyle base,
     TextStyle mention,
   ) {
-    if (matches.isEmpty) {
-      // Has mentions but no @-tags in the visible text. Render as
-      // plain Text — the renderer will just show the text without
-      // any blue spans. This shouldn't normally happen but is a
-      // safe fallback.
+    // v97d-fix: build a sorted list of mention + URL matches.
+    final urlMatches = hasUrl ? _urlRe.allMatches(text) : const <RegExpMatch>[];
+    final allSpans = <_InlineSpan>[];
+    for (final m in _mentionRe.allMatches(text)) {
+      allSpans.add(_InlineSpan.mention(
+        start: m.start,
+        end: m.end,
+        raw: m.group(1) ?? "",
+      ));
+    }
+    for (final m in urlMatches) {
+      allSpans.add(_InlineSpan.url(
+        start: m.start,
+        end: m.end,
+        raw: m.group(0) ?? "",
+      ));
+    }
+    allSpans.sort((a, b) => a.start.compareTo(b.start));
+    if (allSpans.isEmpty) {
       return Text(text, style: base);
     }
 
@@ -6620,38 +6638,57 @@ class _MomentBody extends StatelessWidget {
 
     final spans = <InlineSpan>[];
     int cursor = 0;
-    for (final m in matches) {
-      if (m.start > cursor) {
+    for (final s in allSpans) {
+      if (s.start > cursor) {
         spans.add(
-          TextSpan(text: text.substring(cursor, m.start), style: base),
+          TextSpan(text: text.substring(cursor, s.start), style: base),
         );
       }
-      final raw = m.group(1) ?? "";
-      final tag = raw.toLowerCase();
-      String? resolvedUid = tagToUid[tag];
-      // v90: client-side fallback. If the backend's `mentions[]`
-      // didn't include this @-tag (pre-v87a deploy, or the mentioned
-      // person is a stranger to the viewer) and the @-tag matches
-      // the current viewer's connections cache, use that UID.
-      // This keeps the @-mention tappable even before the backend
-      // has the mentions field round-tripping.
-      resolvedUid ??= myConnectionsByTag?[tag]?.uid;
-      if (resolvedUid == null) {
-        // Cache miss for this mention tag — render as a non-tappable
-        // blue span so the user still sees it's a mention, but no
-        // nav happens (we don't have a uid to navigate to).
-        // Same convention as _CommentBody v68.
-        spans.add(TextSpan(text: "@$raw", style: mention));
+      if (s.isMention) {
+        final raw = s.raw;
+        final tag = raw.toLowerCase();
+        String? resolvedUid = tagToUid[tag];
+        resolvedUid ??= myConnectionsByTag?[tag]?.uid;
+        if (resolvedUid == null) {
+          spans.add(TextSpan(text: "@$raw", style: mention));
+        } else {
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () => onMentionTap(resolvedUid!);
+          spans.add(TextSpan(
+            text: "@$raw",
+            style: mention,
+            recognizer: recognizer,
+          ));
+        }
       } else {
-        final recognizer = TapGestureRecognizer()
-          ..onTap = () => onMentionTap(resolvedUid!);
-        spans.add(TextSpan(
-          text: "@$raw",
-          style: mention,
-          recognizer: recognizer,
-        ));
+        // v97d-fix: URL span. Strip trailing punctuation back
+        // into plain text, render the URL itself as a tappable
+        // blue + underlined span. Uses _openUrl which calls
+        // launchUrl with LaunchMode.externalApplication.
+        var url = s.raw;
+        var trailing = '';
+        while (url.isNotEmpty &&
+            _urlTrailingPunct.contains(url.characters.last)) {
+          trailing = url.characters.last + trailing;
+          url = url.substring(0, url.length - 1);
+        }
+        if (url.isNotEmpty) {
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () => _openUrl(url);
+          spans.add(TextSpan(
+            text: url,
+            style: base.copyWith(
+              color: AppColors.brandGreen,
+              decoration: TextDecoration.underline,
+            ),
+            recognizer: recognizer,
+          ));
+        }
+        if (trailing.isNotEmpty) {
+          spans.add(TextSpan(text: trailing, style: base));
+        }
       }
-      cursor = m.end;
+      cursor = s.end;
     }
     if (cursor < text.length) {
       spans.add(TextSpan(text: text.substring(cursor), style: base));
