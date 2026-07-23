@@ -976,7 +976,8 @@ function _scrapeLinkPreview(rawUrl, timeoutMs = 30000) {
     // Dailymotion share-URL hostnames, og:type starting with
     // "video", or presence of og:video / og:video:url all
     // signal a video card. Everything else is a generic link.
-    const host = (parsed.hostname || "").toLowerCase();
+    // Reuses the `host` already declared by the SSRF guard
+    // earlier in this scope.
     const isVideoHost = (
       host === "youtu.be" ||
       host === "youtube.com" ||
