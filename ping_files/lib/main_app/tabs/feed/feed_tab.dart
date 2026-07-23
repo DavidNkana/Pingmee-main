@@ -3227,18 +3227,11 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                               ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: _canPost ? _onTapPost : null,
-                            child: Text(
-                              "Post",
-                              style: TextStyle(
-                                fontFamily: "Nunito",
-                                fontWeight: FontWeight.w600,
-                                color: _canPost
-                                    ? AppColors.brandGreen
-                                    : Colors.black.withOpacity(.25),
-                              ),
-                            ),
+                          _PostButton(
+                            canPost: _canPost,
+                            creating: _creatingMoment,
+                            creatingStage: _uploadStage,
+                            onTap: _onTapPost,
                           ),
                         ],
                       ),
@@ -7321,6 +7314,104 @@ class _FeedPollWidgetState extends State<_FeedPollWidget> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+// v95b: rich Post button. When canPost is false, the button is
+// greyed-out. When creating is true, it shows a spinner + a stage
+// label driven by `creatingStage` (e.g. "Uploading media...",
+// "Creating poll...", "Posting moment...", "Refreshing feed...")
+// + a small linear progress bar. Tapping dispatches onTap (called
+// only when canPost is true and creating is false).
+class _PostButton extends StatelessWidget {
+  const _PostButton({
+    required this.canPost,
+    required this.creating,
+    required this.creatingStage,
+    required this.onTap,
+  });
+
+  final bool canPost;
+  final bool creating;
+  final String? creatingStage;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = canPost && !creating;
+    final bg = isEnabled
+        ? Colors.black
+        : Colors.black.withOpacity(.45);
+    return InkWell(
+      onTap: isEnabled ? onTap : null,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+        child: creating
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          (creatingStage != null &&
+                                  creatingStage!.isNotEmpty)
+                              ? creatingStage!
+                              : "Posting...",
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: "Nunito",
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      minHeight: 4,
+                      backgroundColor: Colors.white.withOpacity(.15),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.white),
+                    ),
+                  ),
+                ],
+              )
+            : const Center(
+                child: Text(
+                  "Post",
+                  style: TextStyle(
+                    fontFamily: "Nunito",
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.brandGreen,
+                  ),
+                ),
+              ),
       ),
     );
   }
