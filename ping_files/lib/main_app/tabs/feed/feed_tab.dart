@@ -269,6 +269,10 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   bool _loadingMoments = false;
   bool _loadingMore = false;
   bool _creatingMoment = false;
+  // v95a: posting feedback overlay. Shows the current stage as a
+  // floating card above the modal sheet. null when not posting.
+  String? _uploadStage;
+  OverlayEntry? _overlayEntry;
 
   String? _momentsError;
   int _nextOffset = 0;
@@ -1051,7 +1055,11 @@ Future<void> _toggleMomentBookmark(int index) async {
   }) async {
     if (_creatingMoment) return;
 
-    setState(() => _creatingMoment = true);
+    setState(() {
+      _creatingMoment = true;
+      _uploadStage = pickedMedia.isNotEmpty ? "uploading" : "posting";
+    });
+    _showPostingOverlay();
 
     try {
       final media = <Map<String, dynamic>>[];
@@ -1142,11 +1150,16 @@ Future<void> _toggleMomentBookmark(int index) async {
           "contentType": contentType,
         });
       }
+      if (!mounted) return;
+      setState(() => _uploadStage =
+          pollQuestion != null ? "creatingPoll" : "posting");
       debugPrint("🧪 Moment media before create: count=${media.length}");
       for (final item in media) {
         debugPrint("🧪 Moment media item=$item");
       }
 
+      if (!mounted) return;
+      setState(() => _uploadStage = "posting");
       final createResult = await _feedService.createMoment(
         text: text,
         media: media,
@@ -1161,6 +1174,8 @@ Future<void> _toggleMomentBookmark(int index) async {
 
       debugPrint("🧪 createMoment result mediaCount=${createResult["mediaCount"]}");
       debugPrint("🧪 createMoment result media=${createResult["media"]}");
+      if (!mounted) return;
+      setState(() => _uploadStage = "reloading");
       await _loadTimelineMoments(reason: "after real moment create");
 
       if (!mounted) return;
@@ -1180,8 +1195,121 @@ Future<void> _toggleMomentBookmark(int index) async {
       );
     } finally {
       if (mounted) {
-        setState(() => _creatingMoment = false);
+        setState(() {
+          _creatingMoment = false;
+          _uploadStage = null;
+        });
+        _removePostingOverlay();
       }
+    }
+  }
+
+  /// v95a: shows the posting overlay above the modal sheet.
+  /// The overlay is a floating card at the bottom-center of the
+  /// screen, above the keyboard, with a spinner and the current
+  /// stage label. It updates when _uploadStage changes.
+  void _showPostingOverlay() {
+    if (_overlayEntry != null) return;
+    final overlay = Overlay.of(context);
+    final entry = OverlayEntry(
+      builder: (overlayContext) {
+        final label = _stageLabel(_uploadStage);
+        return Positioned(
+          bottom: 100,
+          left: 24,
+          right: 24,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: AppColors.brandGreen.withOpacity(.35),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                    color: Colors.black.withOpacity(.10),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.brandGreen,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "Posting",
+                          style: TextStyle(
+                            fontFamily: "Nunito",
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black.withOpacity(.5),
+                            letterSpacing: 0.6,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            fontFamily: "Nunito",
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    _overlayEntry = entry;
+    overlay.insert(entry);
+  }
+
+  /// v95a: removes the posting overlay (if any).
+  void _removePostingOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  /// v95a: stage label for the overlay.
+  String _stageLabel(String? stage) {
+    switch (stage) {
+      case "uploading":
+        return "Uploading media...";
+      case "creatingPoll":
+        return "Creating poll...";
+      case "posting":
+        return "Posting moment...";
+      case "reloading":
+        return "Refreshing feed...";
+      default:
+        return "Working...";
     }
   }
 
