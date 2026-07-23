@@ -904,9 +904,43 @@ function _scrapeLinkPreview(rawUrl, timeoutMs = 30000) {
     if (!ctype.includes("text/html") && !ctype.includes("xml")) {
       return null;
     }
-    // Cap body size at 1MB.
-    const body = await resp.text();
-    if (body.length > 1 * 1024 * 1024) {
+    // v97a-fix4: stream-read up to 2MB OR until </head> is
+    // seen, whichever comes first. The v78 implementation read
+    // the full body and capped at 1MB, but many JS-heavy
+    // sites (YouTube in particular, 1.35MB total) put the
+    // OG meta tags at byte 600K+ after a long JS framework
+    // prefix. The cap cut them off. Reading only the head
+    // gives us the OG tags and the rest of the body is
+    // irrelevant for preview extraction.
+    const headCap = 2 * 1024 * 1024; // 2MB hard safety cap
+    const decoder = new TextDecoder();
+    const reader = resp.body.getReader();
+    let body = "";
+    let received = 0;
+    let truncatedAtHead = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      const slice = value.length > headCap - body.length
+        ? value.subarray(0, Math.max(0, headCap - body.length))
+        : value;
+      body += decoder.decode(slice, { stream: true });
+      if (body.length >= headCap) {
+        truncatedAtHead = true;
+        break;
+      }
+      // Stop early once we have the </head> close (the OG
+      // tags always live in <head>).
+      if (body.indexOf("</head>") !== -1) {
+        truncatedAtHead = true;
+        break;
+      }
+    }
+    if (!truncatedAtHead && received > headCap) {
+      // Body was bigger than the cap with no </head> found.
+      // Treat the same way v78 treated >1MB: bail out so we
+      // don't parse garbage.
       return null;
     }
     // Decode a few HTML entities (the ones we actually display).
