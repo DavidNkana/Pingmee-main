@@ -3213,27 +3213,16 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Header row: title + Post button
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              "Create Moment",
-                              style: TextStyle(
-                                fontFamily: "Nunito",
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ),
-                          _PostButton(
-                            canPost: _canPost,
-                            creating: _creatingMoment,
-                            creatingStage: _uploadStage,
-                            onTap: _onTapPost,
-                          ),
-                        ],
+                      // Header: title only. Post moved to a full-width
+                      // black bar at the bottom of the sheet.
+                      const Text(
+                        "Create Moment",
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
                       ),
                       const SizedBox(height: 8),
 
@@ -3459,6 +3448,16 @@ class _CreateMomentSheetState extends State<_CreateMomentSheet> {
                             ),
                           ),
                         ),
+                      // v95c: full-width black post bar at the bottom
+                      // of the sheet. Replaces the small Post button
+                      // that used to live in the header row.
+                      const SizedBox(height: 12),
+                      _PostButton(
+                        canPost: _canPost,
+                        creating: _creatingMoment,
+                        creatingStage: _uploadStage,
+                        onTap: _onTapPost,
+                      ),
                     ],
                   );
                 },
@@ -7342,24 +7341,23 @@ class _PostButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEnabled = canPost && !creating;
-    final bg = isEnabled
-        ? Colors.black
-        : Colors.black.withOpacity(.45);
-    return InkWell(
-      onTap: isEnabled ? onTap : null,
-      borderRadius: BorderRadius.circular(22),
-      child: Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
-        child: creating
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
+    // Bottom black bar at 0.85 alpha so the sheet chrome shows
+    // through subtly. Generous padding makes the bar feel like a
+    // deliberate bottom action strip.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isEnabled ? onTap : null,
+        child: Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            color: Color(0xD9000000), // 0.85 alpha black
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+          child: SafeArea(
+            top: false,
+            child: creating
+                ? Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
@@ -7371,13 +7369,13 @@ class _PostButton extends StatelessWidget {
                               Colors.white),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Flexible(
                         child: Text(
                           (creatingStage != null &&
                                   creatingStage!.isNotEmpty)
                               ? creatingStage!
-                              : "Posting...",
+                              : "Posting your moment...",
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontFamily: "Nunito",
@@ -7388,30 +7386,22 @@ class _PostButton extends StatelessWidget {
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      minHeight: 4,
-                      backgroundColor: Colors.white.withOpacity(.15),
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.white),
+                  )
+                : Center(
+                    child: Text(
+                      "Post",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: isEnabled
+                            ? AppColors.brandGreen
+                            : Colors.white.withOpacity(.4),
+                      ),
                     ),
                   ),
-                ],
-              )
-            : const Center(
-                child: Text(
-                  "Post",
-                  style: TextStyle(
-                    fontFamily: "Nunito",
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.brandGreen,
-                  ),
-                ),
-              ),
+          ),
+        ),
       ),
     );
   }
