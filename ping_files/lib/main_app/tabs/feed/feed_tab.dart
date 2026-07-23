@@ -7305,40 +7305,42 @@ class _PostingOverlay extends StatelessWidget {
           child: Material(
             color: Colors.transparent,
             child: Container(
-              width: 80,
+              width: 260,
               decoration: BoxDecoration(
-                color: const Color(0xE6000000), // 0.9 alpha black
-                borderRadius: BorderRadius.circular(20),
+                color: const Color(0x99000000), // 0.6 alpha black
+                borderRadius: BorderRadius.circular(24),
               ),
               padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
+                horizontal: 18,
+                vertical: 14,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const SizedBox(
-                    width: 14,
-                    height: 14,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
+                      strokeWidth: 2.4,
                       valueColor:
                           AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    (stage != null && stage!.isNotEmpty)
-                        ? stage!
-                        : (isQuote
-                            ? "Quoting moment..."
-                            : "Posting your moment..."),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: "Nunito",
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      (stage != null && stage!.isNotEmpty)
+                          ? stage!
+                          : (isQuote
+                              ? "Quoting moment..."
+                              : "Posting your moment..."),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
