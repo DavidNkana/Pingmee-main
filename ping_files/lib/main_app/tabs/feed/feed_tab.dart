@@ -273,6 +273,10 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
   // floating card above the modal sheet. null when not posting.
   String? _uploadStage;
   OverlayEntry? _overlayEntry;
+  // v95g: true while a repost is being created. Used by the
+  // _PostingOverlay to show "Quoting moment..." instead of
+  // "Posting your moment...".
+  bool _isReposting = false;
 
   String? _momentsError;
   int _nextOffset = 0;
@@ -533,6 +537,15 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
 
     if (action == null) return;
 
+    // v95g: set _isReposting so the floating overlay says
+    // "Quoting moment..." (or "Posting...") instead of the
+    // generic "Posting your moment...".
+    setState(() {
+      _isReposting = true;
+      _uploadStage = "posting";
+    });
+    _showPostingOverlay();
+
     try {
       await _feedService.createMomentRepost(
         originalMoment: moment,
@@ -562,10 +575,18 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
           content: Text("Couldn’t repost Moment."),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isReposting = false;
+          _uploadStage = null;
+        });
+        _removePostingOverlay();
+      }
     }
   }
 
-  
+
   Future<void> _shareMoment(Map<String, dynamic> moment) async {
     try {
       await showModalBottomSheet<void>(
