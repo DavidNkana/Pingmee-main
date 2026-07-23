@@ -310,26 +310,26 @@ class SharedMomentCard extends StatelessWidget {
             // entirely (text is empty for them) and show only the mini-card.
             // Regular moments keep the normal post styling.
             if (isRepost)
-              Text(
-                '“$text”',
-                style: TextStyle(
+              _TappableRichText(
+                text: '“$text”',
+                baseStyle: const TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 14.5,
                   fontStyle: FontStyle.italic,
                   fontWeight: FontWeight.w400,
                   height: 1.32,
-                  color: Colors.black.withOpacity(.62),
+                  color: Color(0x9E000000), // black 0.62
                 ),
               )
             else
-              Text(
-                text,
-                style: TextStyle(
+              _TappableRichText(
+                text: text,
+                baseStyle: const TextStyle(
                   fontFamily: "Nunito",
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                   height: 1.32,
-                  color: Colors.black.withOpacity(.82),
+                  color: Color(0xD1000000), // black 0.82
                 ),
               ),
           ],
@@ -707,16 +707,16 @@ class SharedOriginalCard extends StatelessWidget {
           ),
           if (text.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(
-              text,
+            _TappableRichText(
+              text: text,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              baseStyle: const TextStyle(
                 fontFamily: "Nunito",
                 fontSize: 13.5,
                 fontWeight: FontWeight.w500,
                 height: 1.32,
-                color: Colors.black.withOpacity(.70),
+                color: Color(0xB3000000), // black 0.70
               ),
             ),
           ],
@@ -1747,6 +1747,153 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
 }
 
 // ============================================================================
+// v97b: _TappableRichText - split a moment body into plain
+// text spans and tappable URL spans. URLs are detected with a
+// regex, styled blue + underlined, and tap to open in the
+// system browser via url_launcher. Trailing punctuation
+// (.,!?:;) stays outside the tappable span so the link
+// matches what the user typed.
+// ============================================================================
+class _TappableRichText extends StatelessWidget {
+  const _TappableRichText({
+    required this.text,
+    required this.baseStyle,
+    this.maxLines,
+    this.overflow = TextOverflow.clip,
+    this.onMentionTap,
+  });
+
+  final String text;
+  final TextStyle baseStyle;
+  final int? maxLines;
+  final TextOverflow overflow;
+  final void Function(String mentionUid)? onMentionTap;
+
+  // https:// or http:// followed by non-whitespace. Captures the
+  // URL without the trailing punctuation; the punctuation
+  // is restored as a plain text segment after the URL.
+  static final RegExp _urlRe =
+      RegExp(r'(https?://[^\s]+)', caseSensitive: false);
+
+  // Characters that, if present at the end of a URL match, belong
+  // to the surrounding sentence rather than the URL itself.
+  static const String _trailingPunct = '.,!?:;)]"\'';
+
+  // @-mention pattern (reused from the comment composer).
+  static final RegExp _mentionRe =
+      RegExp(r'@([A-Za-z0-9_]{3,32})');
+
+  @override
+  Widget build(BuildContext context) {
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    final spans = <InlineSpan>[];
+
+    // Walk through the text, finding URLs and @-mentions in
+    // order so we render them with the right precedence.
+    int cursor = 0;
+    final matches = <_MatchSpan>[];
+    for (final m in _urlRe.allMatches(text)) {
+      matches.add(_MatchSpan(m.start, m.end, _MatchKind.url,
+          m.group(0) ?? ''));
+    }
+    for (final m in _mentionRe.allMatches(text)) {
+      matches.add(_MatchSpan(m.start, m.end, _MatchKind.mention,
+          m.group(0) ?? ''));
+    }
+    matches.sort((a, b) => a.start.compareTo(b.start));
+
+    for (final m in matches) {
+      // Plain text before this match.
+      if (m.start > cursor) {
+        spans.add(TextSpan(
+          text: text.substring(cursor, m.start),
+          style: baseStyle,
+        ));
+      }
+      if (m.kind == _MatchKind.url) {
+        // Strip trailing punctuation back into plain text.
+        var url = m.text;
+        var trailing = '';
+        while (url.isNotEmpty &&
+            _trailingPunct.contains(url.characters.last)) {
+          trailing = url.characters.last + trailing;
+          url = url.substring(0, url.length - 1);
+        }
+        final tappableStyle = baseStyle.copyWith(
+          color: AppColors.brandGreen,
+          decoration: TextDecoration.underline,
+        );
+        if (url.isNotEmpty) {
+          spans.add(TextSpan(
+            text: url,
+            style: tappableStyle,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => _openUrl(context, url),
+          ));
+        }
+        if (trailing.isNotEmpty) {
+          spans.add(TextSpan(
+            text: trailing,
+            style: baseStyle,
+          ));
+        }
+      } else {
+        // @-mention
+        spans.add(TextSpan(
+          text: m.text,
+          style: baseStyle.copyWith(
+            color: AppColors.brandGreen,
+            fontWeight: FontWeight.w600,
+          ),
+          recognizer: onMentionTap == null
+              ? null
+              : (TapGestureRecognizer()
+                ..onTap = () => onMentionTap!(m.text.substring(1))),
+        ));
+      }
+      cursor = m.end;
+    }
+    // Trailing plain text after the last match.
+    if (cursor < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(cursor),
+        style: baseStyle,
+      ));
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: maxLines,
+      overflow: overflow,
+    );
+  }
+
+  Future<void> _openUrl(BuildContext context, String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text("Couldn't open link: $e")),
+      );
+    }
+  }
+}
+
+enum _MatchKind { url, mention }
+
+class _MatchSpan {
+  const _MatchSpan(this.start, this.end, this.kind, this.text);
+  final int start;
+  final int end;
+  final _MatchKind kind;
+  final String text;
+}
+
+// ============================================================================
 // v78: _LinkPreviewCard - Open Graph link preview. Used by
 // SharedMomentCard to render the linkPreview field set by
 // the v78 backend's createMomentV2 hook (which scrapes
@@ -1787,6 +1934,7 @@ class _LinkPreviewCard extends StatelessWidget {
     final description = _str("description");
     final image = _str("image");
     final siteName = _str("siteName");
+    final type = _str("type");
     if (url.isEmpty && title.isEmpty && description.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -1815,34 +1963,64 @@ class _LinkPreviewCard extends StatelessWidget {
               if (image.isNotEmpty)
                 AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: Image.network(
-                    image,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: const Color(0xFFF3F4F6),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        PhosphorIcons.link(PhosphorIconsStyle.regular),
-                        size: 28,
-                        color: Colors.black38,
-                      ),
-                    ),
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        color: const Color(0xFFF3F4F6),
-                        alignment: Alignment.center,
-                        child: const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.black54),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        image,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFF3F4F6),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            PhosphorIcons.link(PhosphorIconsStyle.regular),
+                            size: 28,
+                            color: Colors.black38,
                           ),
                         ),
-                      );
-                    },
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            color: const Color(0xFFF3F4F6),
+                            alignment: Alignment.center,
+                            child: const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.black54),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // v97b: video Play overlay. The linkPreview
+                      // type field comes from the backend's
+                      // _scrapeLinkPreview which sets "video" for
+                      // YouTube / Vimeo / Dailymotion hostnames or
+                      // any page with og:video / og:type=video.*.
+                      if (type == "video")
+                        IgnorePointer(
+                          child: Container(
+                            color: Colors.black.withOpacity(.25),
+                            alignment: Alignment.center,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: 32,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               Padding(
