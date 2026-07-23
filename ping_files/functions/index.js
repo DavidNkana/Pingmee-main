@@ -1360,7 +1360,7 @@ exports.createMomentV2 = onCall(
       let linkPreview = null;
       if (urlMatch) {
         try {
-const linkPreview = await _scrapeLinkPreview(urlMatch[0], 30000);
+linkPreview = await _scrapeLinkPreview(urlMatch[0], 30000);
         } catch (e) {
           console.log("v78 createMomentV2 linkPreview failed:", e && e.message);
         }
