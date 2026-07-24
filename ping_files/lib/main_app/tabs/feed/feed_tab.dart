@@ -6533,12 +6533,22 @@ class _MomentBody extends StatelessWidget {
   static final RegExp _mentionRe =
       RegExp(r"\B@([a-z0-9_.]+)", caseSensitive: false);
 
-  // v97d: URL pattern. Same shape as the v97b tappable-URL
-  // helper in shared_moment_widgets.dart. Captures http(s)
-  // URLs up to the next whitespace; trailing punctuation is
-  // stripped back into plain text by the builder.
+  // v97d: URL pattern. Captures full URLs with a scheme.
+  // v97j: also matches bare URLs that start with www. or a
+  // domain.tld pattern, so users don't need to type https://.
+  // Bare matches get https:// prepended before launchUrl.
   static final RegExp _urlRe =
       RegExp(r'(https?://[^\\s]+)', caseSensitive: false);
+
+  // Bare URL pattern: starts with www. or contains a dot in a
+  // domain.tld pattern followed by a path. Conservative to
+  // avoid false positives like "Hello.world" or "Dr.Smith".
+  // Requires either "www." prefix OR a path component after the
+  // domain.
+  static final RegExp _urlBareRe = RegExp(
+      r'(?<![A-Za-z0-9@/])(www\.[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\\s]*)?|'
+      r'[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:/[^\\s]*)?)',
+      caseSensitive: false);
 
   static const String _urlTrailingPunct = ".,!?:;)]\"'";
 
@@ -6560,14 +6570,18 @@ class _MomentBody extends StatelessWidget {
     final base = baseStyle ?? defaultBase;
     final mention = mentionStyle ?? defaultMention;
 
-    // v97d-fix: detect @-mentions AND URL links. We only run the
-    // async mention-resolution path when there are mentions to
-    // resolve. URLs are inlined tappable right next to the rest
-    // of the body text. The fast-path plain Text branch is only
-    // taken when the text has no mentions AND no URLs.
+    // v97d-fix: detect @-mentions AND URL links (full or bare).
+    // v97j: also check for bare URLs like "www.facebook.com/x"
+    // or "wikipedia.org/wiki/Foo" — these don't have a scheme
+    // so the original _urlRe misses them. We capture them with
+    // _urlBareRe and prepend "https://" before launchUrl.
     final mentionMatches = _mentionRe.allMatches(text).toList();
     final urlMatches = _urlRe.allMatches(text).toList();
-    final hasUrl = urlMatches.isNotEmpty;
+    final urlBareMatches = _urlBareRe.allMatches(text).toList();
+    // Strip bare matches that overlap a full URL match to avoid
+    // double-counting (e.g. "https://www.x.com" already matches
+    // _urlRe so we don't also treat "www.x.com" as bare).
+    final hasUrl = urlMatches.isNotEmpty || urlBareMatches.isNotEmpty;
     if (mentions.isEmpty && mentionMatches.isEmpty && !hasUrl) {
       return Text(text, style: base);
     }
@@ -6576,7 +6590,8 @@ class _MomentBody extends StatelessWidget {
       future: _resolveMentions(mentions),
       builder: (context, snapshot) {
         final cache = snapshot.data ?? <String, UserRef>{};
-        return _buildRichText(text, hasUrl, cache, base, mention);
+        return _buildRichText(
+            text, hasUrl, urlBareMatches, cache, base, mention);
       },
     );
   }
@@ -6601,11 +6616,15 @@ class _MomentBody extends StatelessWidget {
   Widget _buildRichText(
     String text,
     bool hasUrl,
+    Iterable<RegExpMatch> urlBareMatches,
     Map<String, UserRef> cache,
     TextStyle base,
     TextStyle mention,
   ) {
     // v97d-fix: build a sorted list of mention + URL matches.
+    // v97j: also include bare URL matches (no scheme). Bare
+    // matches are emitted as full URLs by prepending "https://"
+    // so the recognizer's launchUrl works without modification.
     final urlMatches = hasUrl ? _urlRe.allMatches(text) : const <RegExpMatch>[];
     final allSpans = <_InlineSpan>[];
     for (final m in _mentionRe.allMatches(text)) {
@@ -6621,6 +6640,27 @@ class _MomentBody extends StatelessWidget {
         end: m.end,
         raw: m.group(0) ?? "",
       ));
+    }
+    for (final m in urlBareMatches) {
+      // Skip bare matches that overlap a full URL match (the
+      // full URL regex already handled them).
+      final mStart = m.start;
+      final mEnd = m.end;
+      bool overlaps = false;
+      for (final s in allSpans) {
+        if (s.kind != _InlineKind.url) continue;
+        if (mStart < s.end && mEnd > s.start) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (!overlaps) {
+        allSpans.add(_InlineSpan.url(
+          start: mStart,
+          end: mEnd,
+          raw: "https://" + (m.group(0) ?? ""),
+        ));
+      }
     }
     allSpans.sort((a, b) => a.start.compareTo(b.start));
     if (allSpans.isEmpty) {
