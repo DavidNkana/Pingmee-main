@@ -1814,16 +1814,17 @@ class _TappableRichText extends StatelessWidget {
       }
       if (m.kind == _MatchKind.url) {
         // Strip trailing punctuation back into plain text.
-        var url = m.text;
-        var trailing = '';
-        while (url.isNotEmpty &&
-            _trailingPunct.contains(url.characters.last)) {
-          trailing = url.characters.last + trailing;
-          url = url.substring(0, url.length - 1);
+        String url = m.text;
+        String trailing = '';
+        int idx = url.length;
+        while (idx > 0 && _trailingPunct.contains(url[idx - 1])) {
+          trailing = url[idx - 1] + trailing;
+          idx--;
         }
+        final trimmedUrl = url.substring(0, idx);
         final tappableStyle = baseStyle.copyWith(
-          color: AppColors.brandGreen,
-          decoration: TextDecoration.underline,
+          color: const Color(0xFF1D9BF0), // X-blue
+          decoration: TextDecoration.none,
         );
         if (url.isNotEmpty) {
           spans.add(TextSpan(
