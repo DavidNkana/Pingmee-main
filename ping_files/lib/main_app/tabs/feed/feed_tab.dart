@@ -6661,25 +6661,37 @@ class _MomentBody extends StatelessWidget {
           ));
         }
       } else {
-        // v97d-fix: URL span. Strip trailing punctuation back
-        // into plain text, render the URL itself as a tappable
-        // blue + underlined span. Uses _openUrl which calls
-        // launchUrl with LaunchMode.externalApplication.
-        var url = s.raw;
-        var trailing = '';
-        while (url.isNotEmpty &&
-            _urlTrailingPunct.contains(url.characters.last)) {
-          trailing = url.characters.last + trailing;
-          url = url.substring(0, url.length - 1);
+        // v97i: URL span. Strip trailing punctuation back into
+        // plain text, render the URL itself as a tappable BLUE
+        // (X-style) span with NO underline. Uses _openUrl which
+        // calls launchUrl with LaunchMode.externalApplication.
+        //
+        // Note: we work on a plain int index instead of using
+        // String.characters.last / substring to avoid any Unicode
+        // grapheme-cluster confusion. The stripper is bounded
+        // by `s.raw.length` so it can't over-trim. The end of
+        // the URL span is set to the original URL length so the
+        // visible text matches the captured match exactly.
+        String url = s.raw;
+        String trailing = '';
+        int idx = url.length;
+        while (idx > 0 &&
+            _urlTrailingPunct.contains(url[idx - 1])) {
+          trailing = url[idx - 1] + trailing;
+          idx--;
         }
-        if (url.isNotEmpty) {
+        final trimmedUrl = url.substring(0, idx);
+        if (trimmedUrl.isNotEmpty) {
+          // Use a final local copy so the recognizer's closure
+          // can't be mutated by anything outside this scope.
+          final capturedUrl = trimmedUrl;
           final recognizer = TapGestureRecognizer()
-            ..onTap = () => _openUrl(url);
+            ..onTap = () => _openUrl(capturedUrl);
           spans.add(TextSpan(
-            text: url,
+            text: capturedUrl,
             style: base.copyWith(
-              color: AppColors.brandGreen,
-              decoration: TextDecoration.underline,
+              color: const Color(0xFF1D9BF0), // X-blue
+              decoration: TextDecoration.none,
             ),
             recognizer: recognizer,
           ));
