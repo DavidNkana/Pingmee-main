@@ -903,7 +903,7 @@ class PingmeeFeedService {
         likers: likers,
       );
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("v97u getMomentStats failed: " + e.message);
+      debugPrint("v97u getMomentStats failed: " + (e.message ?? "<unknown>"));
       rethrow;
     }
   }
@@ -927,7 +927,7 @@ class PingmeeFeedService {
       final callable = _functions.httpsCallable("setMomentFlags");
       await callable.call(payload);
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("v97u setMomentFlags failed: " + e.message);
+      debugPrint("v97u setMomentFlags failed: " + (e.message ?? "<unknown>"));
       rethrow;
     }
   }
@@ -950,7 +950,7 @@ class PingmeeFeedService {
       }
       return out;
     } on FirebaseFunctionsException catch (e) {
-      debugPrint("v97u listMyPinnedMoments failed: " + e.message);
+      debugPrint("v97u listMyPinnedMoments failed: " + (e.message ?? "<unknown>"));
       rethrow;
     }
   }
@@ -995,4 +995,4 @@ class MomentLiker {
     required this.createdAt,
   });
 }
-}
+
