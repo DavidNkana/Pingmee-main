@@ -10,6 +10,7 @@ import 'package:ping_files/features/pings/ping_details_sheet.dart';
 import 'package:ping_files/main_app/main_app_shell.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_edit_screen.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_owner_main_menu_screen.dart';
+import 'pingmee_feed_service.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/app_start_router.dart';
 import 'package:geolocator/geolocator.dart';
@@ -4383,24 +4384,287 @@ class _TasksTab extends StatelessWidget {
   }
 }
 
-class _MomentsTab extends StatelessWidget {
+class _MomentsTab extends StatefulWidget {
   final String uid;
   final double bottomPad;
+  final void Function(String authorUid)? onOpenProfile;
 
   const _MomentsTab({
     super.key,
     required this.uid,
     required this.bottomPad,
+    this.onOpenProfile,
+  });
+
+  @override
+  State<_MomentsTab> createState() => _MomentsTabState();
+}
+
+class _MomentsTabState extends State<_MomentsTab> {
+  final _feedService = PingmeeFeedService();
+
+  List<Map<String, dynamic>> _moments = [];
+  List<Map<String, dynamic>> _pinned = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final res = await _feedService.loadMyTimelineMoments(limit: 50);
+      if (!mounted) return;
+      final all = List<Map<String, dynamic>>.from(res.moments);
+      // Filter to moments authored by the profile uid.
+      final owned = all.where((m) {
+        final authorUid = (m["authorUid"] ?? "").toString();
+        return authorUid == widget.uid;
+      }).toList();
+      // Split pinned vs not.
+      final pinned = owned
+          .where((m) => m["pinned"] == true)
+          .toList()
+        ..sort((a, b) {
+          final ta = a["pinnedAt"]?.toString() ?? "";
+          final tb = b["pinnedAt"]?.toString() ?? "";
+          return tb.compareTo(ta);
+        });
+      final rest = owned
+          .where((m) => m["pinned"] != true)
+          .toList()
+        ..sort((a, b) {
+          final ta = a["time"]?.toString() ?? "";
+          final tb = b["time"]?.toString() ?? "";
+          return tb.compareTo(ta);
+        });
+      setState(() {
+        _pinned = pinned;
+        _moments = rest;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = "Couldn't load Moments.";
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, 24, 16, widget.bottomPad + 6),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, 24, 16, widget.bottomPad + 6),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _error!,
+              style: const TextStyle(
+                fontFamily: "Nunito",
+                fontSize: 13,
+                color: Color(0xFFB42318),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _load,
+              child: const Text("Try again"),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_pinned.isEmpty && _moments.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, 24, 16, widget.bottomPad + 6),
+        child: _EmptyState(
+          icon: PhosphorIcons.sparkle(PhosphorIconsStyle.light),
+          title: "No moments yet",
+          subtitle: "Moments shared by this user will show here.",
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, widget.bottomPad + 24),
+        children: [
+          if (_pinned.isNotEmpty) ...[
+            const _SectionDivider(label: "Pinned"),
+            const SizedBox(height: 8),
+            for (final m in _pinned)
+              _MomentListTile(
+                moment: m,
+                pinned: true,
+                onOpenProfile: widget.onOpenProfile,
+              ),
+            const SizedBox(height: 16),
+          ],
+          if (_moments.isNotEmpty) ...[
+            const _SectionDivider(label: "All Moments"),
+            const SizedBox(height: 8),
+            for (final m in _moments)
+              _MomentListTile(
+                moment: m,
+                pinned: false,
+                onOpenProfile: widget.onOpenProfile,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// Lightweight section header for the moments tab.
+class _SectionDivider extends StatelessWidget {
+  final String label;
+  const _SectionDivider({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontFamily: "Nunito",
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+            color: Colors.black.withOpacity(.55),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            height: 1,
+            color: Colors.black.withOpacity(.08),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Compact moment tile for the profile moments tab. Renders text
+// + small thumbnail strip. Tapping the tile currently just
+// opens the avatar/name profile via onOpenProfile if provided.
+class _MomentListTile extends StatelessWidget {
+  final Map<String, dynamic> moment;
+  final bool pinned;
+  final void Function(String authorUid)? onOpenProfile;
+
+  const _MomentListTile({
+    required this.moment,
+    required this.pinned,
+    this.onOpenProfile,
   });
 
   @override
   Widget build(BuildContext context) {
+    final text = (moment["text"] ?? "").toString();
+    final authorUid = (moment["authorUid"] ?? "").toString();
+    final media = moment["media"];
+    final mediaCount = media is List ? (media as List).length : 0;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 24, 16, bottomPad + 6),
-      child: _EmptyState(
-        icon: PhosphorIcons.sparkle(PhosphorIconsStyle.light),
-        title: "No moments yet",
-        subtitle: "Moments shared by this user will show here.",
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onOpenProfile == null
+              ? null
+              : () => onOpenProfile!(authorUid),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.black.withOpacity(.07)),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (text.isNotEmpty)
+                  Text(
+                    text,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: "Nunito",
+                      fontSize: 14,
+                      height: 1.32,
+                      color: Color(0xDD000000),
+                    ),
+                  ),
+                if (text.isNotEmpty && mediaCount > 0)
+                  const SizedBox(height: 8),
+                if (mediaCount > 0)
+                  Row(
+                    children: [
+                      const Icon(
+                        PhosphorIcons.imageSquare(
+                            PhosphorIconsStyle.regular),
+                        size: 14,
+                        color: Color(0xCC000000),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        mediaCount == 1
+                            ? "1 media"
+                            : "$mediaCount media",
+                        style: const TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 12,
+                          color: Color(0xCC000000),
+                        ),
+                      ),
+                    ],
+                  ),
+                if (pinned) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        PhosphorIcons.pushPinSimple(
+                            PhosphorIconsStyle.fill),
+                        size: 12,
+                        color: Colors.black.withOpacity(.55),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "Pinned",
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(.55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
