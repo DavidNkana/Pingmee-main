@@ -6712,19 +6712,11 @@ class _WidgetTreeBody extends StatelessWidget {
           children.add(Text("@\${t.raw}", style: mention));
         }
       } else {
-        // URL: separate Widget. The color and gesture cover the
-        // full URL exactly because the Widget's bounds match the
-        // text. No TextSpan fragmentation.
-        children.add(GestureDetector(
-          onTap: () => _openUrlStatic(t.raw),
-          child: Text(
-            t.raw,
-            style: base.copyWith(
-              color: const Color(0xFF1D9BF0), // X-blue
-              decoration: TextDecoration.none,
-            ),
-          ),
-        ));
+        // v97m: URL rendered as plain text in the base color. No
+        // GestureDetector, no color override. The link preview card
+        // (when present) is the only tap target — it carries the
+        // full URL via title_link.
+        children.add(Text(t.raw, style: base));
       }
       cursor = t.end;
     }
