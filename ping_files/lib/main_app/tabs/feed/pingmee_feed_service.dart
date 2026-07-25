@@ -857,4 +857,142 @@ class PingmeeFeedService {
       pollId: pollId,
     );
   }
+
+
+  // =====================================================================
+  // v97u: moment stats + flag toggles (calls cloud functions from
+  // v97t in functions/index.js).
+  // =====================================================================
+
+  Future<MomentStatsResult> getMomentStats({
+    required String activityId,
+    required String foreignId,
+  }) async {
+    debugPrint("v97u getMomentStats: id=" + activityId);
+    try {
+      final callable = _functions.httpsCallable("getMomentStats");
+      final res = await callable.call({
+        "activityId": activityId,
+        "foreignId": foreignId,
+      });
+      final data = (res.data is Map) ?
+        Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      final likersRaw = data["likers"];
+      final likers = <MomentLiker>[];
+      if (likersRaw is List) {
+        for (final l in likersRaw) {
+          if (l is Map) {
+            likers.add(MomentLiker(
+              uid: (l["uid"] ?? "").toString(),
+              displayName: (l["displayName"] ?? "").toString(),
+              createdAt: (l["createdAt"] ?? "").toString(),
+            ));
+          }
+        }
+      }
+      return MomentStatsResult(
+        viewCount: (data["viewCount"] as num?)?.toInt() ?? 0,
+        likeCount: (data["likeCount"] as num?)?.toInt() ?? 0,
+        commentCount: (data["commentCount"] as num?)?.toInt() ?? 0,
+        saveCount: (data["saveCount"] as num?)?.toInt() ?? 0,
+        repostCount: (data["repostCount"] as num?)?.toInt() ?? 0,
+        pinned: data["pinned"] == true,
+        hideLikeCount: data["hideLikeCount"] == true,
+        hideShareCount: data["hideShareCount"] == true,
+        pinnedAt: (data["pinnedAt"] ?? "").toString(),
+        likers: likers,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("v97u getMomentStats failed: " + e.message);
+      rethrow;
+    }
+  }
+
+  Future<void> setMomentFlags({
+    required String activityId,
+    required String foreignId,
+    bool? pinned,
+    bool? hideLikeCount,
+    bool? hideShareCount,
+  }) async {
+    debugPrint("v97u setMomentFlags: id=" + activityId);
+    final payload = <String, dynamic>{
+      "activityId": activityId,
+      "foreignId": foreignId,
+    };
+    if (pinned != null) payload["pinned"] = pinned;
+    if (hideLikeCount != null) payload["hideLikeCount"] = hideLikeCount;
+    if (hideShareCount != null) payload["hideShareCount"] = hideShareCount;
+    try {
+      final callable = _functions.httpsCallable("setMomentFlags");
+      await callable.call(payload);
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("v97u setMomentFlags failed: " + e.message);
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listMyPinnedMoments({
+    int limit = 20,
+  }) async {
+    debugPrint("v97u listMyPinnedMoments: limit=" + limit.toString());
+    try {
+      final callable = _functions.httpsCallable("listMyPinnedMoments");
+      final res = await callable.call({"limit": limit});
+      final data = res.data;
+      final raw = (data is Map && data["moments"] is List) ?
+        data["moments"] as List : const [];
+      final out = <Map<String, dynamic>>[];
+      for (final m in raw) {
+        if (m is Map) {
+          out.add(Map<String, dynamic>.from(m));
+        }
+      }
+      return out;
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint("v97u listMyPinnedMoments failed: " + e.message);
+      rethrow;
+    }
+  }
+}
+
+// v97u: result types for the stats callables.
+
+class MomentStatsResult {
+  final int viewCount;
+  final int likeCount;
+  final int commentCount;
+  final int saveCount;
+  final int repostCount;
+  final bool pinned;
+  final bool hideLikeCount;
+  final bool hideShareCount;
+  final String pinnedAt;
+  final List<MomentLiker> likers;
+
+  const MomentStatsResult({
+    required this.viewCount,
+    required this.likeCount,
+    required this.commentCount,
+    required this.saveCount,
+    required this.repostCount,
+    required this.pinned,
+    required this.hideLikeCount,
+    required this.hideShareCount,
+    required this.pinnedAt,
+    required this.likers,
+  });
+}
+
+class MomentLiker {
+  final String uid;
+  final String displayName;
+  final String createdAt;
+
+  const MomentLiker({
+    required this.uid,
+    required this.displayName,
+    required this.createdAt,
+  });
+}
 }
