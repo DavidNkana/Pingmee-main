@@ -7,6 +7,7 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:giphy_get/giphy_get.dart';
 import 'package:http/http.dart' as http;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -443,10 +444,25 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     final authorUid = (moment["authorUid"] ?? "").toString().trim();
     final isOwner = currentUid.isNotEmpty && currentUid == authorUid;
 
+    // v97r: pass the author's display name so the Mute/Restrict
+    // labels can show @"<handle>" rather than a generic label.
+    final displayName =
+        (moment["authorName"] ?? "").toString().trim();
+    final handle = displayName.isNotEmpty
+        ? displayName
+        : (authorUid.isNotEmpty
+            ? authorUid.length > 8
+                ? "@" + authorUid.substring(0, 8)
+                : "@" + authorUid
+            : null);
+
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _MomentMoreSheet(isOwner: isOwner),
+      builder: (_) => _MomentMoreSheet(
+        isOwner: isOwner,
+        authorUidDisplay: handle,
+      ),
     );
 
     if (action == null) return;
@@ -455,6 +471,137 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
     final foreignId = (moment["foreignId"] ?? "").toString().trim();
 
     if (activityId.isEmpty || foreignId.isEmpty) return;
+
+    // v97r: copy / not-interested / mute / restrict / view profile
+    // actions. Each writes to a Firestore subcollection under the
+    // current user's users/{myUid}/<kind>/<authorUid> doc so the
+    // action is durable. Local list mutates immediately for
+    // instant UX feedback; a future read-path filter will make
+    // these permanent on refresh.
+    final firestore = FirebaseFirestore.instance;
+    final authorUidForFilter = authorUid.isEmpty ? null : authorUid;
+    Future<void> _removeFromLocal(int i) async {
+      if (!mounted) return;
+      setState(() {
+        if (i >= 0 && i < _timelineMoments.length) {
+          _timelineMoments.removeAt(i);
+        }
+      });
+    }
+
+    if (action == "copy") {
+      // Prefer the link preview's URL if available; otherwise use
+      // a deep link to the moment by id.
+      String url = "";
+      final preview = moment["linkPreview"];
+      if (preview is Map) {
+        url = (preview["url"] ?? "").toString().trim();
+      }
+      if (url.isEmpty && activityId.isNotEmpty) {
+        url = "https://pingmee.app/m/" + activityId;
+      }
+      await Clipboard.setData(ClipboardData(text: url));
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text("Link copied")),
+      );
+      return;
+    }
+
+    if (action == "view_profile") {
+      if (authorUidForFilter != null && _onOpenUserProfile != null) {
+        _onOpenUserProfile!(authorUidForFilter);
+      }
+      return;
+    }
+
+    if (action == "not_interested" && currentUid.isNotEmpty
+        && authorUidForFilter != null) {
+      try {
+        await firestore
+            .collection("users")
+            .doc(currentUid)
+            .collection("not_interested")
+            .doc(authorUidForFilter)
+            .set({
+              "authorUid": authorUidForFilter,
+              "createdAt": FieldValue.serverTimestamp(),
+            });
+        await _removeFromLocal(index);
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text("Not interested — fewer like this")),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn’t update preference.")),
+        );
+      }
+      return;
+    }
+
+    if (action == "mute" && currentUid.isNotEmpty
+        && authorUidForFilter != null) {
+      try {
+        await firestore
+            .collection("users")
+            .doc(currentUid)
+            .collection("muted")
+            .doc(authorUidForFilter)
+            .set({
+              "authorUid": authorUidForFilter,
+              "createdAt": FieldValue.serverTimestamp(),
+            });
+        await _removeFromLocal(index);
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(
+              "Muted. You won’t see @" +
+                  (displayName.isNotEmpty
+                      ? displayName
+                      : "this user") +
+                  " in your feed.")),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn’t mute.")),
+        );
+      }
+      return;
+    }
+
+    if (action == "restrict" && currentUid.isNotEmpty
+        && authorUidForFilter != null) {
+      try {
+        await firestore
+            .collection("users")
+            .doc(currentUid)
+            .collection("restricted")
+            .doc(authorUidForFilter)
+            .set({
+              "authorUid": authorUidForFilter,
+              "createdAt": FieldValue.serverTimestamp(),
+            });
+        await _removeFromLocal(index);
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(
+              "Restricted @" +
+                  (displayName.isNotEmpty
+                      ? displayName
+                      : "this user") +
+                  ".")),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text("Couldn’t restrict.")),
+        );
+      }
+      return;
+    }
 
     if (action == "delete") {
       final confirm = await showDialog<bool>(
@@ -5700,9 +5847,11 @@ class _MomentAction extends StatelessWidget {
 
 class _MomentMoreSheet extends StatelessWidget {
   final bool isOwner;
+  final String? authorUidDisplay;
 
   const _MomentMoreSheet({
     required this.isOwner,
+    this.authorUidDisplay,
   });
 
   @override
@@ -5724,9 +5873,47 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              // Action row — Delete when you own the moment, Report otherwise.
-              // Mirrors the design used in MomentDetailScreen's MomentMoreSheet:
-              // flag icon for Report, trash icon in red for Delete.
+              // v97r: copy the moment's shareable link to the
+              // system clipboard so it can be pasted anywhere.
+              _MomentMoreTile(
+                icon: PhosphorIcons.link(PhosphorIconsStyle.regular),
+                title: "Copy link",
+                onTap: () => Navigator.pop(context, "copy"),
+              ),
+              const SizedBox(height: 8),
+              // v97r: hide this author's future moments from the
+              // feed. Persists to users/{myUid}/not_interested/{authorUid}.
+              _MomentMoreTile(
+                icon: PhosphorIcons.eye(PhosphorIconsStyle.regular),
+                title: "Not interested",
+                onTap: () => Navigator.pop(context, "not_interested"),
+              ),
+              // v97r: hide this author's posts (silenced). The
+              // author doesn't see this and isn't notified.
+              // Persists to users/{myUid}/muted/{authorUid}.
+              _MomentMoreTile(
+                icon: PhosphorIcons.bellSlash(
+                    PhosphorIconsStyle.regular),
+                title: "Mute @" + (authorUidDisplay ?? "user"),
+                onTap: () => Navigator.pop(context, "mute"),
+              ),
+              // v97r: stop seeing this author entirely. Stronger
+              // than mute. Persists to users/{myUid}/restricted/{authorUid}.
+              _MomentMoreTile(
+                icon: PhosphorIcons.prohibit(
+                    PhosphorIconsStyle.regular),
+                title: "Restrict @" + (authorUidDisplay ?? "user"),
+                danger: true,
+                onTap: () => Navigator.pop(context, "restrict"),
+              ),
+              // v97r: navigate to the author's profile screen.
+              _MomentMoreTile(
+                icon: PhosphorIcons.user(PhosphorIconsStyle.regular),
+                title: "View profile",
+                onTap: () => Navigator.pop(context, "view_profile"),
+              ),
+              const SizedBox(height: 8),
+              // Owner-only destructive action.
               if (isOwner)
                 _MomentMoreTile(
                   icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
@@ -5735,6 +5922,7 @@ class _MomentMoreSheet extends StatelessWidget {
                   onTap: () => Navigator.pop(context, "delete"),
                 )
               else
+                // Viewer-only report action.
                 _MomentMoreTile(
                   icon: PhosphorIcons.flag(PhosphorIconsStyle.regular),
                   title: "Report Moment",
@@ -5742,8 +5930,7 @@ class _MomentMoreSheet extends StatelessWidget {
                   onTap: () => Navigator.pop(context, "report"),
                 ),
               const SizedBox(height: 8),
-              // Always-present Cancel row — lets the user dismiss the sheet
-              // even when there is no destructive action to confirm.
+              // Always-present Cancel row.
               _MomentMoreTile(
                 icon: PhosphorIcons.x(PhosphorIconsStyle.regular),
                 title: "Cancel",
