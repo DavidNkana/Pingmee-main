@@ -1826,12 +1826,13 @@ class _TappableRichText extends StatelessWidget {
           color: const Color(0xFF1D9BF0), // X-blue
           decoration: TextDecoration.none,
         );
+        // v97m: URL rendered as plain text in the base color. No
+        // recognizer, no color override. The link preview card
+        // (when present) is the only tap target.
         if (url.isNotEmpty) {
           spans.add(TextSpan(
             text: url,
-            style: tappableStyle,
-            recognizer: TapGestureRecognizer()
-              ..onTap = () => _openUrl(context, url),
+            style: baseStyle,
           ));
         }
         if (trailing.isNotEmpty) {
