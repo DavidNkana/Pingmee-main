@@ -5164,3 +5164,258 @@ exports.pruneStaleOnlineUsers = onSchedule(
       return {flipped};
     },
 );
+
+
+// ============================================================================
+// v97t: moment stats + flag toggles.
+// ============================================================================
+
+// Maximum likers returned in one call. Matches the user's request.
+const MAX_LIKERS = 200;
+
+// Common auth: caller must be signed in AND must be the creator of
+// the moment identified by foreignId / activityId.
+async function _loadOwnerMoment(request, foreignId, activityId) {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "You must be logged in.");
+  }
+  const momentId = momentIdFromForeignId(foreignId);
+  if (!activityId || !momentId) {
+    throw new HttpsError("invalid-argument", "Missing Moment reference.");
+  }
+  const db = admin.firestore();
+  const momentRef = db.collection("moments").doc(momentId);
+  const momentSnap = await momentRef.get();
+  if (!momentSnap.exists) {
+    throw new HttpsError("not-found", "Moment not found.");
+  }
+  const moment = momentSnap.data() || {};
+  const creatorId = cleanString(moment.creatorId);
+  if (creatorId !== uid) {
+    throw new HttpsError(
+        "permission-denied",
+        "Only the owner can read moment stats.");
+  }
+  return { uid, momentId, moment, momentRef };
+}
+
+exports.getMomentStats = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const activityId = cleanString(request.data && request.data.activityId);
+      const foreignId = cleanString(request.data && request.data.foreignId);
+      const { uid, momentId, moment } = await _loadOwnerMoment(
+          request, foreignId, activityId);
+
+      try {
+        const client = getStreamFeedsClient();
+        const activity = (await client.getActivities({
+          ids: [activityId],
+        })).results || [];
+
+        // Stream's reactions live on the activity object as
+        // reaction_counts and latest_reactions. The lat.like
+        // array contains recent like reactions with user refs.
+        const latest = activity.length > 0 ?
+            (activity[0].latest_reactions || {}) :
+            ({});
+        const counts = activity.length > 0 ?
+            (activity[0].reaction_counts || {}) :
+            ({});
+
+        // last 200 likers
+        const likeArr = Array.isArray(latest.like) ? latest.like : [];
+        const likers = [];
+        for (let i = 0; i < likeArr.length && i < MAX_LIKERS; i++) {
+          const r = likeArr[i] || {};
+          const uid = cleanString(r.user_id);
+          if (!uid) continue;
+          likers.push({
+            uid,
+            createdAt: cleanString(r.created_at),
+          });
+        }
+
+        // Pull display names for the likers via Firestore cache.
+        const likerUids = likers.map((l) => l.uid);
+        const likerNames = {};
+        if (likerUids.length > 0) {
+          try {
+            const db = admin.firestore();
+            const refs = likerUids.map((u) =>
+              db.collection("users").doc(u));
+            const snaps = await db.getAll(...refs);
+            for (const s of snaps) {
+              if (s.exists) {
+                const d = s.data() || {};
+                likerNames[s.id] = cleanString(d.displayName) ||
+                  cleanString(d.name);
+              }
+            }
+          } catch (_) {
+            // ignore name lookup failures
+          }
+        }
+        for (const l of likers) {
+          l.displayName = likerNames[l.uid] || "";
+        }
+
+        // Saved count comes from users/{uid}/saved_moments/{mid}.
+        // Stream doesn't track saves directly. We query Firestore.
+        let saveCount = 0;
+        try {
+          const db = admin.firestore();
+          const savesSnap = await db.collectionGroup("saved_moments")
+              .where("momentId", "==", momentId).get();
+          saveCount = savesSnap.size;
+        } catch (_) {
+          saveCount = moment.savedCount || 0;
+        }
+
+        return {
+          ok: true,
+          viewCount: Number(moment.viewCount) || 0,
+          likeCount: Number(moment.likeCount) ||
+            Number(counts.like) || 0,
+          commentCount: Number(moment.commentCount) || 0,
+          saveCount: saveCount,
+          repostCount: Number(moment.repostCount) || 0,
+          pinned: moment.pinned === true,
+          hideLikeCount: moment.hideLikeCount === true,
+          hideShareCount: moment.hideShareCount === true,
+          pinnedAt: cleanString(moment.pinnedAt),
+          likers,
+        };
+      } catch (e) {
+        console.log("v97t getMomentStats failed:", e && e.message);
+        throw new HttpsError("internal",
+            "Couldn't read Moment stats.");
+      }
+    });
+
+exports.setMomentFlags = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const activityId = cleanString(request.data && request.data.activityId);
+      const foreignId = cleanString(request.data && request.data.foreignId);
+      const { moment, momentRef } = await _loadOwnerMoment(
+          request, foreignId, activityId);
+
+      // Build the patch object from the request, accepting only
+      // the three supported flag fields. Any other field is
+      // ignored to prevent overposting.
+      const patch = {};
+      if ("pinned" in (request.data || {})) {
+        const pinned = request.data.pinned === true;
+        patch.pinned = pinned;
+        if (pinned) {
+          patch.pinnedAt = admin.firestore.FieldValue.serverTimestamp();
+        } else {
+          patch.pinnedAt = admin.firestore.FieldValue.delete();
+        }
+      }
+      if ("hideLikeCount" in (request.data || {})) {
+        patch.hideLikeCount = request.data.hideLikeCount === true;
+      }
+      if ("hideShareCount" in (request.data || {})) {
+        patch.hideShareCount = request.data.hideShareCount === true;
+      }
+      patch.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+      if (Object.keys(patch).length <= 2) {
+        // only updatedAt — nothing to update
+        return { ok: true, updated: [] };
+      }
+
+      try {
+        await momentRef.update(patch);
+      } catch (e) {
+        console.log("v97t setMomentFlags Firestore update failed:",
+            e && e.message);
+        throw new HttpsError("internal",
+            "Couldn't save Moment flags.");
+      }
+
+      // Mirror the flag set on the Stream activity.extra so a
+      // future read-path filter can apply them server-side.
+      // (Currently the client reads them from the Firestore doc
+      // via loadMyTimelineMoments passthrough; this Stream-side
+      // mirror keeps the option open for server-side filtering
+      // later.)
+      // The Firestore update is the source of truth. Skip the
+      // Stream-side mirror for now (the getstream v8 SDK doesn't
+      // expose a clean partial-update for activities via the
+      // Feeds client; doing it through the REST API would require
+      // signing a separate JWT). When the read-path filter is
+      // implemented server-side later, mirror the flags to the
+      // Stream activity.extra here.
+      return { ok: true, updated: Object.keys(patch) };
+    });
+
+exports.listMyPinnedMoments = onCall(
+    {
+      region: REGION,
+      secrets: [STREAM_API_KEY, STREAM_API_SECRET],
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "You must be logged in.");
+      }
+
+      const rawLimit = Number(request.data && request.data.limit);
+      const limit = Number.isFinite(rawLimit) ?
+        Math.min(Math.max(rawLimit, 1), 50) : 20;
+
+      try {
+        const db = admin.firestore();
+        // Query moments/{creatorId == uid} AND pinned == true,
+        // sorted by pinnedAt desc. Firestore requires a composite
+        // index for this; if missing, the function logs a hint
+        // and falls back to an in-memory sort.
+        let snap;
+        try {
+          snap = await db.collection("moments")
+              .where("creatorId", "==", uid)
+              .where("pinned", "==", true)
+              .orderBy("pinnedAt", "desc")
+              .limit(limit)
+              .get();
+        } catch (e) {
+          console.log("v97t listMyPinnedMoments indexed query failed, "
+              + "falling back to client sort:", e && e.message);
+          snap = await db.collection("moments")
+              .where("creatorId", "==", uid)
+              .where("pinned", "==", true)
+              .get();
+        }
+        const moments = [];
+        for (const d of snap.docs) {
+          moments.push({ id: d.id, ...d.data() });
+        }
+        if (snap.docs.length === limit) {
+          // indexed path; already sorted by pinnedAt desc
+        } else {
+          // fallback path; sort by pinnedAt desc client-side
+          moments.sort((a, b) => {
+            const ta = a.pinnedAt && a.pinnedAt.toMillis ?
+              a.pinnedAt.toMillis() : 0;
+            const tb = b.pinnedAt && b.pinnedAt.toMillis ?
+              b.pinnedAt.toMillis() : 0;
+            return tb - ta;
+          });
+        }
+        return { ok: true, moments: moments.slice(0, limit) };
+      } catch (e) {
+        console.log("v97t listMyPinnedMoments failed:", e && e.message);
+        throw new HttpsError("internal",
+            "Couldn't read pinned Moments.");
+      }
+    });
