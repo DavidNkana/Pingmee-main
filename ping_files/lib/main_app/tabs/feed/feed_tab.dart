@@ -4421,7 +4421,6 @@ class _MomentMediaViewerPageState extends State<_MomentMediaViewerPage> {
   }
 
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5946,7 +5945,6 @@ class _MomentsCenterState extends StatelessWidget {
 }
 
 
-
 class _GlassBottomSheet extends StatelessWidget {
   final Widget child;
   const _GlassBottomSheet({required this.child});
@@ -6615,149 +6613,9 @@ class _MomentBody extends StatelessWidget {
     return const <String, UserRef>{};
   }
 
-  Widget _buildRichText(
-    String text,
-    bool hasUrl,
-    Iterable<RegExpMatch> urlBareMatches,
-    Map<String, UserRef> cache,
-    TextStyle base,
-    TextStyle mention,
-  ) {
-    // v97d-fix: build a sorted list of mention + URL matches.
-    // v97j: also include bare URL matches (no scheme). Bare
-    // matches are emitted as full URLs by prepending "https://"
-    // so the recognizer's launchUrl works without modification.
-    final urlMatches = hasUrl ? _urlRe.allMatches(text) : const <RegExpMatch>[];
-    final allSpans = <_InlineSpan>[];
-    for (final m in _mentionRe.allMatches(text)) {
-      allSpans.add(_InlineSpan.mention(
-        start: m.start,
-        end: m.end,
-        raw: m.group(1) ?? "",
-      ));
-    }
-    for (final m in urlMatches) {
-      allSpans.add(_InlineSpan.url(
-        start: m.start,
-        end: m.end,
-        raw: m.group(0) ?? "",
-      ));
-    }
-    for (final m in urlBareMatches) {
-      // Skip bare matches that overlap a full URL match (the
-      // full URL regex already handled them).
-      final mStart = m.start;
-      final mEnd = m.end;
-      bool overlaps = false;
-      for (final s in allSpans) {
-        if (s.kind != _InlineKind.url) continue;
-        if (mStart < s.end && mEnd > s.start) {
-          overlaps = true;
-          break;
-        }
-      }
-      if (!overlaps) {
-        allSpans.add(_InlineSpan.url(
-          start: mStart,
-          end: mEnd,
-          raw: "https://" + (m.group(0) ?? ""),
-        ));
-      }
-    }
-    allSpans.sort((a, b) => a.start.compareTo(b.start));
-    if (allSpans.isEmpty) {
-      return Text(text, style: base);
-    }
+  
 
-    // Build a reverse-lookup: mentionTag (lowercased no-spaces) -> uid.
-    final tagToUid = <String, String>{};
-    for (final entry in cache.entries) {
-      final tag = entry.value.mentionTag;
-      if (tag.isNotEmpty) {
-        tagToUid[tag] = entry.key;
-      }
-    }
 
-    final spans = <InlineSpan>[];
-    int cursor = 0;
-    for (final s in allSpans) {
-      if (s.start > cursor) {
-        spans.add(
-          TextSpan(text: text.substring(cursor, s.start), style: base),
-        );
-      }
-      if (s.isMention) {
-        final raw = s.raw;
-        final tag = raw.toLowerCase();
-        String? resolvedUid = tagToUid[tag];
-        resolvedUid ??= myConnectionsByTag?[tag]?.uid;
-        if (resolvedUid == null) {
-          spans.add(TextSpan(text: "@$raw", style: mention));
-        } else {
-          final recognizer = TapGestureRecognizer()
-            ..onTap = () => onMentionTap(resolvedUid!);
-          spans.add(TextSpan(
-            text: "@$raw",
-            style: mention,
-            recognizer: recognizer,
-          ));
-        }
-      } else {
-        // v97i: URL span. Strip trailing punctuation back into
-        // plain text, render the URL itself as a tappable BLUE
-        // (X-style) span with NO underline. Uses _openUrl which
-        // calls launchUrl with LaunchMode.externalApplication.
-        //
-        // Note: we work on a plain int index instead of using
-        // String.characters.last / substring to avoid any Unicode
-        // grapheme-cluster confusion. The stripper is bounded
-        // by `s.raw.length` so it can't over-trim. The end of
-        // the URL span is set to the original URL length so the
-        // visible text matches the captured match exactly.
-        String url = s.raw;
-        String trailing = '';
-        int idx = url.length;
-        while (idx > 0 &&
-            _urlTrailingPunct.contains(url[idx - 1])) {
-          trailing = url[idx - 1] + trailing;
-          idx--;
-        }
-        final trimmedUrl = url.substring(0, idx);
-        if (trimmedUrl.isNotEmpty) {
-          // Use a final local copy so the recognizer's closure
-          // can't be mutated by anything outside this scope.
-          final capturedUrl = trimmedUrl;
-          final recognizer = TapGestureRecognizer()
-            ..onTap = () => _openUrl(capturedUrl);
-          spans.add(TextSpan(
-            text: capturedUrl,
-            style: base.copyWith(
-              color: const Color(0xFF1D9BF0), // X-blue
-              decoration: TextDecoration.none,
-            ),
-            recognizer: recognizer,
-          ));
-        }
-        if (trailing.isNotEmpty) {
-          spans.add(TextSpan(text: trailing, style: base));
-        }
-      }
-      cursor = s.end;
-    }
-    if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor), style: base));
-    }
-    // v68 convention: wrap the Text.rich in a no-op GestureDetector so
-    // the inner TextSpan recognizer wins the gesture arena over any
-    // parent GestureDetector (e.g. the card-level onLike/onComment
-    // taps). Without this wrapper, the outer GestureDetector's onTap
-    // fires and the mention tap is silently swallowed.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {},
-      child: Text.rich(TextSpan(children: spans)),
-    );
-  }
 }
 
 // ============================================================================
@@ -6854,11 +6712,19 @@ class _WidgetTreeBody extends StatelessWidget {
           children.add(Text("@\${t.raw}", style: mention));
         }
       } else {
-        // v97m: URL rendered as plain text in the base color. No
-        // GestureDetector, no blue color, no decoration. The
-        // link preview card (when present) is the only tap
-        // target — it carries the full URL via title_link.
-        children.add(Text(t.raw, style: base));
+        // URL: separate Widget. The color and gesture cover the
+        // full URL exactly because the Widget's bounds match the
+        // text. No TextSpan fragmentation.
+        children.add(GestureDetector(
+          onTap: () => _openUrlStatic(t.raw),
+          child: Text(
+            t.raw,
+            style: base.copyWith(
+              color: const Color(0xFF1D9BF0), // X-blue
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ));
       }
       cursor = t.end;
     }
@@ -6881,6 +6747,8 @@ class _WidgetTreeBody extends StatelessWidget {
   UserRef? _maybeMyConn(String tag) {
     return myConnectionsByTag?[tag];
   }
+
+
 }
 
 enum _TokenKind { mention, url }
