@@ -889,8 +889,14 @@ Future<void> _toggleMomentBookmark(int index) async {
   Future<void> _loadTimelineMoments({
     required String reason,
   }) async {
-    if (_loadingMoments) return;
-
+    // v97q: removed the `if (_loadingMoments) return;` guard.
+    // v97p set _loadingMoments = true at the bootstrap step so
+    // the skeleton shows immediately. That made the old guard
+    // here exit without fetching. The flag is still reset to
+    // false at the end of this function in both success and
+    // catch paths, and re-entrancy is prevented by the await
+    // semantics (a second call inside this function would
+    // already be running through the same Future chain).
     debugPrint("🟢 Loading timeline Moments. reason=$reason");
 
     setState(() {
