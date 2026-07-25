@@ -1006,6 +1006,53 @@ function _scrapeLinkPreview(rawUrl, timeoutMs = 30000) {
         image = rawImage;
       }
     }
+    // v97o: for known video hosts, build a canonical thumbnail
+    // URL from the video ID. YouTube's og:image returns
+    // maxresdefault.jpg which is a placeholder for videos
+    // without a custom thumbnail. hqdefault.jpg always returns
+    // a real frame from the video.
+    try {
+      const urlObj = new URL(resp.url || url);
+      const videoHost = (urlObj.hostname || "").toLowerCase();
+      // Extract YouTube video ID from watch?v=ID or youtu.be/ID.
+      let ytId = null;
+      if (videoHost === "youtu.be") {
+        ytId = urlObj.pathname.replace(/^\/+/, "").split("/")[0] || null;
+      } else if (
+        videoHost === "youtube.com" ||
+        videoHost === "www.youtube.com" ||
+        videoHost === "m.youtube.com"
+      ) {
+        ytId = urlObj.searchParams.get("v");
+      }
+      if (ytId && /^[A-Za-z0-9_-]{11}$/.test(ytId)) {
+        image = "https://i.ytimg.com/vi/" + ytId + "/hqdefault.jpg";
+      } else {
+        // Vimeo: vumbnail.com/<ID>.jpg. Extract ID from /<ID> path.
+        if (
+          videoHost === "vimeo.com" ||
+          videoHost === "www.vimeo.com"
+        ) {
+          const m = urlObj.pathname.match(/^\/(\d+)/);
+          if (m && m[1]) {
+            image = "https://vumbnail.com/" + m[1] + ".jpg";
+          }
+        }
+        // Dailymotion: thumbnail URL from path /video/<id>.
+        else if (
+          videoHost === "dailymotion.com" ||
+          videoHost === "www.dailymotion.com"
+        ) {
+          const m = urlObj.pathname.match(/\/video\/([a-z0-9]+)/i);
+          if (m && m[1]) {
+            image =
+              "https://www.dailymotion.com/thumbnail/video/" + m[1];
+          }
+        }
+      }
+    } catch (_) {
+      // Fall through with whatever og:image returned.
+    }
     // v97a: detect the attachment type. YouTube / Vimeo /
     // Dailymotion share-URL hostnames, og:type starting with
     // "video", or presence of og:video / og:video:url all
