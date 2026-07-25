@@ -804,9 +804,16 @@ Future<void> _toggleMomentBookmark(int index) async {
 
     if (!mounted) return;
 
+    // v97p: set _loadingMoments = true so the body shows the
+    // skeleton during the entire bootstrap -> syncFollows ->
+    // loadTimeline chain. Without this, the body briefly shows
+    // the empty card between the user's tap on FeedTab and the
+    // first moments arriving.
     setState(() {
       _bootingFeed = true;
       _feedBootError = null;
+      _momentsError = null;
+      _loadingMoments = _timelineMoments.isEmpty;
     });
 
     try {
