@@ -5873,46 +5873,53 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              // v97r: copy the moment's shareable link to the
-              // system clipboard so it can be pasted anywhere.
-              _MomentMoreTile(
-                icon: PhosphorIcons.link(PhosphorIconsStyle.regular),
-                title: "Copy link",
-                onTap: () => Navigator.pop(context, "copy"),
-              ),
-              const SizedBox(height: 8),
-              // v97r: hide this author's future moments from the
-              // feed. Persists to users/{myUid}/not_interested/{authorUid}.
-              _MomentMoreTile(
-                icon: PhosphorIcons.eye(PhosphorIconsStyle.regular),
-                title: "Not interested",
-                onTap: () => Navigator.pop(context, "not_interested"),
-              ),
-              // v97r: hide this author's posts (silenced). The
-              // author doesn't see this and isn't notified.
-              // Persists to users/{myUid}/muted/{authorUid}.
-              _MomentMoreTile(
-                icon: PhosphorIcons.bellSlash(
-                    PhosphorIconsStyle.regular),
-                title: "Mute @" + (authorUidDisplay ?? "user"),
-                onTap: () => Navigator.pop(context, "mute"),
-              ),
-              // v97r: stop seeing this author entirely. Stronger
-              // than mute. Persists to users/{myUid}/restricted/{authorUid}.
-              _MomentMoreTile(
-                icon: PhosphorIcons.prohibit(
-                    PhosphorIconsStyle.regular),
-                title: "Restrict @" + (authorUidDisplay ?? "user"),
-                danger: true,
-                onTap: () => Navigator.pop(context, "restrict"),
-              ),
-              // v97r: navigate to the author's profile screen.
-              _MomentMoreTile(
-                icon: PhosphorIcons.user(PhosphorIconsStyle.regular),
-                title: "View profile",
-                onTap: () => Navigator.pop(context, "view_profile"),
-              ),
-              const SizedBox(height: 8),
+              // v97s: viewer-only social actions. Owner does NOT
+              // see Copy link / Not interested / Mute / Restrict
+              // / View profile — those don't make sense for
+              // someone looking at their own moment. Owner only
+              // sees Delete. Viewer sees all the social actions.
+              if (!isOwner) ...[
+                // v97r: copy the moment's shareable link to the
+                // system clipboard so it can be pasted anywhere.
+                _MomentMoreTile(
+                  icon: PhosphorIcons.link(PhosphorIconsStyle.regular),
+                  title: "Copy link",
+                  onTap: () => Navigator.pop(context, "copy"),
+                ),
+                const SizedBox(height: 8),
+                // v97r: hide this author's future moments from the
+                // feed. Persists to users/{myUid}/not_interested/{authorUid}.
+                _MomentMoreTile(
+                  icon: PhosphorIcons.eye(PhosphorIconsStyle.regular),
+                  title: "Not interested",
+                  onTap: () => Navigator.pop(context, "not_interested"),
+                ),
+                // v97r: hide this author's posts (silenced). The
+                // author doesn't see this and isn't notified.
+                // Persists to users/{myUid}/muted/{authorUid}.
+                _MomentMoreTile(
+                  icon: PhosphorIcons.bellSlash(
+                      PhosphorIconsStyle.regular),
+                  title: "Mute @" + (authorUidDisplay ?? "user"),
+                  onTap: () => Navigator.pop(context, "mute"),
+                ),
+                // v97r: stop seeing this author entirely. Stronger
+                // than mute. Persists to users/{myUid}/restricted/{authorUid}.
+                _MomentMoreTile(
+                  icon: PhosphorIcons.prohibit(
+                      PhosphorIconsStyle.regular),
+                  title: "Restrict @" + (authorUidDisplay ?? "user"),
+                  danger: true,
+                  onTap: () => Navigator.pop(context, "restrict"),
+                ),
+                // v97r: navigate to the author's profile screen.
+                _MomentMoreTile(
+                  icon: PhosphorIcons.user(PhosphorIconsStyle.regular),
+                  title: "View profile",
+                  onTap: () => Navigator.pop(context, "view_profile"),
+                ),
+                const SizedBox(height: 8),
+              ],
               // Owner-only destructive action.
               if (isOwner)
                 _MomentMoreTile(
