@@ -6592,6 +6592,7 @@ class _MomentBody extends StatelessWidget {
           base: base,
           mention: mention,
           onMentionTap: onMentionTap,
+          myConnectionsByTag: myConnectionsByTag,
         );
       },
     );
@@ -6788,6 +6789,7 @@ class _WidgetTreeBody extends StatelessWidget {
     required this.base,
     required this.mention,
     required this.onMentionTap,
+    required this.myConnectionsByTag,
   });
 
   final String text;
@@ -6798,6 +6800,7 @@ class _WidgetTreeBody extends StatelessWidget {
   final TextStyle base;
   final TextStyle mention;
   final void Function(String mentionUid) onMentionTap;
+  final Map<String, UserRef>? myConnectionsByTag;
 
   @override
   Widget build(BuildContext context) {
@@ -6850,7 +6853,9 @@ class _WidgetTreeBody extends StatelessWidget {
       }
       if (t.isMention) {
         final tag = t.raw.toLowerCase();
-        final uid = (cache[tag] ?? _maybeMyConn(tag))?.uid;
+        final UserRef? resolved =
+            cache[tag] ?? _maybeMyConn(tag);
+        final String? uid = resolved?.uid;
         if (uid != null) {
           children.add(GestureDetector(
             onTap: () => onMentionTap(uid),
@@ -6892,8 +6897,8 @@ class _WidgetTreeBody extends StatelessWidget {
     );
   }
 
-  String? _maybeMyConn(String tag) {
-    return myConnectionsByTag?[tag]?.uid;
+  UserRef? _maybeMyConn(String tag) {
+    return myConnectionsByTag?[tag];
   }
 
   static Future<void> _openUrlStatic(String url) async {
