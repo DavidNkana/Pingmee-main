@@ -6570,17 +6570,10 @@ class _MomentBody extends StatelessWidget {
     final base = baseStyle ?? defaultBase;
     final mention = mentionStyle ?? defaultMention;
 
-    // v97d-fix: detect @-mentions AND URL links (full or bare).
-    // v97j: also check for bare URLs like "www.facebook.com/x"
-    // or "wikipedia.org/wiki/Foo" — these don't have a scheme
-    // so the original _urlRe misses them. We capture them with
-    // _urlBareRe and prepend "https://" before launchUrl.
+    // v97k: detect @-mentions AND URL links (full or bare).
     final mentionMatches = _mentionRe.allMatches(text).toList();
     final urlMatches = _urlRe.allMatches(text).toList();
     final urlBareMatches = _urlBareRe.allMatches(text).toList();
-    // Strip bare matches that overlap a full URL match to avoid
-    // double-counting (e.g. "https://www.x.com" already matches
-    // _urlRe so we don't also treat "www.x.com" as bare).
     final hasUrl = urlMatches.isNotEmpty || urlBareMatches.isNotEmpty;
     if (mentions.isEmpty && mentionMatches.isEmpty && !hasUrl) {
       return Text(text, style: base);
@@ -6590,8 +6583,16 @@ class _MomentBody extends StatelessWidget {
       future: _resolveMentions(mentions),
       builder: (context, snapshot) {
         final cache = snapshot.data ?? <String, UserRef>{};
-        return _buildRichText(
-            text, hasUrl, urlBareMatches, cache, base, mention);
+        return _WidgetTreeBody(
+          text: text,
+          mentionMatches: mentionMatches,
+          urlMatches: urlMatches,
+          urlBareMatches: urlBareMatches,
+          cache: cache,
+          base: base,
+          mention: mention,
+          onMentionTap: onMentionTap,
+        );
       },
     );
   }
@@ -6767,6 +6768,176 @@ class _MomentBody extends StatelessWidget {
       // tap target; the inline link is best-effort.
     }
   }
+}
+
+// ============================================================================
+// v97k: _WidgetTreeBody - replaces the Text.rich-based _buildRichText
+// with a Widget-tree approach. Plain text fragments are Text widgets;
+// URL spans are their own GestureDetector(Text) widgets. This eliminates
+// any TextSpan rendering quirks that might truncate the colored region
+// of a long URL. The Wrap layout lays them out inline; the URL widget's
+// own gesture detector covers its full visible bounds.
+// ============================================================================
+class _WidgetTreeBody extends StatelessWidget {
+  const _WidgetTreeBody({
+    required this.text,
+    required this.mentionMatches,
+    required this.urlMatches,
+    required this.urlBareMatches,
+    required this.cache,
+    required this.base,
+    required this.mention,
+    required this.onMentionTap,
+  });
+
+  final String text;
+  final List<RegExpMatch> mentionMatches;
+  final List<RegExpMatch> urlMatches;
+  final List<RegExpMatch> urlBareMatches;
+  final Map<String, UserRef> cache;
+  final TextStyle base;
+  final TextStyle mention;
+  final void Function(String mentionUid) onMentionTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // Build a flat list of inline tokens, then split into
+    // (textSpan, urlSpan) pairs that the Wrap lays out inline.
+    final tokens = <_Token>[];
+    for (final m in mentionMatches) {
+      tokens.add(_Token.mention(
+        start: m.start,
+        end: m.end,
+        raw: m.group(1) ?? "",
+      ));
+    }
+    for (final m in urlMatches) {
+      tokens.add(_Token.url(
+        start: m.start,
+        end: m.end,
+        raw: m.group(0) ?? "",
+      ));
+    }
+    for (final m in urlBareMatches) {
+      // Skip bare matches that overlap a full URL match.
+      final mStart = m.start;
+      final mEnd = m.end;
+      bool overlaps = false;
+      for (final t in tokens) {
+        if (t.isUrl && mStart < t.end && mEnd > t.start) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (!overlaps) {
+        tokens.add(_Token.url(
+          start: mStart,
+          end: mEnd,
+          raw: "https://" + (m.group(0) ?? ""),
+        ));
+      }
+    }
+    tokens.sort((a, b) => a.start.compareTo(b.start));
+
+    final children = <Widget>[];
+    int cursor = 0;
+    for (final t in tokens) {
+      if (t.start > cursor) {
+        children.add(Text(
+          text.substring(cursor, t.start),
+          style: base,
+        ));
+      }
+      if (t.isMention) {
+        final tag = t.raw.toLowerCase();
+        final uid = (cache[tag] ?? _maybeMyConn(tag))?.uid;
+        if (uid != null) {
+          children.add(GestureDetector(
+            onTap: () => onMentionTap(uid),
+            child: Text("@\${t.raw}", style: mention),
+          ));
+        } else {
+          children.add(Text("@\${t.raw}", style: mention));
+        }
+      } else {
+        // URL: separate Widget. The color and gesture cover the
+        // full URL exactly because the Widget's bounds match the
+        // text. No TextSpan fragmentation.
+        children.add(GestureDetector(
+          onTap: () => _openUrlStatic(t.raw),
+          child: Text(
+            t.raw,
+            style: base.copyWith(
+              color: const Color(0xFF1D9BF0), // X-blue
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ));
+      }
+      cursor = t.end;
+    }
+    if (cursor < text.length) {
+      children.add(Text(text.substring(cursor), style: base));
+    }
+    // v68 convention: a no-op GestureDetector wraps the Wrap so
+    // the inner link/mention taps win the gesture arena over any
+    // parent GestureDetector (e.g. card-level onLike/onComment).
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.start,
+        children: children,
+      ),
+    );
+  }
+
+  String? _maybeMyConn(String tag) {
+    return myConnectionsByTag?[tag]?.uid;
+  }
+
+  static Future<void> _openUrlStatic(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // Silently ignore.
+    }
+  }
+}
+
+enum _TokenKind { mention, url }
+
+class _Token {
+  const _Token._({
+    required this.start,
+    required this.end,
+    required this.kind,
+    required this.raw,
+  });
+
+  factory _Token.mention({
+    required int start,
+    required int end,
+    required String raw,
+  }) =>
+      _Token._(start: start, end: end, kind: _TokenKind.mention, raw: raw);
+
+  factory _Token.url({
+    required int start,
+    required int end,
+    required String raw,
+  }) =>
+      _Token._(start: start, end: end, kind: _TokenKind.url, raw: raw);
+
+  final int start;
+  final int end;
+  final _TokenKind kind;
+  final String raw;
+
+  bool get isMention => kind == _TokenKind.mention;
+  bool get isUrl => kind == _TokenKind.url;
 }
 
 // v92d: data class for the poll composer bottom-sheet result.
