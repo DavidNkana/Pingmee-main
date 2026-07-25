@@ -489,6 +489,23 @@ class _FeedTabState extends State<FeedTab> with SingleTickerProviderStateMixin {
       });
     }
 
+    if (action == "view_stats") {
+      // Owner-only. Navigate to the stats screen.
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MomentStatsScreen(
+            activityId: activityId,
+            foreignId: foreignId,
+            authorUid: authorUid,
+            momentData: Map<String, dynamic>.from(moment),
+            onOpenProfile: _onOpenUserProfile,
+          ),
+        ),
+      );
+      return;
+    }
+
     if (action == "copy") {
       // Prefer the link preview's URL if available; otherwise use
       // a deep link to the moment by id.
@@ -5920,14 +5937,28 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
-              // Owner-only destructive action.
-              if (isOwner)
+              // Owner-only actions. View stats navigates to
+              // the stats screen; Copy link copies the share URL.
+              if (isOwner) ...[
+                _MomentMoreTile(
+                  icon: PhosphorIcons.chartBar(
+                      PhosphorIconsStyle.regular),
+                  title: "View stats",
+                  onTap: () => Navigator.pop(context, "view_stats"),
+                ),
+                _MomentMoreTile(
+                  icon: PhosphorIcons.link(PhosphorIconsStyle.regular),
+                  title: "Copy link",
+                  onTap: () => Navigator.pop(context, "copy"),
+                ),
+                const SizedBox(height: 8),
                 _MomentMoreTile(
                   icon: PhosphorIcons.trash(PhosphorIconsStyle.regular),
                   title: "Delete Moment",
                   danger: true,
                   onTap: () => Navigator.pop(context, "delete"),
-                )
+                ),
+              ]
               else
                 // Viewer-only report action.
                 _MomentMoreTile(
