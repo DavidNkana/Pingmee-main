@@ -10,7 +10,7 @@ import 'package:ping_files/features/pings/ping_details_sheet.dart';
 import 'package:ping_files/main_app/main_app_shell.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_edit_screen.dart';
 import 'package:ping_files/main_app/tabs/profile/profile_owner_main_menu_screen.dart';
-import 'pingmee_feed_service.dart';
+import '../feed/pingmee_feed_service.dart';
 import 'package:ping_files/theme/colors2.dart';
 import 'package:ping_files/app_start_router.dart';
 import 'package:geolocator/geolocator.dart';
@@ -4620,7 +4620,7 @@ class _MomentListTile extends StatelessWidget {
                   Row(
                     children: [
                       const Icon(
-                        PhosphorIcons.imageSquare(
+                        PhosphorIcons.images(
                             PhosphorIconsStyle.regular),
                         size: 14,
                         color: Color(0xCC000000),
@@ -5671,7 +5671,7 @@ class _MediaInnerState extends State<_MediaInner> with SingleTickerProviderState
             ),
             _TabSpec(
               label: "Ping media",
-              icon: PhosphorIcons.imageSquare,
+              icon: PhosphorIcons.images,
             ),
           ],
         ),
