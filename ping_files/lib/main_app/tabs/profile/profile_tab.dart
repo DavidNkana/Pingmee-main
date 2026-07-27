@@ -4420,7 +4420,7 @@ class _MomentsTabState extends State<_MomentsTab> {
       _error = null;
     });
     try {
-      final res = await _feedService.loadMyTimelineMoments(limit: 50);
+      final res = await _feedService.loadMyTimelineMoments();
       if (!mounted) return;
       final all = List<Map<String, dynamic>>.from(res.moments);
       // Filter to moments authored by the profile uid.
@@ -4619,7 +4619,7 @@ class _MomentListTile extends StatelessWidget {
                 if (mediaCount > 0)
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         PhosphorIcons.images(
                             PhosphorIconsStyle.regular),
                         size: 14,
