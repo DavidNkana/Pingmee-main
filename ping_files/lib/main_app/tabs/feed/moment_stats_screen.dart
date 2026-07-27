@@ -294,7 +294,7 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                         stats: _stats!,
                         onOpenSettings: _openSettingsSheet,
                         isOwner: (FirebaseAuth.instance.currentUser?.uid
-                                ?? '') == authorUid,
+                                ?? '') == widget.authorUid,
                       ),
                       const SizedBox(height: 24),
                       const _SectionHeader("Activity"),
