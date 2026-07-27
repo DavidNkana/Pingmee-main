@@ -13,7 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-import '../pingmee_feed_service.dart';
+import 'pingmee_feed_service.dart';
 
 class MomentStatsScreen extends StatefulWidget {
   final String activityId;
