@@ -276,16 +276,17 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
               ? _buildSkeleton()
               : RefreshIndicator(
                   onRefresh: _load,
+                  // v97w-fix8: read the current user's uid from
+                  // FirebaseAuth. Declared before the ListView
+                  // so the Dart parser doesn't confuse the
+                  // `final` declarations with spread operators.
+                  final currentUid =
+                      FirebaseAuth.instance.currentUser?.uid ?? '';
+                  final isOwner = currentUid.isNotEmpty &&
+                      currentUid == authorUid;
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
                     children: [
-                      // v97w-fix6: declare these OUTSIDE the
-                      // children list literal so the Dart parser
-                      // doesn't confuse them with spread operators.
-                      final currentUid =
-                          FirebaseAuth.instance.currentUser?.uid ?? '';
-                      final isOwner = currentUid.isNotEmpty &&
-                          currentUid == authorUid,
                       _SortRow(
                         value: _sort,
                         onChanged: (v) => setState(() => _sort = v),
