@@ -642,10 +642,11 @@ class _StatsBlock extends StatelessWidget {
           ),
           const SizedBox(height: 4),
         ],
-        for (var i = 0; i < entries.length; i++) ...[
-          if (i > 0) const SizedBox(height: 8),
-          _StatRow(entry: entries[i]),
-        ],
+        for (var i = 0; i < entries.length; i++)
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
+            child: _StatRow(entry: entries[i]),
+          ),
       ],
     );
   }
