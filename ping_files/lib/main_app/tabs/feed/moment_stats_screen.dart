@@ -20,6 +20,7 @@
 // BorderRadius. Content-loading skeleton during fetch.
 // ============================================================================
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
@@ -289,11 +290,17 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                         onOpenProfile: widget.onOpenProfile,
                       ),
                       const SizedBox(height: 14),
+                      // v97w-fix5: read the current user's uid from
+                      // FirebaseAuth so we can decide if the
+                      // current viewer is the author.
+                      final currentUid =
+                          FirebaseAuth.instance.currentUser?.uid ?? '';
+                      final isOwner = currentUid.isNotEmpty &&
+                          currentUid == authorUid;
                       _StatsBlock(
                         stats: _stats!,
                         onOpenSettings: _openSettingsSheet,
-                        isOwner: (currentUid.isNotEmpty &&
-                            currentUid == authorUid),
+                        isOwner: isOwner,
                       ),
                       const SizedBox(height: 24),
                       const _SectionHeader("Activity"),
