@@ -292,6 +292,8 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                       _StatsBlock(
                         stats: _stats!,
                         onOpenSettings: _openSettingsSheet,
+                        isOwner: (currentUid.isNotEmpty &&
+                            currentUid == authorUid),
                       ),
                       const SizedBox(height: 24),
                       const _SectionHeader("Activity"),
@@ -559,9 +561,11 @@ class _MomentPreviewCard extends StatelessWidget {
 class _StatsBlock extends StatelessWidget {
   final MomentStatsResult stats;
   final VoidCallback onOpenSettings;
+  final bool isOwner;
   const _StatsBlock({
     required this.stats,
     required this.onOpenSettings,
+    required this.isOwner,
   });
 
   @override
@@ -594,20 +598,48 @@ class _StatsBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Spacer(),
-            IconButton(
-              onPressed: onOpenSettings,
-              icon: Icon(
-                PhosphorIcons.dotsThreeVertical(PhosphorIconsStyle.bold),
-                size: 20,
-                color: Color(0xFF1A1A1A),
+        if (isOwner) ...[
+          // v97w-fix5: the settings button is owner-only and
+          // shows an app-friendly "Author settings" label with
+          // a chevron. Viewers don't see this row.
+          Align(
+            alignment: Alignment.centerRight,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: onOpenSettings,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "Author settings",
+                        style: TextStyle(
+                          fontFamily: "Nunito",
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(.7),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        PhosphorIcons.caretDown(
+                            PhosphorIconsStyle.bold),
+                        size: 12,
+                        color: Colors.black.withOpacity(.55),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
+          ),
+          const SizedBox(height: 4),
+        ],
         for (var i = 0; i < entries.length; i++) ...[
           if (i > 0) const SizedBox(height: 8),
           _StatRow(entry: entries[i]),
@@ -711,6 +743,40 @@ class _StatsSettingsSheet extends StatelessWidget {
               decoration: BoxDecoration(
                 color: const Color(0xFFE0E0E0),
                 borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // v97w-fix5: privacy notice. Tells the owner that only
+            // they can see this sheet.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F4F5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    PhosphorIcons.lockSimple(
+                        PhosphorIconsStyle.regular),
+                    size: 14,
+                    color: Colors.black.withOpacity(.55),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "This is only visible to you (the author).",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withOpacity(.7),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
