@@ -1043,7 +1043,11 @@ class _SkeletonBarState extends State<_SkeletonBar>
           width: w.isFinite ? w : null,
           height: widget.height,
           decoration: BoxDecoration(
-            color: Color.fromRGBO(0, 0, 0, v),
+            color: Color.lerp(
+              const Color(0xFFF0F0F2),
+              const Color(0xFFF7F7F8),
+              v,
+            )!,
             borderRadius: BorderRadius.circular(8),
           ),
         );
