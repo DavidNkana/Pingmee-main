@@ -279,6 +279,13 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
                     children: [
+                      // v97w-fix6: declare these OUTSIDE the
+                      // children list literal so the Dart parser
+                      // doesn't confuse them with spread operators.
+                      final currentUid =
+                          FirebaseAuth.instance.currentUser?.uid ?? '';
+                      final isOwner = currentUid.isNotEmpty &&
+                          currentUid == authorUid,
                       _SortRow(
                         value: _sort,
                         onChanged: (v) => setState(() => _sort = v),
@@ -290,13 +297,6 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                         onOpenProfile: widget.onOpenProfile,
                       ),
                       const SizedBox(height: 14),
-                      // v97w-fix5: read the current user's uid from
-                      // FirebaseAuth so we can decide if the
-                      // current viewer is the author.
-                      final currentUid =
-                          FirebaseAuth.instance.currentUser?.uid ?? '';
-                      final isOwner = currentUid.isNotEmpty &&
-                          currentUid == authorUid;
                       _StatsBlock(
                         stats: _stats!,
                         onOpenSettings: _openSettingsSheet,
