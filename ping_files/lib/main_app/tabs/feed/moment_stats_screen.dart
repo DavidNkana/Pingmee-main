@@ -599,11 +599,12 @@ class _StatsBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (isOwner) ...[
-          // v97w-fix5: the settings button is owner-only and
-          // shows an app-friendly "Author settings" label with
-          // a chevron. Viewers don't see this row.
-          Align(
+        // v97w-fix11: the Author settings button is now
+        // shown to everyone (owner and viewers). The label is
+        // "Author settings" for both. The settings sheet still
+        // has owner-only toggles, so for viewers the sheet is
+        // effectively an info panel.
+        Align(
             alignment: Alignment.centerRight,
             child: Material(
               color: Colors.transparent,
