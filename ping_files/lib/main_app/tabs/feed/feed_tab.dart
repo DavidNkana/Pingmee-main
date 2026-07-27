@@ -5891,12 +5891,17 @@ class _MomentMoreSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              // v97s: viewer-only social actions. Owner does NOT
-              // see Copy link / Not interested / Mute / Restrict
-              // / View profile — those don't make sense for
-              // someone looking at their own moment. Owner only
-              // sees Delete. Viewer sees all the social actions.
+              // v97w-fix11: viewer branch now also has View
+              // stats at the top. Copy link / Not interested /
+              // Mute / Restrict / View profile follow.
               if (!isOwner) ...[
+                _MomentMoreTile(
+                  icon: PhosphorIcons.chartBar(
+                      PhosphorIconsStyle.regular),
+                  title: "View stats",
+                  onTap: () => Navigator.pop(context, "view_stats"),
+                ),
+                const SizedBox(height: 8),
                 // v97r: copy the moment's shareable link to the
                 // system clipboard so it can be pasted anywhere.
                 _MomentMoreTile(
