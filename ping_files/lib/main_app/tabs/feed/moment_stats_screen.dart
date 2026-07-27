@@ -401,7 +401,7 @@ class _SortRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                const Icon(
+                Icon(
                   PhosphorIcons.caretDown(PhosphorIconsStyle.regular),
                   size: 12,
                   color: Color(0xFF1A1A1A),
@@ -505,7 +505,7 @@ class _MomentPreviewCard extends StatelessWidget {
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
-                      const Icon(
+                      Icon(
                         PhosphorIcons.sealCheck(PhosphorIconsStyle.bold),
                         size: 16,
                         color: Color(0xFF1D9BF0),
@@ -599,7 +599,7 @@ class _StatsBlock extends StatelessWidget {
             const Spacer(),
             IconButton(
               onPressed: onOpenSettings,
-              icon: const Icon(
+              icon: Icon(
                 PhosphorIcons.dotsThreeVertical(PhosphorIconsStyle.bold),
                 size: 20,
                 color: Color(0xFF1A1A1A),
@@ -951,7 +951,7 @@ class _ActivityRow extends StatelessWidget {
                           color: Color(0xFFFFE4E6),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           PhosphorIcons.heart(PhosphorIconsStyle.bold),
                           size: 12,
                           color: Color(0xFFFF3040),
