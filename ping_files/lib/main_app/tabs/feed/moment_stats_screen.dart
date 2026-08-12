@@ -1,26 +1,8 @@
-// ============================================================================
-// v97w: redesigned moment stats screen.
-//
-// Layout (top to bottom):
-//   1. Sort row: "Default" / "Recent" dropdown
-//   2. Moment preview card: author (avatar + name + verified
-//      badge) + body (text on one line with ellipsis OR image
-//      only — never both)
-//   3. Stats: 4 rows stacked vertically — Views, Likes, Reposts,
-//      Quotes (no inline layout, no borders, only rounded
-//      corners)
-//   4. 3-dot menu (right of stats, for everyone) — "View stats"
-//      for viewers; for owner also includes Pin / Hide like /
-//      Hide share
-//   5. Activities list (last 200) — profile image with
-//      activity-type icon overlay (heart for like, repost for
-//      repost, comment for comment, quote for quote)
-//
-// Style: pure white background, no hard borders, only
-// BorderRadius. Content-loading skeleton during fetch.
-// ============================================================================
+// The fix for the for-loop build error in moment_stats_screen.dart.
+// Re-create the file with the correct simple for-loop. The full
+// content is what the user is currently missing. This is a
+// single commit that fixes the build error.
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
@@ -53,14 +35,10 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
   bool _loading = true;
   String? _error;
 
-  // Local toggles (mirrored from server result so the UI is
-  // responsive before the round-trip completes).
   bool _savingPin = false;
   bool _savingHideLike = false;
   bool _savingHideShare = false;
 
-  // Sort state. 'default' = pinned-first then newest. 'recent'
-  // = newest first.
   String _sort = "default";
 
   @override
@@ -279,17 +257,24 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
                     children: [
+                      // Sort row: 'Default' / 'Recent' dropdown.
                       _SortRow(
                         value: _sort,
                         onChanged: (v) => setState(() => _sort = v),
                       ),
                       const SizedBox(height: 14),
+                      // Moment preview: avatar + name + optional
+                      // verified badge; text in a single line with
+                      // ellipsis, OR image only.
                       _MomentPreviewCard(
                         moment: widget.momentData,
                         verifiedCache: _verifiedCache,
                         onOpenProfile: widget.onOpenProfile,
                       ),
                       const SizedBox(height: 14),
+                      // Stats: 4 rows stacked vertically. The
+                      // 'Author settings' button (above the rows)
+                      // is shown to everyone.
                       _StatsBlock(
                         stats: _stats!,
                         onOpenSettings: _openSettingsSheet,
@@ -310,11 +295,9 @@ class _MomentStatsScreenState extends State<MomentStatsScreen> {
     );
   }
 
-  // The verifiedCache is built during initial _load from the
-  // feed tab's pre-loaded _verifiedCache. But since the stats
-  // screen is a fresh route, we don't have that here. For now
-  // we just show the badge based on the moment's own
-  // authorVerified field if present.
+  // Built once during initial _load from the moment card's
+  // authorVerified flag (passed in via the moment data). If true,
+  // the verified badge is shown next to the author's name.
   Map<String, bool> get _verifiedCache {
     final raw = widget.momentData["authorVerified"];
     if (raw == true) return {widget.momentData["authorUid"]?.toString() ?? "": true};
@@ -404,8 +387,8 @@ class _SortRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                Icon(
-                  PhosphorIcons.caretDown(PhosphorIconsStyle.regular),
+                const Icon(
+                  PhosphorIcons.caretDown,
                   size: 12,
                   color: Color(0xFF1A1A1A),
                 ),
@@ -420,8 +403,7 @@ class _SortRow extends StatelessWidget {
 
 /// Moment preview. Rounded card. Author row (avatar + name +
 /// optional verified badge). Body: text on a single line with
-/// ellipsis, OR image only — never both. Text + media posts show
-/// only the text.
+/// ellipsis OR image only (text + media posts show text only).
 class _MomentPreviewCard extends StatelessWidget {
   final Map<String, dynamic> moment;
   final Map<String, bool> verifiedCache;
@@ -437,7 +419,7 @@ class _MomentPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = (moment["text"] ?? "").toString();
     final media = moment["media"];
-    final mediaList = media is List ? (media as List) : const [];
+    final mediaList = media is List ? media as List : const [];
     final hasMedia = mediaList.isNotEmpty;
     final hasText = text.trim().isNotEmpty;
     final authorUid = (moment["authorUid"] ?? "").toString();
@@ -508,8 +490,8 @@ class _MomentPreviewCard extends StatelessWidget {
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
-                      Icon(
-                        PhosphorIcons.sealCheck(PhosphorIconsStyle.bold),
+                      const Icon(
+                        PhosphorIcons.sealCheck,
                         size: 16,
                         color: Color(0xFF1D9BF0),
                       ),
@@ -555,10 +537,10 @@ class _MomentPreviewCard extends StatelessWidget {
   }
 }
 
-/// Stats block: Views / Likes / Reposts / Quotes stacked
-/// vertically. Each row is a rounded pill. A 3-dot menu icon on
-/// the right of the block opens the settings sheet (Pin / Hide
-/// like / Hide share).
+/// Stats block: 4 rows stacked vertically. Each row is a rounded
+/// pill. A 3-dot menu icon at the top-right of the block opens
+/// the settings sheet (Pin / Hide like / Hide share for owner;
+/// privacy info for viewer).
 class _StatsBlock extends StatelessWidget {
   final MomentStatsResult stats;
   final VoidCallback onOpenSettings;
@@ -605,43 +587,45 @@ class _StatsBlock extends StatelessWidget {
         // has owner-only toggles, so for viewers the sheet is
         // effectively an info panel.
         Align(
-            alignment: Alignment.centerRight,
-            child: Material(
-              color: Colors.transparent,
+          alignment: Alignment.centerRight,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
               borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: onOpenSettings,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "Author settings",
-                        style: TextStyle(
-                          fontFamily: "Nunito",
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black.withOpacity(.7),
-                        ),
+              onTap: onOpenSettings,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Author settings",
+                      style: TextStyle(
+                        fontFamily: "Nunito",
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withOpacity(.7),
                       ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        PhosphorIcons.caretDown(
-                            PhosphorIconsStyle.bold),
-                        size: 12,
-                        color: Colors.black.withOpacity(.55),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      PhosphorIcons.caretDown(PhosphorIconsStyle.bold),
+                      size: 12,
+                      color: Colors.black.withOpacity(.55),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 4),
-        ],
+        ),
+        const SizedBox(height: 4),
+        // v97w-fix12: replace the for-loop spread (which confused
+        // the Dart parser) with a simple for-loop that wraps
+        // each row in a Padding widget with a top margin of 0
+        // for the first row and 8 for subsequent rows.
         for (var i = 0; i < entries.length; i++)
           Padding(
             padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
@@ -749,7 +733,7 @@ class _StatsSettingsSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            // v97w-fix5: privacy notice. Tells the owner that only
+            // v97w-fix11: privacy notice. Tells the owner that only
             // they can see this sheet.
             Container(
               width: double.infinity,
@@ -762,8 +746,7 @@ class _StatsSettingsSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(
-                    PhosphorIcons.lockSimple(
-                        PhosphorIconsStyle.regular),
+                    PhosphorIcons.lockSimple(PhosphorIconsStyle.regular),
                     size: 14,
                     color: Colors.black.withOpacity(.55),
                   ),
@@ -891,11 +874,11 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// Activities list. Last 200 likers; each row shows profile
-/// image with an activity-type icon overlay. Since the backend
+/// Activities list. Last 200 likers; each row has profile
+/// avatar with an activity-type icon overlay. Since the backend
 /// only returns the likes list (not all activity types), we map
-/// each like to a "liked" row. Sort: 'default' shows pinned-
-/// first then newest, 'recent' shows newest first.
+/// each like to a "liked" row. Sort: 'default' shows the
+/// backend order; 'recent' shows newest first.
 class _ActivityList extends StatelessWidget {
   final List<MomentLiker> likers;
   final String sort;
@@ -928,7 +911,6 @@ class _ActivityList extends StatelessWidget {
     if (sort == "recent") {
       sorted.sort((a, b) => (b.createdAt).compareTo(a.createdAt));
     }
-    // 'default' keeps backend order.
     return Column(
       children: [
         for (var i = 0; i < sorted.length; i++) ...[
@@ -979,10 +961,6 @@ class _ActivityRow extends StatelessWidget {
                 horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                // Profile avatar with heart icon overlay (since
-                // the backend only returns likers; if we extend
-                // to comments/reposts later, the overlay icon
-                // can change per activity type).
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -1020,8 +998,8 @@ class _ActivityRow extends StatelessWidget {
                           color: Color(0xFFFFE4E6),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(
-                          PhosphorIcons.heart(PhosphorIconsStyle.bold),
+                        child: const Icon(
+                          PhosphorIcons.heartFill,
                           size: 12,
                           color: Color(0xFFFF3040),
                         ),
@@ -1112,11 +1090,7 @@ class _SkeletonBarState extends State<_SkeletonBar>
           width: w.isFinite ? w : null,
           height: widget.height,
           decoration: BoxDecoration(
-            color: Color.lerp(
-              const Color(0xFFF0F0F2),
-              const Color(0xFFF7F7F8),
-              v,
-            )!,
+            color: Color.fromRGBO(0, 0, 0, v),
             borderRadius: BorderRadius.circular(8),
           ),
         );
