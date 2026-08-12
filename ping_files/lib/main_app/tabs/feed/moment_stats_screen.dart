@@ -491,7 +491,7 @@ class _MomentPreviewCard extends StatelessWidget {
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
-                      const Icon(
+                      Icon(
                         PhosphorIcons.sealCheck(PhosphorIconsStyle.bold),
                         size: 16,
                         color: Color(0xFF1D9BF0),
