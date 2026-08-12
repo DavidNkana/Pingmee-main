@@ -388,7 +388,7 @@ class _SortRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                const PhosphorIcon(
+                PhosphorIcon(
                   PhosphorIcons.caretDown(PhosphorIconsStyle.bold),
                   size: 12,
                   color: Color(0xFF1A1A1A),
@@ -999,7 +999,7 @@ class _ActivityRow extends StatelessWidget {
                           color: Color(0xFFFFE4E6),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           PhosphorIcons.heart(PhosphorIconsStyle.bold),
                           size: 12,
                           color: Color(0xFFFF3040),
