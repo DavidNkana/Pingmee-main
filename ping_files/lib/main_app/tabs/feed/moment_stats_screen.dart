@@ -3,6 +3,7 @@
 // content is what the user is currently missing. This is a
 // single commit that fixes the build error.
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
@@ -387,8 +388,8 @@ class _SortRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                const Icon(
-                  PhosphorIcons.caretDown,
+                const PhosphorIcon(
+                  PhosphorIcons.caretDown(PhosphorIconsStyle.bold),
                   size: 12,
                   color: Color(0xFF1A1A1A),
                 ),
@@ -491,7 +492,7 @@ class _MomentPreviewCard extends StatelessWidget {
                     if (isVerified) ...[
                       const SizedBox(width: 4),
                       const Icon(
-                        PhosphorIcons.sealCheck,
+                        PhosphorIcons.sealCheck(PhosphorIconsStyle.bold),
                         size: 16,
                         color: Color(0xFF1D9BF0),
                       ),
@@ -999,7 +1000,7 @@ class _ActivityRow extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          PhosphorIcons.heartFill,
+                          PhosphorIcons.heart(PhosphorIconsStyle.bold),
                           size: 12,
                           color: Color(0xFFFF3040),
                         ),
