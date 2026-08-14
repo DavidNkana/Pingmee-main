@@ -4097,33 +4097,30 @@ class _CreateEventScreenState extends State<CreateEventScreen>
     Widget _containedCoverWithBlur({
       required ImageProvider imageProvider,
     }) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Image(
-              image: imageProvider,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
+      return Image(
+        image: imageProvider,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        filterQuality: FilterQuality.high,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return SizedBox.shrink();
+        },
+        errorBuilder: (context, error, stack) => Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                _coverColor.withOpacity(.96),
+                _coverColor.withOpacity(.72),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
           ),
-
-          Container(
-            color: Colors.black.withOpacity(.28),
-          ),
-
-          Center(
-            child: Image(
-              image: imageProvider,
-              fit: BoxFit.contain,
-              width: double.infinity,
-              height: double.infinity,
-              filterQuality: FilterQuality.high,
-            ),
-          ),
-        ],
+        ),
       );
     }
 
@@ -4138,17 +4135,25 @@ class _CreateEventScreenState extends State<CreateEventScreen>
       }
 
       if (_selectedPresetCoverAsset != null) {
-        return Container(
+        return Image.asset(
+          _selectedPresetCoverAsset!,
+          fit: BoxFit.cover,
           width: double.infinity,
           height: double.infinity,
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: Image.asset(
-            _selectedPresetCoverAsset!,
-            fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (context, error, stack) => Container(
             width: double.infinity,
             height: double.infinity,
-            filterQuality: FilterQuality.high,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  _coverColor.withOpacity(.96),
+                  _coverColor.withOpacity(.72),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
           ),
         );
       }
