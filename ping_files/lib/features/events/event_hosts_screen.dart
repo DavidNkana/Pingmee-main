@@ -225,6 +225,28 @@ class _EventHostsScreenState extends State<EventHostsScreen> {
               ),
             ),
           ),
+          const SizedBox(width: 8),
+          Material(
+            color: widget.themeSolid,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => Navigator.pop(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+                child: Text(
+                  "Done",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
